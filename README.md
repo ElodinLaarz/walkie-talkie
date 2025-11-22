@@ -1,4 +1,4 @@
-# flutter_application_1
+# walkie_talkie
 
 A new Flutter project.
 
