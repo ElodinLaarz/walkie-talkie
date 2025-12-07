@@ -198,7 +198,6 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
             context.read<BluetoothBloc>().add(
               ConnectDeviceEvent(device.macAddress),
             );
-            Navigator.pop(context);
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.deepPurple,
