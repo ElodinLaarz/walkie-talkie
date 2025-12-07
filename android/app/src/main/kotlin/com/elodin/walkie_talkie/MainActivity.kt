@@ -6,6 +6,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.EventChannel
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -16,9 +18,48 @@ class MainActivity : FlutterActivity() {
     
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
+    private var bluetoothManager: BluetoothLeAudioManager? = null
+    private var eventSink: EventChannel.EventSink? = null
     
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        
+        // Initialize Bluetooth manager
+        bluetoothManager = BluetoothLeAudioManager(this).apply {
+            // Set up callbacks
+            onDeviceDiscovered = { address, name ->
+                Log.i(TAG, "Device discovered: $name ($address)")
+                sendEventToFlutter(mapOf(
+                    "type" to "deviceDiscovered",
+                    "address" to address,
+                    "name" to name
+                ))
+            }
+            
+            onDeviceConnected = { address ->
+                Log.i(TAG, "Device connected: $address")
+                sendEventToFlutter(mapOf(
+                    "type" to "deviceConnected",
+                    "address" to address
+                ))
+            }
+            
+            onDeviceDisconnected = { address ->
+                Log.i(TAG, "Device disconnected: $address")
+                sendEventToFlutter(mapOf(
+                    "type" to "deviceDisconnected",
+                    "address" to address
+                ))
+            }
+            
+            onError = { message ->
+                Log.e(TAG, "Bluetooth error: $message")
+                sendEventToFlutter(mapOf(
+                    "type" to "error",
+                    "message" to message
+                ))
+            }
+        }
         
         // Set up MethodChannel for Flutter -> Native communication
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
@@ -37,21 +78,41 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "scanDevices" -> {
-                    Log.i(TAG, "Scanning for Bluetooth LE Audio devices")
-                    // TODO: Implement Bluetooth LE Audio scanning
-                    result.success(emptyList<String>())
+                    Log.i(TAG, "Starting Bluetooth LE Audio scan")
+                    val success = bluetoothManager?.startScan() ?: false
+                    result.success(success)
+                }
+                "stopScan" -> {
+                    Log.i(TAG, "Stopping Bluetooth scan")
+                    bluetoothManager?.stopScan()
+                    result.success(true)
                 }
                 "connectDevice" -> {
                     val macAddress = call.argument<String>("macAddress")
-                    Log.i(TAG, "Connecting to device: $macAddress")
-                    // TODO: Implement Bluetooth LE Audio connection
-                    result.success(true)
+                    if (macAddress != null) {
+                        Log.i(TAG, "Connecting to device: $macAddress")
+                        val success = bluetoothManager?.connectDevice(macAddress) ?: false
+                        result.success(success)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
+                    }
                 }
                 "disconnectDevice" -> {
                     val macAddress = call.argument<String>("macAddress")
-                    Log.i(TAG, "Disconnecting from device: $macAddress")
-                    // TODO: Implement Bluetooth LE Audio disconnection
-                    result.success(true)
+                    if (macAddress != null) {
+                        Log.i(TAG, "Disconnecting from device: $macAddress")
+                        val success = bluetoothManager?.disconnectDevice(macAddress) ?: false
+                        result.success(success)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
+                    }
+                }
+                "getConnectedDevices" -> {
+                    val devices = bluetoothManager?.getConnectedDevices() ?: emptyList()
+                    val deviceList = devices.map { (address, name) ->
+                        mapOf("address" to address, "name" to name)
+                    }
+                    result.success(deviceList)
                 }
                 else -> {
                     result.notImplemented()
@@ -61,11 +122,28 @@ class MainActivity : FlutterActivity() {
         
         // Set up EventChannel for Native -> Flutter events
         eventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
-        // TODO: Implement event stream for audio levels, connection status, etc.
+        eventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                Log.i(TAG, "EventChannel listener attached")
+                eventSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                Log.i(TAG, "EventChannel listener cancelled")
+                eventSink = null
+            }
+        })
+    }
+    
+    private fun sendEventToFlutter(event: Map<String, Any>) {
+        Handler(Looper.getMainLooper()).post {
+            eventSink?.success(event)
+        }
     }
     
     override fun onDestroy() {
         super.onDestroy()
+        bluetoothManager?.cleanup()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
     }

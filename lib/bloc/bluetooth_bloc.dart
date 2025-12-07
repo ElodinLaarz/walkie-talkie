@@ -1,5 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'dart:async';
 import 'bluetooth_event.dart';
 import 'bluetooth_state.dart';
 import '../models/bluetooth_device.dart';
@@ -8,7 +10,8 @@ import '../services/audio_service.dart';
 /// BLoC for managing Bluetooth LE Audio connections and state
 class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   final AudioService audioService;
-  late Box<String> deviceNamesBox;
+  Box<String>? deviceNamesBox;
+  StreamSubscription? _eventSubscription;
 
   BluetoothBloc({required this.audioService})
     : super(const BluetoothInitialState()) {
@@ -19,12 +22,71 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     on<RenameDeviceEvent>(_onRenameDevice);
     on<DeviceDiscoveredEvent>(_onDeviceDiscovered);
     on<AudioLevelChangedEvent>(_onAudioLevelChanged);
+    on<BluetoothErrorEvent>(_onError);
 
     _initHive();
+    _listenToAudioEvents();
   }
 
   Future<void> _initHive() async {
-    deviceNamesBox = await Hive.openBox<String>('device_names');
+    try {
+      deviceNamesBox = await Hive.openBox<String>('device_names');
+    } catch (e) {
+      debugPrint('Error initializing Hive: $e');
+    }
+  }
+
+  void _listenToAudioEvents() {
+    _eventSubscription = audioService.audioEvents.listen((event) {
+      final type = event['type'] as String?;
+
+      switch (type) {
+        case 'deviceDiscovered':
+          final address = event['address'] as String;
+          final name = event['name'] as String;
+          add(
+            DeviceDiscoveredEvent(
+              BluetoothDevice(
+                macAddress: address,
+                displayName: name,
+                isConnected: false,
+              ),
+            ),
+          );
+          break;
+
+        case 'deviceConnected':
+          final address = event['address'] as String;
+          // Update device to connected state
+          if (state is BluetoothScanningState) {
+            final devices = (state as BluetoothScanningState).discoveredDevices;
+            final device = devices.firstWhere(
+              (d) => d.macAddress == address,
+              orElse: () =>
+                  BluetoothDevice(macAddress: address, displayName: 'Unknown'),
+            );
+            add(ConnectDeviceEvent(device.macAddress));
+          }
+          break;
+
+        case 'deviceDisconnected':
+          final address = event['address'] as String;
+          add(DisconnectDeviceEvent(address));
+          break;
+
+        case 'error':
+          final message = event['message'] as String;
+          add(BluetoothErrorEvent(message));
+          break;
+      }
+    });
+  }
+
+  Future<void> _onError(
+    BluetoothErrorEvent event,
+    Emitter<BluetoothState> emit,
+  ) async {
+    emit(BluetoothErrorState(event.message));
   }
 
   Future<void> _onStartScan(
@@ -33,7 +95,10 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   ) async {
     emit(const BluetoothScanningState([]));
     try {
-      await audioService.startScan();
+      final success = await audioService.startScan();
+      if (!success) {
+        emit(const BluetoothErrorState('Failed to start Bluetooth scan'));
+      }
     } catch (e) {
       emit(BluetoothErrorState('Failed to start scan: $e'));
     }
@@ -45,12 +110,11 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   ) async {
     try {
       await audioService.stopScan();
-      if (state is BluetoothScanningState) {
-        final devices = (state as BluetoothScanningState).discoveredDevices;
-        emit(BluetoothScanningState(devices));
-      }
+      // Just stop the scan, don't change state
+      // This prevents issues when navigating away
     } catch (e) {
-      emit(BluetoothErrorState('Failed to stop scan: $e'));
+      // Don't emit error on stop scan failure
+      debugPrint('Failed to stop scan: $e');
     }
   }
 
@@ -58,14 +122,38 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     ConnectDeviceEvent event,
     Emitter<BluetoothState> emit,
   ) async {
+    debugPrint('Connecting to device: ${event.macAddress}');
     emit(const BluetoothLoadingState());
     try {
-      await audioService.connectDevice(event.macAddress);
+      final success = await audioService.connectDevice(event.macAddress);
+      debugPrint('Connection result: $success');
 
-      // Get current connected devices
-      final connectedDevices = await _getConnectedDevices();
-      emit(BluetoothConnectedState(connectedDevices));
+      if (success) {
+        // Get current connected devices
+        final connectedDevices = await _getConnectedDevices();
+        debugPrint('Connected devices count: ${connectedDevices.length}');
+
+        // If we have connected devices, show them
+        if (connectedDevices.isNotEmpty) {
+          emit(BluetoothConnectedState(connectedDevices));
+        } else {
+          debugPrint('No devices returned, creating manual device');
+          // If connection succeeded but no devices returned, create one manually
+          final savedName = deviceNamesBox?.get(event.macAddress);
+          final device = BluetoothDevice(
+            macAddress: event.macAddress,
+            displayName: savedName ?? 'Connected Device',
+            isConnected: true,
+            isActive: false,
+            audioLevel: 0.0,
+          );
+          emit(BluetoothConnectedState([device]));
+        }
+      } else {
+        emit(const BluetoothErrorState('Failed to connect to device'));
+      }
     } catch (e) {
+      debugPrint('Connection error: $e');
       emit(BluetoothErrorState('Failed to connect: $e'));
     }
   }
@@ -75,11 +163,17 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     Emitter<BluetoothState> emit,
   ) async {
     try {
-      await audioService.disconnectDevice(event.macAddress);
+      final success = await audioService.disconnectDevice(event.macAddress);
 
-      // Get updated connected devices
-      final connectedDevices = await _getConnectedDevices();
-      emit(BluetoothConnectedState(connectedDevices));
+      if (success) {
+        // Get updated connected devices
+        final connectedDevices = await _getConnectedDevices();
+        if (connectedDevices.isEmpty) {
+          emit(const BluetoothInitialState());
+        } else {
+          emit(BluetoothConnectedState(connectedDevices));
+        }
+      }
     } catch (e) {
       emit(BluetoothErrorState('Failed to disconnect: $e'));
     }
@@ -91,7 +185,9 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   ) async {
     try {
       // Save the new name to Hive
-      await deviceNamesBox.put(event.macAddress, event.newName);
+      if (deviceNamesBox != null) {
+        await deviceNamesBox!.put(event.macAddress, event.newName);
+      }
 
       // Update the state with the new name
       if (state is BluetoothConnectedState) {
@@ -113,23 +209,31 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
     DeviceDiscoveredEvent event,
     Emitter<BluetoothState> emit,
   ) async {
-    if (state is BluetoothScanningState) {
-      final currentDevices =
-          (state as BluetoothScanningState).discoveredDevices;
+    try {
+      if (state is BluetoothScanningState) {
+        final currentDevices =
+            (state as BluetoothScanningState).discoveredDevices;
 
-      // Check if device already exists
-      final exists = currentDevices.any(
-        (d) => d.macAddress == event.device.macAddress,
-      );
-      if (!exists) {
-        // Get saved name from Hive if available
-        final savedName = deviceNamesBox.get(event.device.macAddress);
-        final device = savedName != null
-            ? event.device.copyWith(displayName: savedName)
-            : event.device;
+        // Check if device already exists
+        final exists = currentDevices.any(
+          (d) => d.macAddress == event.device.macAddress,
+        );
+        if (!exists) {
+          // Get saved name from Hive if available
+          String? savedName;
+          if (deviceNamesBox != null) {
+            savedName = deviceNamesBox!.get(event.device.macAddress);
+          }
 
-        emit(BluetoothScanningState([...currentDevices, device]));
+          final device = savedName != null
+              ? event.device.copyWith(displayName: savedName)
+              : event.device;
+
+          emit(BluetoothScanningState([...currentDevices, device]));
+        }
       }
+    } catch (e) {
+      debugPrint('Error processing discovered device: $e');
     }
   }
 
@@ -150,14 +254,38 @@ class BluetoothBloc extends Bloc<BluetoothEvent, BluetoothState> {
   }
 
   Future<List<BluetoothDevice>> _getConnectedDevices() async {
-    // TODO: Get actual connected devices from the service
-    // For now, return empty list
-    return [];
+    try {
+      final devices = await audioService.getConnectedDevices();
+      return devices.map((deviceMap) {
+        final address = deviceMap['address'] ?? 'Unknown';
+        final name = deviceMap['name'] ?? 'Unknown Device';
+
+        String? savedName;
+        if (deviceNamesBox != null) {
+          savedName = deviceNamesBox!.get(address);
+        }
+
+        return BluetoothDevice(
+          macAddress: address,
+          displayName: savedName ?? name,
+          isConnected: true,
+          isActive: false,
+          audioLevel: 0.0,
+        );
+      }).toList();
+    } catch (e) {
+      debugPrint('Error getting connected devices: $e');
+      return [];
+    }
   }
 
   @override
   Future<void> close() {
-    deviceNamesBox.close();
+    _eventSubscription?.cancel();
+    // Check if box is open before closing
+    if (deviceNamesBox != null && deviceNamesBox!.isOpen) {
+      deviceNamesBox!.close();
+    }
     return super.close();
   }
 }

@@ -70,3 +70,13 @@ class AudioLevelChangedEvent extends BluetoothEvent {
   @override
   List<Object?> get props => [macAddress, level];
 }
+
+/// Event when an error occurs
+class BluetoothErrorEvent extends BluetoothEvent {
+  final String message;
+
+  const BluetoothErrorEvent(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}

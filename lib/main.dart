@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'bloc/bluetooth_bloc.dart';
 import 'services/audio_service.dart';
@@ -46,7 +45,8 @@ class WalkieTalkieApp extends StatelessWidget {
             seedColor: Colors.deepPurple,
             brightness: Brightness.dark,
           ),
-          textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+          // Use system font instead of Google Fonts
+          fontFamily: 'Roboto',
         ),
         home: const HomeScreen(),
       ),

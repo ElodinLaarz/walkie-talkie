@@ -14,41 +14,74 @@ class DiscoveryScreen extends StatefulWidget {
 }
 
 class _DiscoveryScreenState extends State<DiscoveryScreen> {
+  bool _isDisposed = false;
+
   @override
   void initState() {
     super.initState();
     // Start scanning when the screen loads
-    context.read<BluetoothBloc>().add(const StartScanEvent());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isDisposed && mounted) {
+        context.read<BluetoothBloc>().add(const StartScanEvent());
+      }
+    });
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     // Stop scanning when leaving the screen
-    context.read<BluetoothBloc>().add(const StopScanEvent());
+    if (mounted) {
+      context.read<BluetoothBloc>().add(const StopScanEvent());
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0E27),
-      appBar: AppBar(
-        title: const Text('Discover Devices'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      body: BlocBuilder<BluetoothBloc, BluetoothState>(
-        builder: (context, state) {
-          if (state is BluetoothScanningState) {
-            return _buildScanningView(state.discoveredDevices);
-          } else if (state is BluetoothLoadingState) {
-            return _buildLoadingView();
-          } else if (state is BluetoothErrorState) {
-            return _buildErrorView(state.message);
-          } else {
-            return _buildEmptyView();
-          }
-        },
+    return BlocListener<BluetoothBloc, BluetoothState>(
+      listener: (context, state) {
+        if (state is BluetoothConnectedState) {
+          // Go back to home screen when connected
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A0E27),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: const Text(
+            'Discover Devices',
+            style: TextStyle(color: Colors.white),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: BlocBuilder<BluetoothBloc, BluetoothState>(
+          builder: (context, state) {
+            // Handle different states
+            if (state is BluetoothScanningState) {
+              return _buildScanningView(state.discoveredDevices);
+            } else if (state is BluetoothLoadingState) {
+              return _buildLoadingView();
+            } else if (state is BluetoothConnectedState) {
+              return _buildLoadingView(); // Show loading while popping
+            } else if (state is BluetoothErrorState) {
+              return _buildErrorView(state.message);
+            } else {
+              // Initial state - start scanning
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && !_isDisposed) {
+                  context.read<BluetoothBloc>().add(const StartScanEvent());
+                }
+              });
+              return _buildEmptyView();
+            }
+          },
+        ),
       ),
     );
   }
@@ -57,7 +90,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
     return Column(
       children: [
         // Radar animation
-        Container(
+        SizedBox(
           height: 200,
           child: Stack(
             alignment: Alignment.center,
@@ -71,7 +104,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.deepPurple.withOpacity(0.3 - (index * 0.1)),
+                      color: Colors.deepPurple.withValues(
+                        alpha: 0.3 - (index * 0.1),
+                      ),
                       width: 2,
                     ),
                   ),
@@ -86,7 +121,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                   color: Colors.deepPurple,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.deepPurple.withOpacity(0.5),
+                      color: Colors.deepPurple.withValues(alpha: 0.5),
                       blurRadius: 20,
                       spreadRadius: 5,
                     ),

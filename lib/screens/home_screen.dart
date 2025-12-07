@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/bluetooth_bloc.dart';
@@ -31,6 +32,20 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, state) {
             if (state is BluetoothConnectedState) {
               return _buildConnectedView(state.connectedDevices);
+            } else if (state is BluetoothLoadingState) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: Colors.deepPurple),
+                    SizedBox(height: 20),
+                    Text(
+                      'Connecting...',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              );
             } else if (state is BluetoothErrorState) {
               return _buildErrorView(state.message);
             } else {
@@ -69,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Center(
             child: Stack(
               alignment: Alignment.center,
+              clipBehavior: Clip.none,
               children: [
                 // Central phone icon
                 Container(
@@ -83,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.deepPurple.withOpacity(0.5),
+                        color: Colors.deepPurple.withValues(alpha: 0.5),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),
@@ -112,14 +128,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildOrbitingDevice(BluetoothDevice device, int index, int total) {
-    final angle = (index / total) * 2 * 3.14159;
+    // Avoid division by zero
+    if (total == 0) total = 1;
+
+    // Calculate angle for circular positioning
+    final angle = (2 * 3.14159 * index) / total;
     final radius = 150.0;
-    final x = radius * (1 + (index * 0.2)) * (index % 2 == 0 ? 1 : -1);
-    final y = radius * (1 + (index * 0.2)) * (index % 3 == 0 ? 1 : -1);
+    final x = radius * math.cos(angle);
+    final y = radius * math.sin(angle);
+
+    // Position relative to the center of the 100x100 stack
+    // Stack center is at (50, 50)
+    // Device widget size is 80x80, so we subtract 40 to center it
+    final left = 50 + x - 40;
+    final top = 50 + y - 40;
 
     return Positioned(
-      left: MediaQuery.of(context).size.width / 2 + x - 40,
-      top: MediaQuery.of(context).size.height / 2 + y - 40,
+      left: left,
+      top: top,
       child: GestureDetector(
         onTap: () => _showDeviceDrawer(device),
         child: AnimatedContainer(
@@ -136,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
             boxShadow: [
               BoxShadow(
                 color: (device.isConnected ? Colors.green : Colors.grey)
-                    .withOpacity(0.5),
+                    .withValues(alpha: 0.5),
                 blurRadius: 15,
                 spreadRadius: 3,
               ),
