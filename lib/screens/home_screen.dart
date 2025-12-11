@@ -168,21 +168,33 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Icon(Icons.headset, color: Colors.white, size: 30),
-              const SizedBox(height: 4),
-              Text(
-                device.displayName.length > 8
-                    ? '${device.displayName.substring(0, 8)}...'
-                    : device.displayName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
+              // VU Meter ring
+              CircularProgressIndicator(
+                value: device.audioLevel,
+                strokeWidth: 6,
+                backgroundColor: Colors.transparent,
+                color: Colors.greenAccent,
+              ),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.headset, color: Colors.white, size: 30),
+                  const SizedBox(height: 4),
+                  Text(
+                    device.displayName.length > 8
+                        ? '${device.displayName.substring(0, 8)}...'
+                        : device.displayName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             ],
           ),
@@ -328,6 +340,41 @@ class _DeviceDrawerState extends State<_DeviceDrawer> {
                 borderSide: const BorderSide(color: Colors.deepPurple),
               ),
             ),
+          ),
+          const SizedBox(height: 24),
+          // Volume Slider
+          Row(
+            children: [
+              Icon(Icons.volume_up, color: Colors.grey[400]),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Slider(
+                  value: 0.8, // Initial placeholder
+                  onChanged: (value) {
+                    // TODO: Implement native volume control
+                  },
+                  activeColor: Colors.deepPurple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Phone Audio Toggle
+          SwitchListTile(
+            title: const Text(
+              'Send Phone Audio',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              'Pipe YouTube/Music to this headset',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            ),
+            value: true,
+            onChanged: (value) {
+              // TODO: Implement native routing toggle
+            },
+            activeColor: Colors.deepPurple,
+            contentPadding: EdgeInsets.zero,
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(

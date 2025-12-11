@@ -131,5 +131,56 @@ void main() {
         const BluetoothErrorState('Failed to connect to device'),
       ],
     );
+
+    blocTest<BluetoothBloc, BluetoothState>(
+      'emits [BluetoothInitialState] when DisconnectDeviceEvent is added and it was the last device',
+      build: () {
+        when(mockAudioService.disconnectDevice(any)).thenAnswer((_) async => true);
+        when(mockAudioService.getConnectedDevices()).thenAnswer((_) async => []);
+        return bluetoothBloc;
+      },
+      seed: () => BluetoothConnectedState([
+        BluetoothDevice(macAddress: '00:00:00', displayName: 'Device 1', isConnected: true),
+      ]),
+      act: (bloc) => bloc.add(const DisconnectDeviceEvent('00:00:00')),
+      expect: () => [
+        const BluetoothInitialState(),
+      ],
+    );
+
+    blocTest<BluetoothBloc, BluetoothState>(
+      'emits updated BluetoothConnectedState when RenameDeviceEvent is added',
+      build: () => bluetoothBloc,
+      seed: () => BluetoothConnectedState([
+        BluetoothDevice(macAddress: '00:00:00', displayName: 'Old Name', isConnected: true),
+      ]),
+      act: (bloc) => bloc.add(const RenameDeviceEvent('00:00:00', 'New Name')),
+      expect: () => [
+        BluetoothConnectedState([
+          BluetoothDevice(macAddress: '00:00:00', displayName: 'New Name', isConnected: true),
+        ]),
+      ],
+    );
+
+    blocTest<BluetoothBloc, BluetoothState>(
+      'emits BluetoothErrorState when BluetoothErrorEvent is added',
+      build: () => bluetoothBloc,
+      act: (bloc) => bloc.add(const BluetoothErrorEvent('Something went wrong')),
+      expect: () => [
+        const BluetoothErrorState('Something went wrong'),
+      ],
+    );
+
+    blocTest<BluetoothBloc, BluetoothState>(
+      'does not add duplicate devices in BluetoothScanningState',
+      build: () => bluetoothBloc,
+      seed: () => BluetoothScanningState([
+        BluetoothDevice(macAddress: '00:00:00', displayName: 'Device 1'),
+      ]),
+      act: (bloc) => bloc.add(DeviceDiscoveredEvent(
+        BluetoothDevice(macAddress: '00:00:00', displayName: 'Device 1'),
+      )),
+      expect: () => [],
+    );
   });
 }

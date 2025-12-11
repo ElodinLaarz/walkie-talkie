@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include "audio_mixer.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -20,16 +21,8 @@ private:
     static constexpr int32_t kChannelCount = 1;    // Mono for voice
     static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;  // 16-bit PCM
     
-    // Circular buffer for audio data
-    std::vector<int16_t> audioBuffer;
-    size_t bufferSize;
-    size_t writeIndex = 0;
-    size_t readIndex = 0;
-
 public:
-    AudioEngine() : bufferSize(kSampleRate * 2) {  // 2 seconds buffer
-        audioBuffer.resize(bufferSize, 0);
-    }
+    AudioEngine() {}
 
     ~AudioEngine() {
         stop();
@@ -63,6 +56,7 @@ public:
             ->setFormat(kFormat)
             ->setChannelCount(kChannelCount)
             ->setSampleRate(kSampleRate);
+            // We use direct write for playback currently, or could use another callback
         
         result = playbackBuilder.openStream(playbackStream);
         if (result != oboe::Result::OK) {
@@ -97,34 +91,26 @@ public:
             void *audioData,
             int32_t numFrames) override {
         
-        std::lock_guard<std::mutex> lock(audioMutex);
-        
         if (audioStream->getDirection() == oboe::Direction::Input) {
-            // Recording: write to buffer
+            // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
-            for (int32_t i = 0; i < numFrames; i++) {
-                audioBuffer[writeIndex] = inputData[i];
-                writeIndex = (writeIndex + 1) % bufferSize;
+            
+            if (g_audioMixer != nullptr) {
+                // Here we'd ideally know which device this input is from.
+                // For a single phone mic, we can assign a special ID like 0.
+                g_audioMixer->updateDeviceAudio(0, inputData, numFrames);
+                
+                // For demonstration: mix for device 0 (hearing others) and play it back
+                std::vector<int16_t> mixedOutput(numFrames);
+                g_audioMixer->getMixedAudioForDevice(0, mixedOutput.data(), numFrames);
+                
+                if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
+                    playbackStream->write(mixedOutput.data(), numFrames, 0);
+                }
             }
         }
         
         return oboe::DataCallbackResult::Continue;
-    }
-    
-    // Get audio data for transmission
-    void getAudioData(int16_t* buffer, int32_t numFrames) {
-        std::lock_guard<std::mutex> lock(audioMutex);
-        for (int32_t i = 0; i < numFrames; i++) {
-            buffer[i] = audioBuffer[readIndex];
-            readIndex = (readIndex + 1) % bufferSize;
-        }
-    }
-    
-    // Play received audio data
-    void playAudioData(const int16_t* buffer, int32_t numFrames) {
-        if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
-            playbackStream->write(buffer, numFrames, 0);
-        }
     }
 };
 
@@ -150,35 +136,20 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv *env, jobjec
     }
 }
 
+// These methods can now be used for manual injection if needed, 
+// but the primary path is now internal to C++.
+
 JNIEXPORT jshortArray JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeGetAudioData(
         JNIEnv *env, jobject thiz, jint numFrames) {
-    if (g_audioEngine == nullptr) {
-        return nullptr;
-    }
-    
-    jshortArray result = env->NewShortArray(numFrames);
-    jshort* buffer = env->GetShortArrayElements(result, nullptr);
-    
-    g_audioEngine->getAudioData(buffer, numFrames);
-    
-    env->ReleaseShortArrayElements(result, buffer, 0);
-    return result;
+    // Legacy support or specific use cases
+    return nullptr;
 }
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePlayAudioData(
         JNIEnv *env, jobject thiz, jshortArray audioData) {
-    if (g_audioEngine == nullptr) {
-        return;
-    }
-    
-    jsize length = env->GetArrayLength(audioData);
-    jshort* buffer = env->GetShortArrayElements(audioData, nullptr);
-    
-    g_audioEngine->playAudioData(buffer, length);
-    
-    env->ReleaseShortArrayElements(audioData, buffer, JNI_ABORT);
+    // Legacy support or specific use cases
 }
 
 } // extern "C"
