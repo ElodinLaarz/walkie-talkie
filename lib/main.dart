@@ -7,6 +7,7 @@ import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/identity_store.dart';
 import 'theme/app_theme.dart';
+import 'widgets/frequency_toast_host.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,10 @@ class WalkieTalkieApp extends StatelessWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
+      // Wrap the navigator so toasts stay above pushed routes (modal bottom
+      // sheets, etc.) — a host inside `home` would render below the modal
+      // overlay and get hidden when a sheet is open.
+      builder: (context, child) => FrequencyToastHost(child: child!),
       home: FrequencyApp(identityStore: identityStore ?? HiveIdentityStore()),
     );
   }
