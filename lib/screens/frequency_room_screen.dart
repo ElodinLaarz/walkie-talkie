@@ -68,6 +68,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   String? _talkingId;
   Timer? _talkTicker;
   Timer? _progressTimer;
+  Timer? _hostJoinDemoTimer;
+  Timer? _weakSignalDemoTimer;
 
   int _trackIdx = 0;
   bool _playing = true;
@@ -103,7 +105,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _startProgressTick();
 
     if (widget.isHost) {
-      Future.delayed(const Duration(milliseconds: 2800), () {
+      _hostJoinDemoTimer = Timer(const Duration(milliseconds: 2800), () {
         if (!mounted) return;
         final newcomer = kPeople.length > widget.groupSize
             ? kPeople[widget.groupSize]
@@ -124,10 +126,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 7200), () {
+    _weakSignalDemoTimer = Timer(const Duration(milliseconds: 7200), () {
       if (!mounted) return;
       final p = _roster.last;
-      if (p.id == 'me') return;
+      // Don't surface a weak-signal toast for someone who's already left.
+      if (p.id == 'me' || _removed.contains(p.id)) return;
       FrequencyToastHost.of(context).push(FrequencyToastSpec(
         tone: ToastTone.warn,
         title: "${p.name}'s signal is weak",
@@ -152,6 +155,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void dispose() {
     _talkTicker?.cancel();
     _progressTimer?.cancel();
+    _hostJoinDemoTimer?.cancel();
+    _weakSignalDemoTimer?.cancel();
     super.dispose();
   }
 
@@ -1289,6 +1294,13 @@ class _InviteSheet extends StatefulWidget {
 
 class _InviteSheetState extends State<_InviteSheet> {
   bool _copied = false;
+  Timer? _copiedReset;
+
+  @override
+  void dispose() {
+    _copiedReset?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1371,7 +1383,8 @@ class _InviteSheetState extends State<_InviteSheet> {
             padding: const EdgeInsets.symmetric(vertical: 12),
             onPressed: () {
               setState(() => _copied = true);
-              Future.delayed(const Duration(milliseconds: 1600), () {
+              _copiedReset?.cancel();
+              _copiedReset = Timer(const Duration(milliseconds: 1600), () {
                 if (mounted) setState(() => _copied = false);
               });
             },

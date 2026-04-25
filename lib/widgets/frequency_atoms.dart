@@ -637,13 +637,17 @@ class FreqButton extends StatelessWidget {
                 if (label != null) const SizedBox(width: 8),
               ],
               if (label != null)
-                Text(
-                  label!,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontWeight: accent ? FontWeight.w600 : FontWeight.w500,
-                    fontSize: fontSize,
-                    color: fg,
+                Flexible(
+                  child: Text(
+                    label!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: accent ? FontWeight.w600 : FontWeight.w500,
+                      fontSize: fontSize,
+                      color: fg,
+                    ),
                   ),
                 ),
             ],
