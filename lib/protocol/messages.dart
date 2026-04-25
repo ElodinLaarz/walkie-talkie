@@ -47,8 +47,9 @@ extension MediaOpWire on MediaOp {
       };
 }
 
-/// Snapshot of what's playing on the host, sent inside `JoinAccepted` and
-/// included in every `MediaCommand` echo broadcast.
+/// Snapshot of what's playing on the host, sent inside `JoinAccepted` so a
+/// freshly-joined guest can render the room without waiting for the next
+/// `MediaCommand`.
 class MediaState {
   final String source;
   final int trackIdx;
@@ -118,18 +119,33 @@ sealed class FrequencyMessage {
   ///
   /// Throws `FormatException` on:
   ///   * malformed JSON
-  ///   * unknown `kind`
-  ///   * mismatched protocol version (the caller decides whether to disconnect
-  ///     or just drop)
-  static FrequencyMessage decode(String wire) =>
-      fromJson(jsonDecode(wire) as Map<String, dynamic>);
+  ///   * top-level value that isn't a JSON object
+  ///   * missing or non-int `v`, or version mismatch
+  ///   * missing or non-string `kind`, or unknown `kind`
+  ///   * any kind-specific schema mismatch
+  ///
+  /// Receivers catch `FormatException` and drop the message; the connection
+  /// stays up.
+  static FrequencyMessage decode(String wire) {
+    final decoded = jsonDecode(wire);
+    if (decoded is! Map) {
+      throw const FormatException('Frequency message must be a JSON object');
+    }
+    return fromJson(Map<String, dynamic>.from(decoded));
+  }
 
   static FrequencyMessage fromJson(Map<String, dynamic> json) {
     final v = json['v'];
+    if (v is! int) {
+      throw const FormatException('Missing or non-int protocol version `v`');
+    }
     if (v != kProtocolVersion) {
       throw FormatException('Unsupported protocol version: $v');
     }
     final kind = json['kind'];
+    if (kind is! String) {
+      throw const FormatException('Missing or non-string message `kind`');
+    }
     return switch (kind) {
       'join_request' => JoinRequest._fromJson(json),
       'join_accepted' => JoinAccepted._fromJson(json),
@@ -153,6 +169,38 @@ sealed class FrequencyMessage {
         'atMs': atMs,
         'v': kProtocolVersion,
       };
+}
+
+/// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
+/// `FormatException` (not `TypeError`) when the wire shape is wrong.
+List<ProtocolPeer> _parseRoster(Object? raw) {
+  if (raw is! List) {
+    throw const FormatException('`roster` must be a JSON array');
+  }
+  final out = <ProtocolPeer>[];
+  for (final element in raw) {
+    if (element is! Map) {
+      throw const FormatException('roster element must be a JSON object');
+    }
+    out.add(ProtocolPeer.fromJson(Map<String, dynamic>.from(element)));
+  }
+  return out;
+}
+
+/// Parses a `neighbors` JSON list into typed `NeighborSignal`s, with the same
+/// `FormatException` discipline as `_parseRoster`.
+List<NeighborSignal> _parseNeighbors(Object? raw) {
+  if (raw is! List) {
+    throw const FormatException('`neighbors` must be a JSON array');
+  }
+  final out = <NeighborSignal>[];
+  for (final element in raw) {
+    if (element is! Map) {
+      throw const FormatException('neighbors element must be a JSON object');
+    }
+    out.add(NeighborSignal.fromJson(Map<String, dynamic>.from(element)));
+  }
+  return out;
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────
@@ -218,13 +266,12 @@ final class JoinAccepted extends FrequencyMessage {
         seq: j['seq'] as int,
         atMs: j['atMs'] as int,
         hostPeerId: j['hostPeerId'] as String,
-        roster: (j['roster'] as List)
-            .cast<Map<String, dynamic>>()
-            .map(ProtocolPeer.fromJson)
-            .toList(),
+        roster: _parseRoster(j['roster']),
         mediaState: j['mediaState'] == null
             ? null
-            : MediaState.fromJson(j['mediaState'] as Map<String, dynamic>),
+            : MediaState.fromJson(
+                Map<String, dynamic>.from(j['mediaState'] as Map),
+              ),
       );
 }
 
@@ -325,10 +372,7 @@ final class RosterUpdate extends FrequencyMessage {
         peerId: j['peerId'] as String,
         seq: j['seq'] as int,
         atMs: j['atMs'] as int,
-        roster: (j['roster'] as List)
-            .cast<Map<String, dynamic>>()
-            .map(ProtocolPeer.fromJson)
-            .toList(),
+        roster: _parseRoster(j['roster']),
       );
 }
 
@@ -404,7 +448,14 @@ final class MediaCommand extends FrequencyMessage {
     required this.source,
     this.trackIdx,
     this.positionMs,
-  });
+  })  : assert(
+          op != MediaOp.queuePlay || trackIdx != null,
+          'MediaCommand(queue_play) requires trackIdx',
+        ),
+        assert(
+          op != MediaOp.seek || positionMs != null,
+          'MediaCommand(seek) requires positionMs',
+        );
 
   @override
   String get kind => 'media';
@@ -418,15 +469,28 @@ final class MediaCommand extends FrequencyMessage {
         if (positionMs != null) 'positionMs': positionMs,
       };
 
-  factory MediaCommand._fromJson(Map<String, dynamic> j) => MediaCommand(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        op: MediaOpWire.fromWire(j['op'] as String),
-        source: j['source'] as String,
-        trackIdx: j['trackIdx'] as int?,
-        positionMs: j['positionMs'] as int?,
+  factory MediaCommand._fromJson(Map<String, dynamic> j) {
+    final op = MediaOpWire.fromWire(j['op'] as String);
+    final trackIdx = j['trackIdx'] as int?;
+    final positionMs = j['positionMs'] as int?;
+    if (op == MediaOp.queuePlay && trackIdx == null) {
+      throw const FormatException(
+        'MediaCommand(queue_play) requires trackIdx',
       );
+    }
+    if (op == MediaOp.seek && positionMs == null) {
+      throw const FormatException('MediaCommand(seek) requires positionMs');
+    }
+    return MediaCommand(
+      peerId: j['peerId'] as String,
+      seq: j['seq'] as int,
+      atMs: j['atMs'] as int,
+      op: op,
+      source: j['source'] as String,
+      trackIdx: trackIdx,
+      positionMs: positionMs,
+    );
+  }
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────
@@ -474,10 +538,7 @@ final class SignalReport extends FrequencyMessage {
         peerId: j['peerId'] as String,
         seq: j['seq'] as int,
         atMs: j['atMs'] as int,
-        neighbors: (j['neighbors'] as List)
-            .cast<Map<String, dynamic>>()
-            .map(NeighborSignal.fromJson)
-            .toList(),
+        neighbors: _parseNeighbors(j['neighbors']),
       );
 }
 

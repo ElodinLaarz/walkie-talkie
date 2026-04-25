@@ -37,6 +37,41 @@ void main() {
     test('decode rejects malformed JSON', () {
       expect(() => FrequencyMessage.decode('not json'), throwsFormatException);
     });
+
+    test('decode rejects valid JSON that is not an object', () {
+      // Arrays, primitives, and nulls are valid JSON but not valid messages.
+      // The contract is FormatException, not TypeError.
+      expect(() => FrequencyMessage.decode('[]'), throwsFormatException);
+      expect(() => FrequencyMessage.decode('"hello"'), throwsFormatException);
+      expect(() => FrequencyMessage.decode('42'), throwsFormatException);
+      expect(() => FrequencyMessage.decode('null'), throwsFormatException);
+    });
+
+    test('decode rejects messages with missing or non-int v', () {
+      final missingV =
+          '{"kind":"ping","peerId":"p1","seq":1,"atMs":0}';
+      final stringV =
+          '{"kind":"ping","peerId":"p1","seq":1,"atMs":0,"v":"1"}';
+      expect(() => FrequencyMessage.decode(missingV), throwsFormatException);
+      expect(() => FrequencyMessage.decode(stringV), throwsFormatException);
+    });
+
+    test('decode rejects messages with missing or non-string kind', () {
+      final missingKind = '{"peerId":"p1","seq":1,"atMs":0,"v":1}';
+      final intKind =
+          '{"kind":42,"peerId":"p1","seq":1,"atMs":0,"v":1}';
+      expect(() => FrequencyMessage.decode(missingKind), throwsFormatException);
+      expect(() => FrequencyMessage.decode(intKind), throwsFormatException);
+    });
+
+    test('decode rejects roster_update with malformed roster', () {
+      final notList =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,"roster":"oops"}';
+      final badElement =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,"roster":["string-not-object"]}';
+      expect(() => FrequencyMessage.decode(notList), throwsFormatException);
+      expect(() => FrequencyMessage.decode(badElement), throwsFormatException);
+    });
   });
 
   group('lifecycle messages round-trip', () {
@@ -176,6 +211,18 @@ void main() {
       );
       final round = _roundTrip(msg);
       expect(round.positionMs, 91500);
+    });
+
+    test('queue_play decoded without trackIdx is rejected as FormatException', () {
+      final wire =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"queue_play","source":"YouTube Music"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('seek decoded without positionMs is rejected as FormatException', () {
+      final wire =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"seek","source":"YouTube Music"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
     test('queue_play carries trackIdx; play omits both optional fields', () {

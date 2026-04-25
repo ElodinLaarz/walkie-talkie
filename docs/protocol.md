@@ -19,7 +19,7 @@ transmission, media sync) build against.
 
 ## Topology
 
-```
+```text
                  ┌───────────────────────┐
                  │       HOST phone      │
         ┌────────┤  • LE advertiser      ├────────┐
@@ -63,13 +63,26 @@ MHz string; guests disambiguate by host name + RSSI.
 
 The deterministic mapping uses the low 12 bits of `sessionUuid`, mod 200:
 
-```
+```text
 tenths = 880 + (low_12_bits % 200)
 mhz    = tenths / 10.0
 ```
 
 This produces 200 evenly-distributed buckets in the real-world FM band
 [88.0, 107.9] MHz at 0.1-MHz precision.
+
+The deterministic mapping for `sessionCode`, since it's user-facing and must
+match across platforms:
+
+1. Take the canonical UUID string with hyphens stripped (hex parsing is
+   case-insensitive, so callers may use either case).
+2. Take the **last 5 hex characters** and parse as an unsigned 20-bit integer
+   (big-endian — the first of those 5 chars is the high nibble).
+3. Encode as **4 Crockford-base32 digits**, **least-significant-5-bits first**:
+   digit 0 is bits 0–4 of the integer, digit 1 is bits 5–9, digit 2 is bits
+   10–14, digit 3 is bits 15–19.
+4. Alphabet is `0123456789ABCDEFGHJKMNPQRSTVWXYZ` (32 chars; excludes `I`,
+   `L`, `O`, `U` to avoid look-alike characters).
 
 ## Bluetooth LE advertising
 
@@ -106,15 +119,24 @@ Two characteristics:
 Each characteristic carries a single line-delimited JSON document per write or
 notification. Default GATT MTU is 23 bytes; v1 negotiates up to 247 bytes (the
 practical Android max). A message that exceeds the negotiated MTU is split
-into 247-byte fragments, each prefixed with a 2-byte big-endian header:
+into 247-byte fragments. Each fragment is prefixed with a **4-byte header**:
 
-```
+| offset | bytes | meaning                                                        |
+| ------ | ----- | -------------------------------------------------------------- |
+| 0      | 1     | `0x00` — fixed in v1, reserved for a future fragment-flags byte |
+| 1–2    | 2     | `total_len` — total JSON length in bytes, **big-endian uint16** |
+| 3      | 1     | `fragment_idx` — zero-based index of this fragment              |
+
+That leaves up to 243 bytes of JSON payload per fragment:
+
+```text
 [ 0x00  total_len_hi  total_len_lo  fragment_idx ]  <up-to-243-bytes-of-JSON>
 ```
 
-In v1 we cap each message at 1 KiB (≈ 5 fragments). The roster update is
-near the limit at ~12 peers; if we ever need more headroom we move to
-length-prefixed framing without per-fragment headers.
+In v1 we cap each message at **4 KiB** (≈ 17 fragments). The roster update at
+the design's max group size of 12 peers can reach ~2 KiB once display names and
+BT-device strings are included; 4 KiB leaves a comfortable margin without
+forcing length-prefixed reframing yet.
 
 Connection MTU negotiation is the responsibility of the platform layer; the
 control plane just sees byte streams to write and notifications to consume.
@@ -139,8 +161,10 @@ Every control-plane message is a JSON object with at minimum:
 - `atMs` is the sender's wall-clock at send time. Used for "12s ago" display
   and for ordering media commands when seqs come from different peers. We
   expect drift up to ±5s between peers; that's acceptable for UI purposes.
-- `v` is the protocol version. v1 receivers **MUST** ignore messages with
-  `v != 1`.
+- `v` is the protocol version. A v1 parser **MUST** reject messages with
+  `v != 1` (Dart implementation throws `FormatException`); the receiver loop
+  catches that, drops the message, and keeps the connection up. Net effect:
+  v != 1 messages are ignored, no further processing.
 
 ## Message catalogue
 
@@ -283,7 +307,7 @@ Sent every ~5s. Host considers a peer dropped after 3 missed pings.
 
 ## Walk-through: host advertise → guest tune in
 
-```
+```text
 HOST                                          GUEST
 ────                                          ─────
 tap "Start a new Frequency"
