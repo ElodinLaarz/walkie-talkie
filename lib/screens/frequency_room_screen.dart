@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../data/frequency_mock_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
+import '../widgets/frequency_toast_host.dart';
 
 enum AudioOutput { bluetooth, earpiece, speaker }
 
@@ -107,16 +108,17 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         final newcomer = kPeople.length > widget.groupSize
             ? kPeople[widget.groupSize]
             : kPeople.last;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 8),
-            content: Text("${newcomer.name} wants to tune in — they're right nearby"),
-            action: SnackBarAction(
-              label: 'Let in',
-              onPressed: () {},
-            ),
-          ),
-        );
+        FrequencyToastHost.of(context).push(FrequencyToastSpec(
+          tone: ToastTone.request,
+          person: newcomer,
+          title: '${newcomer.name} wants to tune in',
+          description: "They're right nearby",
+          autoDismiss: null, // sticky — host must choose
+          actions: [
+            ToastAction(label: 'Deny', onTap: () {}),
+            ToastAction(label: 'Let in', primary: true, onTap: () {}),
+          ],
+        ));
       });
     }
 
@@ -124,13 +126,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       if (!mounted) return;
       final p = _roster.last;
       if (p.id == 'me') return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          backgroundColor: FrequencyTheme.of(context).colors.warn,
-          content: Text("${p.name}'s signal is weak — ask them to move closer"),
-        ),
-      );
+      FrequencyToastHost.of(context).push(FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: "${p.name}'s signal is weak",
+        description: 'Ask them to move closer',
+        autoDismiss: const Duration(milliseconds: 3600),
+      ));
     });
   }
 
@@ -485,9 +486,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               _removed.add(person.id);
             });
             Navigator.pop(ctx);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${person.name} was removed')),
-            );
+            FrequencyToastHost.of(context).push(FrequencyToastSpec(
+              tone: ToastTone.leave,
+              title: '${person.name} was removed',
+            ));
           },
         );
       },

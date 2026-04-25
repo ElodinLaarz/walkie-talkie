@@ -7,6 +7,7 @@ import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/identity_store.dart';
 import 'theme/app_theme.dart';
+import 'widgets/frequency_toast_host.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -115,11 +116,13 @@ class _FrequencyAppState extends State<FrequencyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 280),
-      child: KeyedSubtree(
-        key: ValueKey(_stage),
-        child: _buildStage(),
+    return FrequencyToastHost(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 280),
+        child: KeyedSubtree(
+          key: ValueKey(_stage),
+          child: _buildStage(),
+        ),
       ),
     );
   }
