@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../services/onboarding_permission_gateway.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 
 /// 3-step onboarding: welcome → permissions → display name.
 class FrequencyOnboardingScreen extends StatefulWidget {
   final ValueChanged<String> onDone;
-  const FrequencyOnboardingScreen({super.key, required this.onDone});
+
+  /// Override for tests; defaults to the real `permission_handler` gateway.
+  final OnboardingPermissionGateway? permissionGateway;
+
+  const FrequencyOnboardingScreen({
+    super.key,
+    required this.onDone,
+    this.permissionGateway,
+  });
 
   @override
   State<FrequencyOnboardingScreen> createState() => _FrequencyOnboardingScreenState();
@@ -14,9 +23,13 @@ class FrequencyOnboardingScreen extends StatefulWidget {
 
 class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
   int _step = 0;
-  bool _btGranted = false;
-  bool _micGranted = false;
+  OnboardingPermissionStatus _btStatus = OnboardingPermissionStatus.denied;
+  OnboardingPermissionStatus _micStatus = OnboardingPermissionStatus.denied;
+  bool _btRequestInFlight = false;
+  bool _micRequestInFlight = false;
   final TextEditingController _nameCtrl = TextEditingController();
+  late final OnboardingPermissionGateway _gateway =
+      widget.permissionGateway ?? const DefaultOnboardingPermissionGateway();
 
   @override
   void dispose() {
@@ -24,7 +37,33 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
     super.dispose();
   }
 
-  bool get _allGranted => _btGranted && _micGranted;
+  bool get _allGranted =>
+      _btStatus == OnboardingPermissionStatus.granted &&
+      _micStatus == OnboardingPermissionStatus.granted;
+
+  Future<void> _requestBluetooth() async {
+    if (_btRequestInFlight) return;
+    setState(() => _btRequestInFlight = true);
+    try {
+      final result = await _gateway.requestBluetooth();
+      if (!mounted) return;
+      setState(() => _btStatus = result);
+    } finally {
+      if (mounted) setState(() => _btRequestInFlight = false);
+    }
+  }
+
+  Future<void> _requestMicrophone() async {
+    if (_micRequestInFlight) return;
+    setState(() => _micRequestInFlight = true);
+    try {
+      final result = await _gateway.requestMicrophone();
+      if (!mounted) return;
+      setState(() => _micStatus = result);
+    } finally {
+      if (mounted) setState(() => _micRequestInFlight = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,10 +103,13 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
         return _Welcome(onNext: () => setState(() => _step = 1));
       case 1:
         return _Permissions(
-          btGranted: _btGranted,
-          micGranted: _micGranted,
-          onBt: () => setState(() => _btGranted = true),
-          onMic: () => setState(() => _micGranted = true),
+          btStatus: _btStatus,
+          micStatus: _micStatus,
+          btInFlight: _btRequestInFlight,
+          micInFlight: _micRequestInFlight,
+          onRequestBt: _requestBluetooth,
+          onRequestMic: _requestMicrophone,
+          onOpenSettings: _gateway.openAppSettings,
           onContinue: _allGranted ? () => setState(() => _step = 2) : null,
         );
       default:
@@ -130,17 +172,23 @@ class _Welcome extends StatelessWidget {
 }
 
 class _Permissions extends StatelessWidget {
-  final bool btGranted;
-  final bool micGranted;
-  final VoidCallback onBt;
-  final VoidCallback onMic;
+  final OnboardingPermissionStatus btStatus;
+  final OnboardingPermissionStatus micStatus;
+  final bool btInFlight;
+  final bool micInFlight;
+  final VoidCallback onRequestBt;
+  final VoidCallback onRequestMic;
+  final Future<void> Function() onOpenSettings;
   final VoidCallback? onContinue;
 
   const _Permissions({
-    required this.btGranted,
-    required this.micGranted,
-    required this.onBt,
-    required this.onMic,
+    required this.btStatus,
+    required this.micStatus,
+    required this.btInFlight,
+    required this.micInFlight,
+    required this.onRequestBt,
+    required this.onRequestMic,
+    required this.onOpenSettings,
     required this.onContinue,
   });
 
@@ -175,16 +223,20 @@ class _Permissions extends StatelessWidget {
             icon: Icons.bluetooth,
             title: 'Bluetooth nearby devices',
             desc: 'Discover and connect to phones and headphones',
-            granted: btGranted,
-            onGrant: onBt,
+            status: btStatus,
+            inFlight: btInFlight,
+            onAllow: onRequestBt,
+            onOpenSettings: onOpenSettings,
           ),
           const SizedBox(height: 10),
           _PermRow(
             icon: Icons.mic_none,
             title: 'Microphone',
             desc: 'Send your voice to the frequency',
-            granted: micGranted,
-            onGrant: onMic,
+            status: micStatus,
+            inFlight: micInFlight,
+            onAllow: onRequestMic,
+            onOpenSettings: onOpenSettings,
           ),
           const Spacer(),
           PrimaryButton(
@@ -204,19 +256,28 @@ class _PermRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String desc;
-  final bool granted;
-  final VoidCallback onGrant;
+  final OnboardingPermissionStatus status;
+  final bool inFlight;
+  final VoidCallback onAllow;
+  final Future<void> Function() onOpenSettings;
   const _PermRow({
     required this.icon,
     required this.title,
     required this.desc,
-    required this.granted,
-    required this.onGrant,
+    required this.status,
+    required this.inFlight,
+    required this.onAllow,
+    required this.onOpenSettings,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final granted = status == OnboardingPermissionStatus.granted;
+    final permanentlyDenied = status == OnboardingPermissionStatus.permanentlyDenied;
+    final effectiveDesc = permanentlyDenied
+        ? 'Blocked — re-enable in system settings'
+        : desc;
     return FreqCard(
       padding: const EdgeInsets.all(14),
       child: Row(
@@ -232,7 +293,11 @@ class _PermRow extends StatelessWidget {
             child: Icon(
               granted ? Icons.check : icon,
               size: 18,
-              color: granted ? c.accentInk : c.ink2,
+              color: granted
+                  ? c.accentInk
+                  : permanentlyDenied
+                      ? c.danger
+                      : c.ink2,
             ),
           ),
           const SizedBox(width: 12),
@@ -250,11 +315,11 @@ class _PermRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  desc,
+                  effectiveDesc,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
-                    color: c.ink3,
+                    color: permanentlyDenied ? c.danger : c.ink3,
                     height: 1.4,
                   ),
                 ),
@@ -271,12 +336,19 @@ class _PermRow extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             )
-          else
+          else if (permanentlyDenied)
             FreqButton(
-              label: 'Allow',
+              label: 'Open settings',
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               fontSize: 13,
-              onPressed: onGrant,
+              onPressed: () => onOpenSettings(),
+            )
+          else
+            FreqButton(
+              label: inFlight ? 'Asking…' : 'Allow',
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              fontSize: 13,
+              onPressed: inFlight ? null : onAllow,
             ),
         ],
       ),
