@@ -2,24 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+
 import 'bloc/bluetooth_bloc.dart';
+import 'data/frequency_mock_data.dart';
+import 'screens/frequency_discovery_screen.dart';
+import 'screens/frequency_onboarding_screen.dart';
+import 'screens/frequency_room_screen.dart';
 import 'services/audio_service.dart';
-import 'screens/home_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Hive for local storage
   await Hive.initFlutter();
-
-  // Request permissions
   await _requestPermissions();
-
   runApp(const WalkieTalkieApp());
 }
 
 Future<void> _requestPermissions() async {
-  // Request all required permissions
   await [
     Permission.bluetoothConnect,
     Permission.bluetoothScan,
@@ -35,21 +34,73 @@ class WalkieTalkieApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => BluetoothBloc(audioService: AudioService()),
+      create: (_) => BluetoothBloc(audioService: AudioService()),
       child: MaterialApp(
-        title: 'Walkie Talkie',
+        title: 'Frequency',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepPurple,
-            brightness: Brightness.dark,
-          ),
-          // Use system font instead of Google Fonts
-          fontFamily: 'Roboto',
-        ),
-        home: const HomeScreen(),
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: ThemeMode.system,
+        home: const FrequencyApp(),
       ),
     );
+  }
+}
+
+/// Root navigator for the prototype: Onboarding → Discovery → Room.
+class FrequencyApp extends StatefulWidget {
+  const FrequencyApp({super.key});
+
+  @override
+  State<FrequencyApp> createState() => _FrequencyAppState();
+}
+
+enum _Stage { onboarding, discovery, room }
+
+class _FrequencyAppState extends State<FrequencyApp> {
+  _Stage _stage = _Stage.onboarding;
+  String _myName = '';
+  String _freq = '104.3';
+  bool _isHost = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      child: KeyedSubtree(
+        key: ValueKey(_stage),
+        child: _buildStage(),
+      ),
+    );
+  }
+
+  Widget _buildStage() {
+    switch (_stage) {
+      case _Stage.onboarding:
+        return FrequencyOnboardingScreen(
+          onDone: (name) => setState(() {
+            _myName = name;
+            _stage = _Stage.discovery;
+          }),
+        );
+      case _Stage.discovery:
+        return FrequencyDiscoveryScreen(
+          onPick: (result) => setState(() {
+            _freq = result.freq;
+            _isHost = result.isHost;
+            _stage = _Stage.room;
+          }),
+        );
+      case _Stage.room:
+        return FrequencyRoomScreen(
+          freq: _freq,
+          isHost: _isHost,
+          myName: _myName,
+          groupSize: 5,
+          mediaKind: MediaKind.music,
+          pttMode: false,
+          onLeave: () => setState(() => _stage = _Stage.discovery),
+        );
+    }
   }
 }
