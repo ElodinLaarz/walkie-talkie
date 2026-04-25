@@ -8,6 +8,7 @@ import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/audio_service.dart';
+import 'services/identity_store.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -17,7 +18,10 @@ void main() async {
 }
 
 class WalkieTalkieApp extends StatelessWidget {
-  const WalkieTalkieApp({super.key});
+  /// Override for tests; defaults to the Hive-backed implementation.
+  final IdentityStore? identityStore;
+
+  const WalkieTalkieApp({super.key, this.identityStore});
 
   @override
   Widget build(BuildContext context) {
@@ -29,27 +33,67 @@ class WalkieTalkieApp extends StatelessWidget {
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
         themeMode: ThemeMode.system,
-        home: const FrequencyApp(),
+        home: FrequencyApp(identityStore: identityStore ?? HiveIdentityStore()),
       ),
     );
   }
 }
 
 /// Root navigator for the prototype: Onboarding → Discovery → Room.
+///
+/// On startup we read a persisted display name from [identityStore]. If one is
+/// present we skip onboarding and land on Discovery; otherwise the user is
+/// taken through the onboarding flow and the chosen name is persisted.
 class FrequencyApp extends StatefulWidget {
-  const FrequencyApp({super.key});
+  final IdentityStore identityStore;
+
+  const FrequencyApp({super.key, required this.identityStore});
 
   @override
   State<FrequencyApp> createState() => _FrequencyAppState();
 }
 
-enum _Stage { onboarding, discovery, room }
+enum _Stage { booting, onboarding, discovery, room }
 
 class _FrequencyAppState extends State<FrequencyApp> {
-  _Stage _stage = _Stage.onboarding;
+  _Stage _stage = _Stage.booting;
   String _myName = '';
   String _freq = '104.3';
   bool _isHost = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final persisted = await widget.identityStore.getDisplayName();
+    if (!mounted) return;
+    setState(() {
+      if (persisted != null) {
+        _myName = persisted;
+        _stage = _Stage.discovery;
+      } else {
+        _stage = _Stage.onboarding;
+      }
+    });
+  }
+
+  Future<void> _onOnboardingDone(String name) async {
+    await widget.identityStore.setDisplayName(name);
+    if (!mounted) return;
+    setState(() {
+      _myName = name;
+      _stage = _Stage.discovery;
+    });
+  }
+
+  Future<void> _onRenameRequested(String name) async {
+    await widget.identityStore.setDisplayName(name);
+    if (!mounted) return;
+    setState(() => _myName = name);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,15 +108,14 @@ class _FrequencyAppState extends State<FrequencyApp> {
 
   Widget _buildStage() {
     switch (_stage) {
+      case _Stage.booting:
+        return const _BootSplash();
       case _Stage.onboarding:
-        return FrequencyOnboardingScreen(
-          onDone: (name) => setState(() {
-            _myName = name;
-            _stage = _Stage.discovery;
-          }),
-        );
+        return FrequencyOnboardingScreen(onDone: _onOnboardingDone);
       case _Stage.discovery:
         return FrequencyDiscoveryScreen(
+          myName: _myName,
+          onRename: _onRenameRequested,
           onPick: (result) => setState(() {
             _freq = result.freq;
             _isHost = result.isHost;
@@ -90,5 +133,20 @@ class _FrequencyAppState extends State<FrequencyApp> {
           onLeave: () => setState(() => _stage = _Stage.discovery),
         );
     }
+  }
+}
+
+/// Brief blank splash while we read the persisted identity. We expect Hive's
+/// box open to take a couple frames at most; rendering a stripped-down
+/// background avoids a flash of the wrong screen.
+class _BootSplash extends StatelessWidget {
+  const _BootSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: const SizedBox.expand(),
+    );
   }
 }

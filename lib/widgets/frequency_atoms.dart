@@ -507,13 +507,17 @@ class PrimaryButton extends StatelessWidget {
           Icon(icon, size: 18, color: c.bg),
           const SizedBox(width: 8),
         ],
-        Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontWeight: FontWeight.w500,
-            fontSize: fontSize,
-            color: c.bg,
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w500,
+              fontSize: fontSize,
+              color: c.bg,
+            ),
           ),
         ),
       ],
