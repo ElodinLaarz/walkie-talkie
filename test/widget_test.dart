@@ -4,14 +4,16 @@ import 'package:hive/hive.dart';
 import 'dart:io';
 
 void main() {
-  testWidgets('App smoke test', (WidgetTester tester) async {
+  testWidgets('App smoke test — onboarding welcome appears', (
+    WidgetTester tester,
+  ) async {
     final path = Directory.systemTemp.path;
     Hive.init(path);
 
-    // Build our app and trigger a frame.
     await tester.pumpWidget(const WalkieTalkieApp());
+    await tester.pump();
 
-    // Verify that the app starts
-    expect(find.text('No devices connected'), findsOneWidget);
+    expect(find.text('Frequency'), findsOneWidget);
+    expect(find.text('Get started'), findsOneWidget);
   });
 }
