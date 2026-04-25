@@ -373,7 +373,7 @@ class _DeviceDrawerState extends State<_DeviceDrawer> {
             onChanged: (value) {
               // TODO: Implement native routing toggle
             },
-            activeColor: Colors.deepPurple,
+            activeThumbColor: Colors.deepPurple,
             contentPadding: EdgeInsets.zero,
           ),
           const SizedBox(height: 24),

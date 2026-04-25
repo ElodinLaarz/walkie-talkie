@@ -238,7 +238,7 @@ class _TalkRingState extends State<_TalkRing> with SingleTickerProviderStateMixi
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) {
+      builder: (_, _) {
         final t = _ctrl.value;
         final scale = 0.96 + 0.16 * t;
         final double opacity = ((1 - t).clamp(0.0, 1.0) * 0.9).toDouble();
@@ -304,7 +304,7 @@ class _VuMeterState extends State<VuMeter> with SingleTickerProviderStateMixin {
       height: 14,
       child: AnimatedBuilder(
         animation: _ctrl,
-        builder: (_, __) {
+        builder: (_, _) {
           return Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
