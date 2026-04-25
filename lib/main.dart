@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-import 'bloc/bluetooth_bloc.dart';
 import 'data/frequency_mock_data.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
-import 'services/audio_service.dart';
 import 'services/identity_store.dart';
 import 'theme/app_theme.dart';
 
@@ -25,16 +22,13 @@ class WalkieTalkieApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => BluetoothBloc(audioService: AudioService()),
-      child: MaterialApp(
-        title: 'Frequency',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.system,
-        home: FrequencyApp(identityStore: identityStore ?? HiveIdentityStore()),
-      ),
+    return MaterialApp(
+      title: 'Frequency',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
+      home: FrequencyApp(identityStore: identityStore ?? HiveIdentityStore()),
     );
   }
 }
