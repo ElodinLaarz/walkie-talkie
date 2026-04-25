@@ -213,34 +213,39 @@ void main() {
       expect(find.text('Remove from frequency'), findsOneWidget);
     });
 
-    testWidgets(
-        'host removing a peer dismisses the drawer, drops them from the roster, '
-        'and surfaces a leave toast', (tester) async {
-      await tester.pumpWidget(_wrap(_room(isHost: true)));
-      await tester.pump();
+    // testWidgets.skip is bool-only; wrap in a group so the runner records
+    // a reason instead of a silent skip count.
+    group(
+      'click-through integration (skipped)',
+      () {
+        testWidgets(
+            'host removing a peer dismisses the drawer, drops them from the '
+            'roster, and surfaces a leave toast', (tester) async {
+          await tester.pumpWidget(_wrap(_room(isHost: true)));
+          await tester.pump();
 
-      final peerName = kPeople[1].name;
-      expect(find.text(peerName), findsOneWidget);
+          final peerName = kPeople[1].name;
+          expect(find.text(peerName), findsOneWidget);
 
-      await tester.tap(find.text(peerName));
-      await tester.pump(_settle);
+          await tester.tap(find.text(peerName));
+          await tester.pump(_settle);
 
-      expect(find.text(peerName), findsAtLeastNWidgets(1));
+          expect(find.text(peerName), findsAtLeastNWidgets(1));
 
-      await tester.tap(find.text('Remove from frequency'));
-      await tester.pump(_settle);
+          await tester.tap(find.text('Remove from frequency'));
+          await tester.pump(_settle);
 
-      expect(find.text('Remove from frequency'), findsNothing);
-      expect(find.text(peerName), findsNothing);
-      expect(find.text('$peerName was removed'), findsOneWidget);
-    },
-    // The modal-sheet route applies a bottom inset that the test framework
-    // can simulate as a fake-keyboard size even when no field is focused.
-    // The Remove button ends up below the viewport, so the actual tap
-    // doesn't reach. Drawer content (Remove visible/hidden) is covered
-    // by the two tests above; the click-through integration is left for
-    // a real device + the state-container refactor in #13.
-    skip: true);
+          expect(find.text('Remove from frequency'), findsNothing);
+          expect(find.text(peerName), findsNothing);
+          expect(find.text('$peerName was removed'), findsOneWidget);
+        });
+      },
+      skip:
+          'modal-sheet bottom inset can push Remove below the viewport in '
+          'widget tests; drawer-content checks above already cover Remove '
+          'visible vs hidden; click-through integration deferred to a real '
+          'device + the state-container test seam landing with #13',
+    );
 
     testWidgets('podcast media kind switches the source and the queue',
         (tester) async {

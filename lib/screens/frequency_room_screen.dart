@@ -129,7 +129,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _weakSignalDemoTimer = Timer(const Duration(milliseconds: 7200), () {
       if (!mounted) return;
       final p = _roster.last;
-      if (p.id == 'me') return;
+      // Don't surface a weak-signal toast for someone who's already left.
+      if (p.id == 'me' || _removed.contains(p.id)) return;
       FrequencyToastHost.of(context).push(FrequencyToastSpec(
         tone: ToastTone.warn,
         title: "${p.name}'s signal is weak",
@@ -1293,6 +1294,13 @@ class _InviteSheet extends StatefulWidget {
 
 class _InviteSheetState extends State<_InviteSheet> {
   bool _copied = false;
+  Timer? _copiedReset;
+
+  @override
+  void dispose() {
+    _copiedReset?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1375,7 +1383,8 @@ class _InviteSheetState extends State<_InviteSheet> {
             padding: const EdgeInsets.symmetric(vertical: 12),
             onPressed: () {
               setState(() => _copied = true);
-              Future.delayed(const Duration(milliseconds: 1600), () {
+              _copiedReset?.cancel();
+              _copiedReset = Timer(const Duration(milliseconds: 1600), () {
                 if (mounted) setState(() => _copied = false);
               });
             },
