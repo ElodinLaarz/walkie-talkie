@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/data/frequency_mock_data.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 
+// The host's `Stack` uses `StackFit.passthrough` so it can wrap a Navigator
+// (the production placement). In tests we pass small content as the child,
+// so wrap it in `SizedBox.expand` to give the host real bounds.
 Widget _wrap(Widget child) => MaterialApp(
       theme: AppTheme.light(),
       home: Scaffold(
-        body: FrequencyToastHost(child: child),
+        body: FrequencyToastHost(child: SizedBox.expand(child: child)),
       ),
     );
 
@@ -180,6 +185,98 @@ void main() {
 
       // Avatar paints initials; Maya's are 'MA'.
       expect(find.text('MA'), findsOneWidget);
+    });
+  });
+
+  group('FrequencyToastHost in MaterialApp.builder placement', () {
+    // Regression for the production wiring in lib/main.dart: the host wraps
+    // the navigator via `builder`, so toasts pushed while a modal route is
+    // open must still render above the modal's barrier+content. A host
+    // placed inside `home` (the previous shape) would render below the
+    // modal and these tests would fail.
+
+    Widget builderApp() => MaterialApp(
+          theme: AppTheme.light(),
+          builder: (context, child) => FrequencyToastHost(child: child!),
+          home: const Scaffold(body: SizedBox.expand()),
+        );
+
+    testWidgets('toast pushed before opening a modal sheet remains visible',
+        (tester) async {
+      await tester.pumpWidget(builderApp());
+
+      // Push a sticky toast from the home route's context.
+      final homeContext = tester.element(find.byType(Scaffold));
+      FrequencyToastHost.of(homeContext).push(const FrequencyToastSpec(
+        title: 'Floating',
+        autoDismiss: null,
+      ));
+      await tester.pump();
+      expect(find.text('Floating'), findsOneWidget);
+
+      // Open a modal sheet; the toast must keep rendering.
+      unawaited(showModalBottomSheet<void>(
+        context: homeContext,
+        isScrollControlled: true,
+        builder: (_) => const SizedBox(
+          height: 200,
+          child: Center(child: Text('SheetBody')),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('SheetBody'), findsOneWidget);
+      expect(find.text('Floating'), findsOneWidget);
+    });
+
+    testWidgets('toast pushed FROM inside a modal sheet renders above it',
+        (tester) async {
+      await tester.pumpWidget(builderApp());
+
+      final homeContext = tester.element(find.byType(Scaffold));
+
+      // Open a modal sheet whose body can push a toast using its own context
+      // (which lives inside the modal route). The host above the navigator
+      // must still be reachable via findAncestorStateOfType.
+      unawaited(showModalBottomSheet<void>(
+        context: homeContext,
+        isScrollControlled: true,
+        builder: (sheetCtx) => SizedBox(
+          height: 200,
+          child: Center(
+            child: TextButton(
+              onPressed: () => FrequencyToastHost.of(sheetCtx).push(
+                const FrequencyToastSpec(
+                  title: 'FromInsideSheet',
+                  autoDismiss: null,
+                ),
+              ),
+              child: const Text('Push toast'),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.text('Push toast'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('FromInsideSheet'), findsOneWidget);
+
+      // The toast's top edge sits above the sheet's top edge. If the host
+      // were inside the route, the sheet's overlay would paint over the
+      // toast and this comparison would fail.
+      final toastTopY =
+          tester.getTopLeft(find.text('FromInsideSheet')).dy;
+      final sheetTopY = tester.getTopLeft(find.text('Push toast')).dy;
+      expect(
+        toastTopY,
+        lessThan(sheetTopY),
+        reason: 'Toast should render above the sheet content.',
+      );
     });
   });
 }

@@ -131,7 +131,11 @@ class _FrequencyToastHostState extends State<FrequencyToastHost>
     // status-bar heights don't visually clip the first toast.
     final topInset = MediaQuery.paddingOf(context).top + 12;
     return Stack(
-      fit: StackFit.expand,
+      // `passthrough` lets the navigator (or whatever the wrapped child is)
+      // dictate the Stack's size from incoming constraints. `expand` would
+      // demand tight constraints we don't always get when this host wraps
+      // MaterialApp's `child` via `builder`.
+      fit: StackFit.passthrough,
       children: [
         widget.child,
         Positioned(
@@ -273,7 +277,17 @@ class _ToastCardState extends State<_ToastCard>
                 else
                   IconButton(
                     onPressed: widget.onDismiss,
-                    icon: Icon(Icons.close, size: 14, color: c.ink3),
+                    // Use Icon.semanticLabel rather than IconButton.tooltip:
+                    // Tooltip widgets require an Overlay ancestor, but this
+                    // host sits above the Navigator's Overlay (so toasts
+                    // render above modal sheets). semanticLabel gives screen
+                    // readers the same announcement without that dependency.
+                    icon: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: c.ink3,
+                      semanticLabel: 'Dismiss toast',
+                    ),
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.all(4),
                     // Material's recommended minimum tap target.
