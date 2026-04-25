@@ -3,7 +3,7 @@ import 'package:walkie_talkie/protocol/frequency_session.dart';
 
 void main() {
   group('FrequencySession', () {
-    test('mhzDisplay is in [88.0, 108.0) at 0.1 precision', () {
+    test('mhzDisplay is in [88.0, 107.9] at 0.1 precision', () {
       // Sample a spread of UUID tails covering low/high/mid of the 12-bit range.
       const tails = ['000', 'fff', '7ff', '800', 'abc', '123'];
       for (final t in tails) {
@@ -13,7 +13,7 @@ void main() {
         );
         final value = double.parse(s.mhzDisplay);
         expect(value, greaterThanOrEqualTo(88.0));
-        expect(value, lessThan(108.0));
+        expect(value, lessThanOrEqualTo(107.9));
         // 0.1 precision => one digit after the decimal.
         expect(s.mhzDisplay, matches(RegExp(r'^\d{2,3}\.\d$')));
       }

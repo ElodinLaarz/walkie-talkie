@@ -61,13 +61,15 @@ The MHz value is **purely cosmetic** — it's what the UI shows on chrome
 is always by `sessionUuid`. Two simultaneous sessions can collide on the same
 MHz string; guests disambiguate by host name + RSSI.
 
-The deterministic mapping uses the low 12 bits of `sessionUuid`:
+The deterministic mapping uses the low 12 bits of `sessionUuid`, mod 200:
 
 ```
-mhz = 88.0 + (low_12_bits / 4096) * 20.0    (rounded to 0.1)
+tenths = 880 + (low_12_bits % 200)
+mhz    = tenths / 10.0
 ```
 
-This puts MHz values in the real-world FM band [88.0, 108.0), in 0.1 MHz steps.
+This produces 200 evenly-distributed buckets in the real-world FM band
+[88.0, 107.9] MHz at 0.1-MHz precision.
 
 ## Bluetooth LE advertising
 

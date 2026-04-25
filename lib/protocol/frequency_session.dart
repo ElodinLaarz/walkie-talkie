@@ -9,12 +9,13 @@ class FrequencySession {
 
   const FrequencySession({required this.sessionUuid, required this.hostPeerId});
 
-  /// Mapped from the low 12 bits of the UUID into [88.0, 108.0) MHz at
-  /// 0.1-MHz precision. Cosmetic — collisions happen and are disambiguated
-  /// in the UI by host name and signal strength.
+  /// Mapped from the low 12 bits of the UUID into [88.0, 107.9] MHz at
+  /// 0.1-MHz precision (200 evenly-distributed buckets). Cosmetic —
+  /// collisions happen and are disambiguated in the UI by host name and
+  /// signal strength.
   String get mhzDisplay {
-    final raw = 88.0 + (_low12Bits(sessionUuid) / 4096.0) * 20.0;
-    return raw.toStringAsFixed(1);
+    final tenths = 880 + (_low12Bits(sessionUuid) % 200);
+    return (tenths / 10.0).toStringAsFixed(1);
   }
 
   /// 4-character Crockford base32 of the low 20 bits of the UUID. Suitable
