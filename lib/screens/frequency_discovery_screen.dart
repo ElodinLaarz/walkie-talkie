@@ -15,7 +15,21 @@ class DiscoveryResult {
 /// Discovery — find & join a Frequency.
 class FrequencyDiscoveryScreen extends StatefulWidget {
   final ValueChanged<DiscoveryResult> onPick;
-  const FrequencyDiscoveryScreen({super.key, required this.onPick});
+
+  /// Display name shown in the chrome's identity chip. The name is sourced
+  /// from the persisted identity store; tapping the chip opens an editor.
+  final String myName;
+
+  /// Persists a new display name. The screen invokes this when the user
+  /// confirms an edit in the rename sheet.
+  final ValueChanged<String> onRename;
+
+  const FrequencyDiscoveryScreen({
+    super.key,
+    required this.onPick,
+    required this.myName,
+    required this.onRename,
+  });
 
   @override
   State<FrequencyDiscoveryScreen> createState() => _FrequencyDiscoveryScreenState();
@@ -49,6 +63,10 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                 FreqChip(
                   leading: Icon(Icons.bluetooth, size: 12, color: c.ink2),
                   label: 'On',
+                ),
+                _IdentityChip(
+                  name: widget.myName,
+                  onTap: _openRenameSheet,
                 ),
               ],
             ),
@@ -182,6 +200,22 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     );
   }
 
+  Future<void> _openRenameSheet() async {
+    final c = FrequencyTheme.of(context).colors;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: c.bg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _RenameSheet(initial: widget.myName),
+    );
+    if (picked != null && picked != widget.myName) {
+      widget.onRename(picked);
+    }
+  }
+
   Widget _buildNearbyList(BuildContext context) {
     return FreqCard(
       clipBehavior: Clip.antiAlias,
@@ -273,7 +307,13 @@ class _NearbyRow extends StatelessWidget {
                       style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
                       child: Row(
                         children: [
-                          Text(n.device),
+                          Flexible(
+                            child: Text(
+                              n.device,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                           const Text('  ·  '),
                           if (hasFreq) ...[
                             const Text('On '),
@@ -300,6 +340,165 @@ class _NearbyRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Tappable circular chip in the chrome that shows the user's initials and
+/// opens the rename sheet when tapped.
+class _IdentityChip extends StatelessWidget {
+  final String name;
+  final VoidCallback onTap;
+  const _IdentityChip({required this.name, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final initials = _initialsOf(name);
+    // Visible chip is 28dp to match the chrome's other affordances; the
+    // tappable hit area is 48dp (Material's recommended minimum) via a
+    // transparent outer Material+InkWell wrapper.
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: c.accentSoft,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                initials,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: c.accentInk,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _initialsOf(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return '—';
+    return trimmed.substring(0, trimmed.length >= 2 ? 2 : 1).toUpperCase();
+  }
+}
+
+/// Bottom sheet for editing the persisted display name. Returns the trimmed,
+/// non-empty new value via `Navigator.pop`, or null if the user dismisses
+/// without saving.
+class _RenameSheet extends StatefulWidget {
+  final String initial;
+  const _RenameSheet({required this.initial});
+
+  @override
+  State<_RenameSheet> createState() => _RenameSheetState();
+}
+
+class _RenameSheetState extends State<_RenameSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final n = _ctrl.text.trim();
+    if (n.isEmpty) return;
+    Navigator.pop(context, n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final hasName = _ctrl.text.trim().isNotEmpty;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 28,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(top: 8, bottom: 14),
+              decoration: BoxDecoration(
+                color: c.line2,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          Text(
+            'Your handle',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: c.ink,
+            ),
+          ),
+          Text(
+            'Shows up to everyone on the same frequency.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+          ),
+          const SizedBox(height: 18),
+          FreqCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              maxLength: 20,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _submit(),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 17,
+                fontWeight: FontWeight.w500,
+                color: c.ink,
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                counterText: '',
+                border: InputBorder.none,
+                hintText: 'Your name',
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: 'Save',
+            block: true,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            fontSize: 15,
+            onPressed: hasName ? _submit : null,
+          ),
+        ],
       ),
     );
   }
