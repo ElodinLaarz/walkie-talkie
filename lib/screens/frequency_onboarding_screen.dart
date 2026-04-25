@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/onboarding_permission_gateway.dart';
@@ -341,7 +343,7 @@ class _PermRow extends StatelessWidget {
               label: 'Open settings',
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               fontSize: 13,
-              onPressed: () => onOpenSettings(),
+              onPressed: () => unawaited(onOpenSettings()),
             )
           else
             FreqButton(
