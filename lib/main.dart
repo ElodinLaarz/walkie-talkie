@@ -68,7 +68,16 @@ class _FrequencyAppState extends State<FrequencyApp> {
   }
 
   Future<void> _bootstrap() async {
-    final persisted = await widget.identityStore.getDisplayName();
+    String? persisted;
+    try {
+      persisted = await widget.identityStore.getDisplayName();
+    } catch (error, stackTrace) {
+      // Hive lives on the filesystem; corruption or disk failure can throw
+      // here. Don't strand the user on the splash — fall back to onboarding,
+      // which will overwrite whatever was on disk on completion.
+      debugPrint('Failed to load persisted display name: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     if (!mounted) return;
     setState(() {
       if (persisted != null) {
@@ -81,7 +90,14 @@ class _FrequencyAppState extends State<FrequencyApp> {
   }
 
   Future<void> _onOnboardingDone(String name) async {
-    await widget.identityStore.setDisplayName(name);
+    try {
+      await widget.identityStore.setDisplayName(name);
+    } catch (error, stackTrace) {
+      // Persistence failed — accept the in-memory name so the user isn't
+      // stranded on the name screen. They'll be re-onboarded next launch.
+      debugPrint('Failed to persist display name: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     if (!mounted) return;
     setState(() {
       _myName = name;
@@ -90,7 +106,15 @@ class _FrequencyAppState extends State<FrequencyApp> {
   }
 
   Future<void> _onRenameRequested(String name) async {
-    await widget.identityStore.setDisplayName(name);
+    try {
+      await widget.identityStore.setDisplayName(name);
+    } catch (error, stackTrace) {
+      // Same trade-off as onboarding completion: keep the new name in memory
+      // so the rename UI feels responsive; the failure surfaces next launch
+      // when the previous name is loaded back.
+      debugPrint('Failed to persist display name: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     if (!mounted) return;
     setState(() => _myName = name);
   }

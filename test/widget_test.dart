@@ -9,8 +9,12 @@ class _FakeIdentityStore implements IdentityStore {
   @override
   Future<String?> getDisplayName() async => _name;
 
+  // Mirror HiveIdentityStore: trim, and treat empty/whitespace as a clear.
   @override
-  Future<void> setDisplayName(String value) async => _name = value.trim();
+  Future<void> setDisplayName(String value) async {
+    final trimmed = value.trim();
+    _name = trimmed.isEmpty ? null : trimmed;
+  }
 }
 
 void main() {

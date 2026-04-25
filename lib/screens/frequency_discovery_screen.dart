@@ -356,24 +356,36 @@ class _IdentityChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final initials = _initialsOf(name);
+    // Visible chip is 28dp to match the chrome's other affordances; the
+    // tappable hit area is 48dp (Material's recommended minimum) via a
+    // transparent outer Material+InkWell wrapper.
     return Material(
-      color: c.accentSoft,
+      color: Colors.transparent,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: SizedBox(
-          width: 28,
-          height: 28,
+          width: 48,
+          height: 48,
           child: Center(
-            child: Text(
-              initials,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: c.accentInk,
-                letterSpacing: -0.1,
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: c.accentSoft,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                initials,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: c.accentInk,
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
           ),
