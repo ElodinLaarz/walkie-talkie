@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import 'bloc/bluetooth_bloc.dart';
 import 'data/frequency_mock_data.dart';
@@ -14,18 +13,7 @@ import 'theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  await _requestPermissions();
   runApp(const WalkieTalkieApp());
-}
-
-Future<void> _requestPermissions() async {
-  await [
-    Permission.bluetoothConnect,
-    Permission.bluetoothScan,
-    Permission.bluetoothAdvertise,
-    Permission.microphone,
-    Permission.notification,
-  ].request();
 }
 
 class WalkieTalkieApp extends StatelessWidget {
