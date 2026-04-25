@@ -78,11 +78,14 @@ class FrequencyToastHost extends StatefulWidget {
 
   static FrequencyToastController of(BuildContext context) {
     final state = context.findAncestorStateOfType<_FrequencyToastHostState>();
-    assert(
-      state != null,
-      'No FrequencyToastHost found in the widget tree above this context.',
-    );
-    return state!;
+    if (state == null) {
+      throw FlutterError(
+        'No FrequencyToastHost found in the widget tree above this context. '
+        'Wrap the app (e.g. via MaterialApp.builder) so toasts can sit '
+        'above modal routes.',
+      );
+    }
+    return state;
   }
 
   @override
@@ -124,30 +127,30 @@ class _FrequencyToastHostState extends State<FrequencyToastHost>
 
   @override
   Widget build(BuildContext context) {
+    // Anchor 12dp below the platform's safe-area top so notches and varying
+    // status-bar heights don't visually clip the first toast.
+    final topInset = MediaQuery.paddingOf(context).top + 12;
     return Stack(
       fit: StackFit.expand,
       children: [
         widget.child,
         Positioned(
-          top: 48,
+          top: topInset,
           left: 12,
           right: 12,
-          child: IgnorePointer(
-            ignoring: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final t in _toasts)
-                  Padding(
-                    key: ValueKey(t.id),
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _ToastCard(
-                      spec: t.spec,
-                      onDismiss: () => dismiss(t.id),
-                    ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final t in _toasts)
+                Padding(
+                  key: ValueKey(t.id),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ToastCard(
+                    spec: t.spec,
+                    onDismiss: () => dismiss(t.id),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ],
@@ -273,9 +276,10 @@ class _ToastCardState extends State<_ToastCard>
                     icon: Icon(Icons.close, size: 14, color: c.ink3),
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.all(4),
+                    // Material's recommended minimum tap target.
                     constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
+                      minWidth: 40,
+                      minHeight: 40,
                     ),
                   ),
               ],

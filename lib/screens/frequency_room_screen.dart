@@ -114,6 +114,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           title: '${newcomer.name} wants to tune in',
           description: "They're right nearby",
           autoDismiss: null, // sticky — host must choose
+          // Demo only: real accept/deny dispatch waits on the BT mesh +
+          // state container. The toast surface is the deliverable for now.
           actions: [
             ToastAction(label: 'Deny', onTap: () {}),
             ToastAction(label: 'Let in', primary: true, onTap: () {}),

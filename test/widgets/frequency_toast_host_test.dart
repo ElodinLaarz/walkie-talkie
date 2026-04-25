@@ -59,9 +59,11 @@ void main() {
       await tester.pump();
       expect(find.text('Temporary'), findsOneWidget);
 
-      // Past auto-dismiss + entry animation.
+      // Wait past the auto-dismiss timer; the toast removes itself from the
+      // tree synchronously (no exit animation). The trailing pump just lets
+      // the rebuild settle.
       await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump(const Duration(milliseconds: 400)); // exit animation
+      await tester.pump();
       expect(find.text('Temporary'), findsNothing);
     });
 

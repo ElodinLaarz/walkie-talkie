@@ -29,6 +29,10 @@ class WalkieTalkieApp extends StatelessWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
+      // Wrap the navigator so toasts stay above pushed routes (modal bottom
+      // sheets, etc.) — a host inside `home` would render below the modal
+      // overlay and get hidden when a sheet is open.
+      builder: (context, child) => FrequencyToastHost(child: child!),
       home: FrequencyApp(identityStore: identityStore ?? HiveIdentityStore()),
     );
   }
@@ -116,13 +120,11 @@ class _FrequencyAppState extends State<FrequencyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return FrequencyToastHost(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 280),
-        child: KeyedSubtree(
-          key: ValueKey(_stage),
-          child: _buildStage(),
-        ),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      child: KeyedSubtree(
+        key: ValueKey(_stage),
+        child: _buildStage(),
       ),
     );
   }
