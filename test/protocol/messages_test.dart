@@ -125,6 +125,33 @@ void main() {
       expect(round.mediaState?.trackIdx, 2);
     });
 
+    test('JoinAccepted carries voicePsm when set, omits it on the wire when null',
+        () {
+      // Set: 129 = 0x81, the lowest valid odd dynamic LE-CoC PSM.
+      final withPsm = JoinAccepted(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 1234,
+        hostPeerId: 'p-host',
+        roster: const [],
+        voicePsm: 129,
+      );
+      final round = _roundTrip(withPsm);
+      expect(round.voicePsm, 129);
+
+      // Null: field is absent on the wire, parses back to null.
+      final withoutPsm = JoinAccepted(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 1234,
+        hostPeerId: 'p-host',
+        roster: const [],
+      );
+      final json = jsonDecode(withoutPsm.encode()) as Map<String, dynamic>;
+      expect(json.containsKey('voicePsm'), isFalse);
+      expect(_roundTrip(withoutPsm).voicePsm, isNull);
+    });
+
     test('JoinDenied carries reason as wire string', () {
       const msg = JoinDenied(
         peerId: 'p-host',

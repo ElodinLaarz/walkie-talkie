@@ -241,6 +241,13 @@ final class JoinAccepted extends FrequencyMessage {
   final List<ProtocolPeer> roster;
   final MediaState? mediaState;
 
+  /// Dynamic LE-CoC PSM (`0x0080`–`0x00FF`, odd) the host's voice server is
+  /// bound to. Guests open an L2CAP CoC to this PSM after `JoinAccepted`
+  /// lands. Optional on the wire — null means voice isn't available yet
+  /// (e.g. the host is a control-plane-only build), and the guest stays
+  /// silent until/unless a future message provides one.
+  final int? voicePsm;
+
   const JoinAccepted({
     required super.peerId,
     required super.seq,
@@ -248,6 +255,7 @@ final class JoinAccepted extends FrequencyMessage {
     required this.hostPeerId,
     required this.roster,
     this.mediaState,
+    this.voicePsm,
   });
 
   @override
@@ -259,6 +267,7 @@ final class JoinAccepted extends FrequencyMessage {
         'hostPeerId': hostPeerId,
         'roster': roster.map((p) => p.toJson()).toList(),
         if (mediaState != null) 'mediaState': mediaState!.toJson(),
+        if (voicePsm != null) 'voicePsm': voicePsm,
       };
 
   factory JoinAccepted._fromJson(Map<String, dynamic> j) => JoinAccepted(
@@ -272,6 +281,7 @@ final class JoinAccepted extends FrequencyMessage {
             : MediaState.fromJson(
                 Map<String, dynamic>.from(j['mediaState'] as Map),
               ),
+        voicePsm: j['voicePsm'] as int?,
       );
 }
 
