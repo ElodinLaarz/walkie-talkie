@@ -81,6 +81,65 @@ class AudioService {
     }
   }
 
+  /// Begin voice capture and streaming. Wires the mic into the L2CAP CoC
+  /// the host advertised in `JoinAccepted` (or the host's own
+  /// AudioRecord → mix-minus loop when the local user *is* the host).
+  ///
+  /// Idempotent at the native layer — repeated calls while voice is up
+  /// resolve to the existing capture session. Called from the room screen
+  /// when the user enters the room or releases mute, so a quick
+  /// mute → unmute → mute doesn't have to wait for the engine to spin
+  /// down between toggles.
+  ///
+  /// Returns false if the native side rejects the request (permissions
+  /// denied, no L2CAP link, AudioRecord init failure) or if the platform
+  /// call throws. Logs the failure; callers are responsible for any
+  /// user-visible error handling. Does not retry.
+  Future<bool> startVoice() async {
+    try {
+      final result = await _methodChannel.invokeMethod('startVoice');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error starting voice: $e');
+      return false;
+    }
+  }
+
+  /// Tear down voice capture and streaming. Counterpart to [startVoice];
+  /// safe to call when voice isn't running (the native side resolves it as
+  /// a no-op rather than throwing).
+  Future<bool> stopVoice() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopVoice');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping voice: $e');
+      return false;
+    }
+  }
+
+  /// Set the local mic mute flag at the native layer. Mute does **not**
+  /// tear down the L2CAP CoC or the AudioRecord — it just gates whether
+  /// captured frames are encoded and sent. Keeping the engine warm makes
+  /// unmute instant; tearing it down would round-trip through codec init
+  /// every time the user taps the button.
+  ///
+  /// Wire-protocol implication: emitting a `mute` control message on the
+  /// REQUEST characteristic is the *cubit's* job (so the host can echo it
+  /// to the rest of the roster); this method only affects the local audio
+  /// path. They're called together from the room screen.
+  Future<bool> setMuted(bool muted) async {
+    try {
+      final result = await _methodChannel.invokeMethod('setMuted', {
+        'muted': muted,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('Error setting mute state: $e');
+      return false;
+    }
+  }
+
   /// Get list of connected devices
   Future<List<Map<String, String>>> getConnectedDevices() async {
     try {
