@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
@@ -11,6 +13,7 @@ class _FakeStore implements IdentityStore {
   String? _peerId;
   bool throwOnGet = false;
   bool throwOnSet = false;
+  bool throwOnGetPeerId = false;
   int setCalls = 0;
 
   _FakeStore({String? initial}) : _name = initial;
@@ -30,7 +33,10 @@ class _FakeStore implements IdentityStore {
   }
 
   @override
-  Future<String> getPeerId() async => _peerId ??= 'fake-peer-id';
+  Future<String> getPeerId() async {
+    if (throwOnGetPeerId) throw StateError('boom');
+    return _peerId ??= 'fake-peer-id';
+  }
 }
 
 void main() {
@@ -391,6 +397,54 @@ void main() {
       );
     });
 
+    test('sendMediaCommand swallows getPeerId failures', () async {
+      // Identity-store errors at this point shouldn't escape as
+      // unhandled async errors — room-screen callers fire-and-forget,
+      // so an unhandled rethrow would crash the zone.
+      final store = _FakeStore()..throwOnGetPeerId = true;
+      final cubit = FrequencySessionCubit(identityStore: store);
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      await expectLater(
+        cubit.sendMediaCommand(op: MediaOp.play, source: 'YouTube Music'),
+        completes,
+      );
+
+      await cubit.close();
+    });
+
+    test('sendMediaCommand suspended through close is a silent no-op', () async {
+      // The race the close-ordering fix protects: sendMediaCommand awaits
+      // getPeerId, close() runs, sendMediaCommand resumes — must not throw
+      // `Bad state: Cannot add new events after calling close`.
+      final completer = Completer<String>();
+      final store = _GatedPeerIdStore(completer.future);
+      final cubit = FrequencySessionCubit(identityStore: store);
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      final pending = cubit.sendMediaCommand(
+        op: MediaOp.play,
+        source: 'YouTube Music',
+      );
+
+      // Close the cubit while sendMediaCommand is still awaiting.
+      final closing = cubit.close();
+      // Now release the peer-id resolution — sendMediaCommand resumes
+      // post-close.
+      completer.complete('p-late');
+
+      await expectLater(pending, completes);
+      await closing;
+    });
+
     test('applyHostMediaEcho after close is a silent no-op', () async {
       // Same shape: a late RESPONSE-notify shouldn't throw
       // `Bad state: Cannot add new events after calling close`.
@@ -491,4 +545,22 @@ void main() {
       expect(r.roomIsHost, isTrue);
     });
   });
+}
+
+/// IdentityStore whose `getPeerId` blocks on a caller-supplied future.
+/// Lets a test wedge `sendMediaCommand` mid-await so we can drive a
+/// `close()` between the await and the resume — the exact race the
+/// close-ordering fix addresses.
+class _GatedPeerIdStore implements IdentityStore {
+  final Future<String> _peerIdFuture;
+  _GatedPeerIdStore(this._peerIdFuture);
+
+  @override
+  Future<String?> getDisplayName() async => null;
+
+  @override
+  Future<void> setDisplayName(String value) async {}
+
+  @override
+  Future<String> getPeerId() => _peerIdFuture;
 }

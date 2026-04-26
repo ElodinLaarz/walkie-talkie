@@ -188,8 +188,23 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     int? trackIdx,
     int? positionMs,
   }) async {
-    final peerId = await identityStore.getPeerId();
-    if (isClosed) return;
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      // Callers from the room screen fire-and-forget, so an exception
+      // here would surface as an unhandled async error. Log and bail —
+      // the user re-tapping is a fine recovery path.
+      debugPrint('Failed to resolve peer id for media command: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return;
+    }
+    // Re-check both gates after the await: a `close()` racing with this
+    // method can flip the controller's `isClosed` synchronously while
+    // the cubit's own `isClosed` (which awaits state-stream drain)
+    // hasn't caught up yet. Add-after-close throws — short-circuit
+    // cleanly instead.
+    if (isClosed || _mediaCommandsController.isClosed) return;
     final cmd = MediaCommand(
       peerId: peerId,
       seq: ++_seq,
@@ -220,15 +235,22 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///
   /// No-op outside `SessionRoom`, or after the cubit is closed.
   void applyHostMediaEcho(MediaCommand cmd) {
-    if (isClosed) return;
+    if (isClosed || _mediaCommandsController.isClosed) return;
     final current = state;
     if (current is! SessionRoom) return;
     _mediaCommandsController.add(cmd);
   }
 
   @override
-  Future<void> close() {
-    _mediaCommandsController.close();
-    return super.close();
+  Future<void> close() async {
+    // Order matters. `super.close()` flips the cubit's `isClosed`; the
+    // suspended `await` in `sendMediaCommand` resumes after it sees
+    // `isClosed == true` and bails before touching the controller. If
+    // we closed the controller *first*, an in-flight `sendMediaCommand`
+    // could resume in the microtask window between
+    // `_mediaCommandsController.isClosed = true` and
+    // `cubit.isClosed = true` and throw on `add`.
+    await super.close();
+    await _mediaCommandsController.close();
   }
 }
