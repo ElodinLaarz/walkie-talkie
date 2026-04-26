@@ -35,6 +35,11 @@ class HiveIdentityStore implements IdentityStore {
 
   Box<String>? _box;
 
+  /// Single-flight cache for `getPeerId`. The first caller starts the
+  /// get-or-create; every concurrent caller awaits the same future, so all
+  /// callers in the same session see the same id even on a fresh install.
+  Future<String>? _peerIdFuture;
+
   Future<Box<String>> _open() async {
     final existing = _box;
     if (existing != null && existing.isOpen) return existing;
@@ -64,7 +69,9 @@ class HiveIdentityStore implements IdentityStore {
   }
 
   @override
-  Future<String> getPeerId() async {
+  Future<String> getPeerId() => _peerIdFuture ??= _readOrCreatePeerId();
+
+  Future<String> _readOrCreatePeerId() async {
     final box = await _open();
     final existing = box.get(_peerIdKey);
     if (existing != null && existing.isNotEmpty) return existing;

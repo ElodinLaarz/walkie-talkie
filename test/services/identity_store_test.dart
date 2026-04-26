@@ -109,6 +109,20 @@ void main() {
         expect(await store.getPeerId(), id);
       });
 
+      test('concurrent first calls return the same id (no race)', () async {
+        // Without the single-flight cache, multiple callers on a fresh
+        // install can each observe a missing key, generate different
+        // UUIDs, and last-write-wins on the box — leaving callers
+        // holding ids that don't match what got persisted.
+        final store = HiveIdentityStore();
+        final ids = await Future.wait(
+          List.generate(8, (_) => store.getPeerId()),
+        );
+        expect(ids.toSet(), hasLength(1));
+        // And the persisted value matches what callers received.
+        expect(await HiveIdentityStore().getPeerId(), ids.first);
+      });
+
       test('a fresh install generates a new id (not a constant)', () async {
         // Guards against regressions like swapping `Random.secure()` for a
         // seedable `Random()` or hard-coding a constant — both would slip
