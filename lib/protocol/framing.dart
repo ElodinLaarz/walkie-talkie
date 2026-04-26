@@ -33,6 +33,13 @@ const int kMaxMessageSize = 4096;
 /// instead of letting a length overflow silently.
 const int kMaxEncodableLength = 0xFFFF;
 
+/// `fragment_idx` is a uint8 on the wire (offset 3 of every fragment
+/// header); 256 fragments is the absolute ceiling regardless of any
+/// other cap. With the v1 [kMaxMessageSize] of 4 KiB and 243-byte
+/// payloads we land at ~17 fragments — well below this — but a future
+/// cap raise must not silently wrap to a 1-byte index.
+const int kMaxFragmentCount = 256;
+
 /// Reserved flag byte at offset 0 of every fragment header. v1 always emits
 /// `0x00`; receivers MUST drop fragments whose flag byte they don't
 /// recognize so a future bit (e.g. compression, signing) doesn't get
@@ -65,6 +72,16 @@ List<Uint8List> encodeFragments(String json) {
   final fragmentCount = totalLen == 0
       ? 1
       : (totalLen + kMaxFragmentPayloadSize - 1) ~/ kMaxFragmentPayloadSize;
+  // Unreachable with the v1 4 KiB message cap (max ~17 fragments) but
+  // guards against a future cap raise: silently masking `i` to 8 bits
+  // would produce duplicate fragment indices on the wire and a
+  // reassembler that confidently stitches together garbage.
+  if (fragmentCount > kMaxFragmentCount) {
+    throw FormatException(
+      'Message requires $fragmentCount fragments; fragment_idx is uint8 '
+      '(cap: $kMaxFragmentCount)',
+    );
+  }
 
   final fragments = <Uint8List>[];
   for (int i = 0; i < fragmentCount; i++) {
@@ -79,7 +96,7 @@ List<Uint8List> encodeFragments(String json) {
       ..[0] = kFragmentFlagsV1
       ..[1] = (totalLen >> 8) & 0xFF
       ..[2] = totalLen & 0xFF
-      ..[3] = i & 0xFF;
+      ..[3] = i;
     if (payloadLen > 0) {
       fragment.setRange(
         kFragmentHeaderSize,
