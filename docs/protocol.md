@@ -9,35 +9,47 @@ transmission, media sync) build against.
 
 - **Bluetooth-only.** No internet required for voice (per the README and the
   app's pitch). Same goes for control: discovery, join, mute, media commands.
-- **Android-first**, targeting API 33+ (LE Audio).
+- **Android-first**, targeting API 31+ (Android 12, when the BLUETOOTH_SCAN,
+  BLUETOOTH_CONNECT, and BLUETOOTH_ADVERTISE runtime permissions appeared).
 - **Star topology** with a designated host. Voice and control traffic both go
   through the host, who is the coordinator for the frequency. Mesh and host
   handover are out of scope for v1 (see [§ Out of scope](#out-of-scope)).
-- **Two planes**: a **control plane** carried over Bluetooth LE GATT in JSON,
-  and an **audio plane** carried over Bluetooth LE Audio CIS / BIS at the
-  native layer. This document specifies the control plane only.
+- **Two planes** — both Bluetooth-LE, both terminating at the host:
+  - A **control plane** carried over Bluetooth LE GATT, JSON-shaped.
+  - A **voice plane** carried over Bluetooth LE **L2CAP CoC**
+    (Connection-oriented Channel) with Opus-encoded frames.
+
+  The original assumption that voice would ride on LE Audio CIS / BIS was
+  walked back: standard consumer Android phones are LE Audio **sources**,
+  not sinks (Auracast receiver hardware is rare on phones), so a phone-to-
+  phone audio broadcast over LE Audio doesn't work in practice. L2CAP
+  carries arbitrary bytes, so we encode voice ourselves (Opus) and stream
+  the byte chunks. See [§ Voice plane](#voice-plane).
 
 ## Topology
 
 ```text
-                 ┌───────────────────────┐
-                 │       HOST phone      │
-        ┌────────┤  • LE advertiser      ├────────┐
-        │        │  • GATT server        │        │
-        │        │  • LE Audio source    │        │
-        │        └───────────────────────┘        │
-        │                    ▲                    │
-        │ control            │ control            │ control
-        │                    │                    │
-        ▼                    ▼                    ▼
+                  ┌───────────────────────┐
+                  │       HOST phone      │
+         ┌────────┤  • LE advertiser      ├────────┐
+         │        │  • GATT server        │        │
+         │        │  • L2CAP CoC server   │        │
+         │        │  • mix-minus engine   │        │
+         │        └───────────────────────┘        │
+         │                    ▲                    │
+   control+voice        control+voice        control+voice
+         │                    │                    │
+         ▼                    ▼                    ▼
  ┌───────────┐        ┌───────────┐        ┌───────────┐
  │ guest #1  │        │ guest #2  │        │ guest #3  │
  └───────────┘        └───────────┘        └───────────┘
 ```
 
-Every guest holds exactly one GATT connection: to the host. Guests do not talk
-to each other directly. The host re-broadcasts roster updates, talking state,
-mute state, and media commands.
+Every guest holds exactly two LE links to the host — one GATT for control,
+one L2CAP CoC for voice. Guests do not talk to each other directly. The host
+re-broadcasts roster updates, talking state, mute state, and media commands
+on the control plane, and runs a mix-minus engine on the voice plane (each
+guest receives "everyone except themselves").
 
 **Why star?**
 
@@ -191,6 +203,7 @@ Guest **MUST** wait for the response before sending any further messages.
 {
   "kind": "join_accepted", "peerId": "<host>", "seq": 7, "atMs": ..., "v": 1,
   "hostPeerId": "<host>",
+  "voicePsm": 129, // optional
   "roster": [ { "peerId": "...", "displayName": "Maya", "btDevice": "AirPods Pro",
                 "muted": false, "talking": false }, ... ],
   "mediaState": { "source": "YouTube Music", "trackIdx": 2,
@@ -198,8 +211,18 @@ Guest **MUST** wait for the response before sending any further messages.
 }
 ```
 
-The full roster (including the new guest) and the current media state. Guest
-uses these to render the room screen.
+- The full **roster** including the freshly-accepted guest.
+- The current **mediaState** so the joiner can fast-forward to where the
+  room is right now (track + playback + position) without waiting for the
+  next manual command. Doubles as the [reconnect reconciliation
+  payload](#reconnect-and-reconciliation).
+- **voicePsm** *(optional)* — the dynamic L2CAP PSM the host's voice server is
+  bound to. If present, the guest opens an L2CAP CoC to this PSM after
+  `JoinAccepted` lands; see [§ Voice plane](#voice-plane). If absent, join still
+  succeeds for control-plane behavior and the guest stays voice-silent.
+
+Guest uses these to render the room screen and, when `voicePsm` is present,
+start streaming voice.
 
 #### `join_denied` (host → guest)
 
@@ -240,7 +263,7 @@ Pushed whenever the roster changes (join, leave, removal, mute toggle).
 ### Voice control
 
 These do **not** carry audio — they describe state for UI rendering. Audio
-itself flows on a separate plane (LE Audio CIS / BIS).
+itself flows on the [voice plane](#voice-plane) (L2CAP CoC + Opus).
 
 #### `talking` (peer → host → all)
 
@@ -281,9 +304,25 @@ host is the source of truth for what's playing and where.
 `trackIdx` is required for `queue_play`, optional for `skip`/`prev`/`seek`.
 `positionMs` is required for `seek`, ignored otherwise.
 
-Host applies the command, updates its mediaState, then re-broadcasts. The
-broadcast is what every peer (including the originator) consumes — the
-originator's local optimistic update is reconciled against the host's echo.
+**The host is the absolute source of truth** for `mediaState`. Sequence:
+
+1. The originating peer applies the command **optimistically** in its own
+   UI so the tap feels responsive, AND writes the `media` message to the
+   host's REQUEST characteristic.
+2. The host validates, applies the command to its own mediaState, then
+   echoes the same `media` message (with the host's `peerId` and a fresh
+   `seq`) on RESPONSE to all guests.
+3. On receipt of the echo:
+   - **The originator** reconciles their optimistic state against the
+     host's. If they disagree — e.g. two peers tapped *Skip* in the same
+     100 ms and the host saw the other one first — the host wins.
+   - **Every other guest** simply applies the echoed command.
+
+This avoids the UI race that a peer-direct broadcast would create (guests
+disagreeing about who skipped which track). It also degrades gracefully:
+a write that never reaches the host has no effect on anyone except the
+originator's local optimistic state, which gets corrected on the next
+reconciliation pass.
 
 ### Health
 
@@ -303,7 +342,143 @@ Sent periodically (~10s). Host uses it to detect weak links and surface the
 { "kind": "ping", "peerId": "<sender>", "seq": ..., "atMs": ..., "v": 1 }
 ```
 
-Sent every ~5s. Host considers a peer dropped after 3 missed pings.
+Heartbeats sit on the same `kind` in both directions:
+
+- **Guest → host**: sent every ~5 s.
+- **Host → all guests**: a `ping` echo on RESPONSE every ~5 s, so guests
+  can detect a dead host. (Guests don't keep state for each other; the
+  star topology means a missing peer is the host's roster problem.)
+
+**Dirty-disconnect handling** — the dropout case where neither side gets
+a clean `Leave`:
+
+- **Host side**: track `lastPingAt[peerId]`. If 3 successive expected
+  pings are missed (~15 s elapsed since the last arrival), treat the peer
+  as dropped: tear down their GATT + L2CAP links, drop them from the
+  roster, and emit a `roster_update` to remaining guests.
+- **Guest side**: track `lastHostPingAt`. If 3 successive host pings are
+  missed (~15 s), treat it as a host-down: tear down the local links,
+  return to Discovery, surface a *Lost connection* toast.
+
+Clean disconnects (the `Leave` / `RemovePeer` flow) remain the happy
+path; this is the safety net for distance, interference, or a phone
+going into a tunnel.
+
+## Voice plane
+
+Voice rides on **L2CAP CoC** (Connection-oriented Channel) — a stream-shaped
+transport on Bluetooth LE that carries arbitrary bytes. Each peer encodes its
+mic input with **Opus** and writes frames to the host; the host runs the
+mix-minus engine and writes per-guest mixed output back over the guest's CoC.
+
+### Why L2CAP + Opus, not LE Audio
+
+LE Audio CIS / BIS would have been the obvious choice, but consumer Android
+phones are LE Audio **sources** — the broadcast-receiver side (Auracast sink)
+is rare hardware on phones. A phone-to-phone LE Audio broadcast doesn't work
+in practice. L2CAP CoC carries opaque bytes, so we encode voice ourselves
+(Opus, narrowband / wideband, 20-ms frames) and write the chunks. L2CAP CoC
+is the v1 voice transport — non-CoC transports (RFCOMM, Bluetooth Classic
+SCO/HFP, etc.) are out of scope.
+
+### PSM negotiation
+
+L2CAP PSMs in the range `0x0080` to `0x00FF` are dynamic — assigned by the application at runtime for LE CoC. LE-CoC dynamic PSMs **must be odd** (least-significant bit set) per the LE L2CAP spec. The host binds its
+voice server to a free dynamic PSM at room-create time, and includes it in
+the [`join_accepted`](#join_accepted-host--guest) message under `voicePsm`.
+The guest opens its CoC to that PSM after `JoinAccepted` lands. A `voicePsm`
+outside the valid range or with the LSB clear is a protocol violation;
+guests should treat it as `version_mismatch`-equivalent and disconnect.
+
+### Codec parameters (recommended)
+
+| parameter   | value                                                |
+| ----------- | ---------------------------------------------------- |
+| codec       | Opus                                                 |
+| application | `OPUS_APPLICATION_VOIP`                              |
+| sample rate | 16 kHz (wideband)                                    |
+| channels    | 1 (mono)                                             |
+| frame size  | 20 ms (320 samples per frame)                        |
+| bitrate     | 24 kbps                                              |
+
+24 kbps × 1 stream per peer × ≤12 peers ≈ 290 kbps aggregate at the host.
+Comfortably under L2CAP throughput on any LE 4.2+ device.
+
+### Voice frame format
+
+Each L2CAP write is a single Opus frame prefixed with an 8-byte header (MTU **MUST** be ≥ 128 bytes):
+
+| offset | bytes | meaning                                                       |
+| ------ | ----- | ------------------------------------------------------------- |
+| 0      | 4     | `seq` — per-link monotonic uint32, big-endian                 |
+| 4      | 4     | `senderTsMs` — sender's ms-since-epoch low 32 bits, big-endian |
+| 8      | N     | Opus frame payload                                            |
+
+`peerId` is **not** in the header — each L2CAP CoC is dedicated to a single
+peer (the connection identifies the sender). On the receive side, the host
+maps `connection → peerId` via the GATT join handshake.
+
+`seq` lets the receiver detect drops and reorder a small re-ordering window.
+After 16 consecutive missed sequence numbers from a peer, the host stops
+mixing that peer's stream until the next valid frame arrives — protects
+against a stuck producer poisoning the mix.
+
+`senderTsMs` is wall-clock at encode time; combined with `seq`, the host can
+estimate jitter and drop frames whose decode would only land after their
+audible window has passed. Specific jitter buffer sizing is implementation,
+not protocol.
+
+### Mix-minus
+
+The host runs the matrix:
+
+```text
+output_to_guest_X  =  Σ (frame_from_guest_Y for all Y ≠ X)
+                   +  host_local_mic_frame      // when host is unmuted
+```
+
+Plus optional shared media bed (per the README — the host's media output is
+mixed in on the guest side, not the host side, since each peer plays their
+own copy of the media).
+
+### Foreground service (Android)
+
+To keep the mic alive when the screen is off or the phone is in a jersey
+pocket, the native voice service on Android **MUST** run as a foreground
+`Service` with a persistent notification. The notification surfaces the
+current frequency and an explicit *Leave* action; otherwise the OS will
+aggressively kill the background audio capture under modern doze
+restrictions. `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` are
+declared in the manifest already.
+
+## Reconnect and reconciliation
+
+Bluetooth links break — distance, interference, a phone going into a tunnel,
+the OS killing a background app on a phone with aggressive memory policy.
+The protocol expects this and reconverges automatically.
+
+**Detection.** Either side notices a missing heartbeat (see
+[§ Health](#ping-peer--host)) and tears down its local links.
+
+**Recovery.** The original room screen drops back to Discovery on the guest
+side, where the user can tap *Tune in* again — at which point the GATT
+handshake repeats and the host's `JoinAccepted` carries the **fresh**
+`mediaState` (current track, exact `positionMs`, `playing` flag) along with
+the current roster. The guest applies `mediaState` immediately:
+
+- Switches its local source to `mediaState.source`.
+- Seeks the local player to `mediaState.positionMs`.
+- Resumes playback if `mediaState.playing == true`.
+
+This is the same field that ships in every `JoinAccepted`; it's not a
+special "rejoin" payload. The reconciliation guarantee is therefore:
+**any successful join brings the joiner into sync with whatever the host
+considers current**, whether it's a first-launch `Tune in` or a re-tune
+after a dropout.
+
+Voice and control sequence counters reset on reconnect — receivers clear
+their `lastSeq[peerId]` table for that peer (see
+[§ Sequence numbers and idempotency](#sequence-numbers-and-idempotency)).
 
 ## Walk-through: host advertise → guest tune in
 
@@ -341,8 +516,9 @@ update mediaState
                               ──────► RosterUpdate (RESPONSE notify)
 ```
 
-Voice is brought up *after* `JoinAccepted` by the native LE Audio layer; the
-control plane carries the announcement that voice is now expected.
+Voice is brought up *after* `JoinAccepted` by the guest opening an L2CAP CoC
+to the `voicePsm` the host advertised in that message. The control plane
+carries the announcement; the voice plane carries the bytes.
 
 ## Sequence numbers and idempotency
 
@@ -366,25 +542,35 @@ This handles BLE's at-least-once write semantics without app-level acks.
 
 ## Out of scope
 
-- **Voice transport.** LE Audio CIS / BIS setup is native (Kotlin). The
-  control plane only signals when voice is expected.
 - **Encryption / authentication.** Link-layer LE pairing is enough for v1.
   App-level signing of messages is a v2 concern.
 - **Host handover.** v1: host leaves → channel ends, all guests return to
   Discovery. v2 will pick the longest-connected guest as new host.
-- **Mix-minus.** The host's responsibility, native side. Each guest's voice
-  packet is broadcast to all *other* guests; the originator hears only what
-  others say.
-- **Beyond 12 peers.** The roster/media JSON envelope assumes ≤12 peers
+- **Jitter buffer sizing, FEC, stereo voice.** The voice plane specifies
+  the wire (Opus over L2CAP) but leaves the receive-side reconstruction
+  details to the implementation. The README's "incredibly user-friendly"
+  goal is satisfied by the recommended Opus parameters; tuning lives
+  outside the contract.
+- **Beyond 12 peers.** The roster / media JSON envelope assumes ≤12 peers
   (the design's max group size). Larger groups need a different framing.
+  The voice plane scales linearly at the host; ~290 kbps for 12 peers at
+  24 kbps is comfortable, but mix-minus CPU load grows quadratically and
+  needs profiling before raising the cap.
 
 ## Versioning
 
-This document is **v1**. The `v: 1` field on every message and the
-`version: 0x01` byte in advertising data identify the wire format.
+This document is **v1**. The `v: 1` field on every control message and the
+`version: 0x01` byte in advertising data identify the wire format. The voice
+plane has no per-frame version byte; the `voicePsm` advertised in
+`JoinAccepted` is the coordination point — a v2 host can publish a different
+PSM semantic and gate it on a future `voiceVersion` field.
 
 A v2 protocol must:
 
 1. Bump the version byte in advertising, so v1 scanners don't try to join.
 2. Either keep `v=1` messages decodable for graceful overlap, or set
    `version_mismatch` on `join_denied`.
+3. If the voice plane changes shape (different codec, different framing),
+   add a `voiceVersion` field to `join_accepted` so guests can refuse to
+   open the L2CAP CoC against an incompatible host instead of streaming
+   garbage.

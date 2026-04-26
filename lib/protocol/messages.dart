@@ -241,6 +241,13 @@ final class JoinAccepted extends FrequencyMessage {
   final List<ProtocolPeer> roster;
   final MediaState? mediaState;
 
+  /// Dynamic LE-CoC PSM (`0x0080`–`0x00FF`, odd) the host's voice server is
+  /// bound to. Guests open an L2CAP CoC to this PSM after `JoinAccepted`
+  /// lands. Optional on the wire — null means voice isn't available yet
+  /// (e.g. the host is a control-plane-only build), and the guest stays
+  /// silent until/unless a future message provides one.
+  final int? voicePsm;
+
   const JoinAccepted({
     required super.peerId,
     required super.seq,
@@ -248,7 +255,11 @@ final class JoinAccepted extends FrequencyMessage {
     required this.hostPeerId,
     required this.roster,
     this.mediaState,
-  });
+    this.voicePsm,
+  }) : assert(
+          voicePsm == null || (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
+          'voicePsm must be odd and in range 0x0080-0x00FF',
+        );
 
   @override
   String get kind => 'join_accepted';
@@ -259,20 +270,38 @@ final class JoinAccepted extends FrequencyMessage {
         'hostPeerId': hostPeerId,
         'roster': roster.map((p) => p.toJson()).toList(),
         if (mediaState != null) 'mediaState': mediaState!.toJson(),
+        if (voicePsm != null) 'voicePsm': voicePsm,
       };
 
-  factory JoinAccepted._fromJson(Map<String, dynamic> j) => JoinAccepted(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        hostPeerId: j['hostPeerId'] as String,
-        roster: _parseRoster(j['roster']),
-        mediaState: j['mediaState'] == null
-            ? null
-            : MediaState.fromJson(
-                Map<String, dynamic>.from(j['mediaState'] as Map),
-              ),
-      );
+  factory JoinAccepted._fromJson(Map<String, dynamic> j) {
+    final rawVoicePsm = j['voicePsm'];
+    int? voicePsm;
+    if (rawVoicePsm != null) {
+      if (rawVoicePsm is! int) {
+        throw const FormatException('`voicePsm` must be an int when present');
+      }
+      voicePsm = rawVoicePsm;
+      if (voicePsm < 0x80 || voicePsm > 0xFF || voicePsm % 2 == 0) {
+        throw FormatException(
+          'Invalid voicePsm: $voicePsm (must be odd and in range 0x0080-0x00FF)',
+        );
+      }
+    }
+
+    return JoinAccepted(
+      peerId: j['peerId'] as String,
+      seq: j['seq'] as int,
+      atMs: j['atMs'] as int,
+      hostPeerId: j['hostPeerId'] as String,
+      roster: _parseRoster(j['roster']),
+      mediaState: j['mediaState'] == null
+          ? null
+          : MediaState.fromJson(
+              Map<String, dynamic>.from(j['mediaState'] as Map),
+            ),
+      voicePsm: voicePsm,
+    );
+  }
 }
 
 final class JoinDenied extends FrequencyMessage {

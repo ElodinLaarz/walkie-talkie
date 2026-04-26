@@ -125,6 +125,50 @@ void main() {
       expect(round.mediaState?.trackIdx, 2);
     });
 
+    test('JoinAccepted carries voicePsm when set, omits it on the wire when null',
+        () {
+      // Set: 129 = 0x81, the lowest valid odd dynamic LE-CoC PSM.
+      final withPsm = JoinAccepted(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 1234,
+        hostPeerId: 'p-host',
+        roster: const [],
+        voicePsm: 129,
+      );
+      final round = _roundTrip(withPsm);
+      expect(round.voicePsm, 129);
+
+      // Null: field is absent on the wire, parses back to null.
+      final withoutPsm = JoinAccepted(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 1234,
+        hostPeerId: 'p-host',
+        roster: const [],
+      );
+      final json = jsonDecode(withoutPsm.encode()) as Map<String, dynamic>;
+      expect(json.containsKey('voicePsm'), isFalse);
+      expect(_roundTrip(withoutPsm).voicePsm, isNull);
+    });
+
+    test('JoinAccepted rejects invalid voicePsm values', () {
+      const base =
+          '{"kind":"join_accepted","peerId":"p-host","seq":7,"atMs":1234,"v":1,"hostPeerId":"p-host","roster":[]}';
+
+      final evenPsm = base.replaceFirst('}', ',"voicePsm":128}');
+      final outOfRangeLow = base.replaceFirst('}', ',"voicePsm":127}');
+      final outOfRangeHigh = base.replaceFirst('}', ',"voicePsm":256}');
+      final stringPsm = base.replaceFirst('}', ',"voicePsm":"129"}');
+      final floatPsm = base.replaceFirst('}', ',"voicePsm":129.0}');
+
+      expect(() => FrequencyMessage.decode(evenPsm), throwsFormatException);
+      expect(() => FrequencyMessage.decode(outOfRangeLow), throwsFormatException);
+      expect(() => FrequencyMessage.decode(outOfRangeHigh), throwsFormatException);
+      expect(() => FrequencyMessage.decode(stringPsm), throwsFormatException);
+      expect(() => FrequencyMessage.decode(floatPsm), throwsFormatException);
+    });
+
     test('JoinDenied carries reason as wire string', () {
       const msg = JoinDenied(
         peerId: 'p-host',
