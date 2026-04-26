@@ -221,7 +221,8 @@ Guest **MUST** wait for the response before sending any further messages.
   `JoinAccepted` lands; see [§ Voice plane](#voice-plane). If absent, join still
   succeeds for control-plane behavior and the guest stays voice-silent.
 
-Guest uses these to render the room screen and start streaming voice.
+Guest uses these to render the room screen and, when `voicePsm` is present,
+start streaming voice.
 
 #### `join_denied` (host → guest)
 

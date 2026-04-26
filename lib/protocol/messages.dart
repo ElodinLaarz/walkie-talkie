@@ -274,8 +274,13 @@ final class JoinAccepted extends FrequencyMessage {
       };
 
   factory JoinAccepted._fromJson(Map<String, dynamic> j) {
-    final voicePsm = j['voicePsm'] as int?;
-    if (voicePsm != null) {
+    final rawVoicePsm = j['voicePsm'];
+    int? voicePsm;
+    if (rawVoicePsm != null) {
+      if (rawVoicePsm is! int) {
+        throw const FormatException('`voicePsm` must be an int when present');
+      }
+      voicePsm = rawVoicePsm;
       if (voicePsm < 0x80 || voicePsm > 0xFF || voicePsm % 2 == 0) {
         throw FormatException(
           'Invalid voicePsm: $voicePsm (must be odd and in range 0x0080-0x00FF)',

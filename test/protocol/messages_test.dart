@@ -159,10 +159,14 @@ void main() {
       final evenPsm = base.replaceFirst('}', ',"voicePsm":128}');
       final outOfRangeLow = base.replaceFirst('}', ',"voicePsm":127}');
       final outOfRangeHigh = base.replaceFirst('}', ',"voicePsm":256}');
+      final stringPsm = base.replaceFirst('}', ',"voicePsm":"129"}');
+      final floatPsm = base.replaceFirst('}', ',"voicePsm":129.0}');
 
       expect(() => FrequencyMessage.decode(evenPsm), throwsFormatException);
       expect(() => FrequencyMessage.decode(outOfRangeLow), throwsFormatException);
       expect(() => FrequencyMessage.decode(outOfRangeHigh), throwsFormatException);
+      expect(() => FrequencyMessage.decode(stringPsm), throwsFormatException);
+      expect(() => FrequencyMessage.decode(floatPsm), throwsFormatException);
     });
 
     test('JoinDenied carries reason as wire string', () {
