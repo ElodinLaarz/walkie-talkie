@@ -331,5 +331,66 @@ void main() {
 
       expect(leaveCount, 1);
     });
+
+    testWidgets(
+      'applyJoinAccepted snapshot seeds the local player on rejoin',
+      (tester) async {
+        // Real cubit so the BlocListener actually reacts to state changes.
+        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        addTearDown(cubit.close);
+
+        // Pretend the user already tuned in to a music room.
+        cubit
+          ..emit(const SessionDiscovery(myName: 'Caleb'))
+          ..joinRoom(freq: '104.3', isHost: false);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Initial render — no snapshot, screen shows the music queue's
+        // first track.
+        expect(find.text('Nightsong'), findsOneWidget);
+
+        // Host's JoinAccepted lands; mediaState says we're 91s into track #2.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            source: 'YouTube Music',
+            trackIdx: 1,
+            playing: false,
+            positionMs: 91000,
+          ),
+        ));
+        await tester.pump();
+
+        // Now showing the second track in the queue, paused, scrubbed in.
+        expect(find.text('Nightsong'), findsNothing);
+        expect(find.text('Soft Fascination'), findsOneWidget);
+        expect(find.text('Paused'), findsOneWidget);
+      },
+    );
   });
+}
+
+class _MemoryStore implements IdentityStore {
+  String? _name;
+  String? _peerId;
+
+  _MemoryStore({String? displayName}) : _name = displayName;
+
+  @override
+  Future<String?> getDisplayName() async => _name;
+
+  @override
+  Future<void> setDisplayName(String value) async {
+    final trimmed = value.trim();
+    _name = trimmed.isEmpty ? null : trimmed;
+  }
+
+  @override
+  Future<String> getPeerId() async => _peerId ??= 'me-peer-id';
 }
