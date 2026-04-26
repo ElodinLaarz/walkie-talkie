@@ -1,21 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:walkie_talkie/bloc/discovery_cubit.dart';
+import 'package:walkie_talkie/bloc/discovery_state.dart';
 import 'package:walkie_talkie/screens/frequency_discovery_screen.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 
-Widget _wrap(Widget child) => MaterialApp(
-      theme: AppTheme.light(),
-      // Pin viewInsets to zero ABOVE the navigator so it propagates to modal
-      // routes too. The Discovery screen's rename sheet adds
-      // `viewInsets.bottom` to its padding for production ergonomics, and the
-      // test environment injects a non-zero inset when the focused TextField
-      // mounts that would otherwise push the Save button below the screen.
-      builder: (context, navigator) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
+class MockDiscoveryCubit extends Mock implements DiscoveryCubit {}
+
+Widget _wrap(Widget child, {DiscoveryCubit? cubit}) {
+  final mockCubit = cubit ?? MockDiscoveryCubit();
+  if (cubit == null) {
+    when(() => mockCubit.state).thenReturn(DiscoveryInitial());
+    when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
+    when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+    when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+    when(() => mockCubit.close()).thenAnswer((_) async {});
+  }
+
+  return MaterialApp(
+    theme: AppTheme.light(),
+    builder: (context, navigator) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
+      child: BlocProvider<DiscoveryCubit>.value(
+        value: mockCubit,
         child: navigator!,
       ),
-      home: child,
-    );
+    ),
+    home: child,
+  );
+}
 
 /// The Discovery screen runs a perpetual `PulseDot` animation, so
 /// `pumpAndSettle` would time out. Pump for a fixed window long enough to
