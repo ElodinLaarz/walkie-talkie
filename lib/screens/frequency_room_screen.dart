@@ -202,9 +202,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // the next [_onMediaCommand], which sets state itself.
       _myPeerId = peerId;
     } catch (_) {
-      // Identity store failure is non-fatal here: attribution falls back
-      // to "remote sender" until/unless the read succeeds on a later
-      // command, which doesn't matter for in-frame UX.
+      // Identity store failure is non-fatal here: if this one-time read
+      // fails, attribution falls back to "remote sender" for this
+      // screen session, which doesn't matter for in-frame UX.
     }
   }
 
