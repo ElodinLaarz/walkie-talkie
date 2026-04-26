@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -67,7 +68,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   @override
   void dispose() {
     // Ensure we stop scanning when leaving the discovery screen.
-    _cubit?.stopDiscovery();
+    if (_cubit != null) unawaited(_cubit!.stopDiscovery());
     super.dispose();
   }
 
