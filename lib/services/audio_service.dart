@@ -92,12 +92,13 @@ class AudioService {
   /// down between toggles.
   ///
   /// Returns false if the native side rejects the request (permissions
-  /// denied, no L2CAP link, AudioRecord init failure). The Dart side logs
-  /// and surfaces the failure to the UI; it doesn't retry.
+  /// denied, no L2CAP link, AudioRecord init failure) or if the platform
+  /// call throws. Logs the failure; callers are responsible for any
+  /// user-visible error handling. Does not retry.
   Future<bool> startVoice() async {
     try {
       final result = await _methodChannel.invokeMethod('startVoice');
-      return result as bool;
+      return result == true;
     } catch (e) {
       debugPrint('Error starting voice: $e');
       return false;
@@ -110,7 +111,7 @@ class AudioService {
   Future<bool> stopVoice() async {
     try {
       final result = await _methodChannel.invokeMethod('stopVoice');
-      return result as bool;
+      return result == true;
     } catch (e) {
       debugPrint('Error stopping voice: $e');
       return false;
@@ -132,7 +133,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('setMuted', {
         'muted': muted,
       });
-      return result as bool;
+      return result == true;
     } catch (e) {
       debugPrint('Error setting mute state: $e');
       return false;

@@ -151,8 +151,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // sequence matters: pushing `setMuted` before `startVoice` finishes
     // would race the encoder init on slower devices and the first toggle
     // would silently no-op.
+    //
+    // The `mounted` check guards against the user leaving the room before
+    // startVoice resolves — without it, the trailing setMuted would land
+    // after dispose has fired stopVoice and tell a torn-down engine to
+    // mute itself.
     final initialMuted = _meEffectivelyMuted;
     unawaited(_audio.startVoice().then((_) {
+      if (!mounted) return;
       _audio.setMuted(initialMuted);
     }));
 

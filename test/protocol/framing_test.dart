@@ -27,14 +27,19 @@ void main() {
     test('a message one byte over fragment payload spills to a second fragment',
         () {
       final json = 'a' * (kMaxFragmentPayloadSize + 1);
+      // total_len is wire bytes (UTF-8), not Dart's UTF-16 code-unit count.
+      // For the all-ASCII fixture they happen to coincide, but the assertion
+      // should compare against bytes so it stays correct if the fixture
+      // ever grows non-ASCII.
+      final totalLen = utf8.encode(json).length;
       final fragments = encodeFragments(json);
       expect(fragments, hasLength(2));
       // First fragment full, second carries one byte of payload.
       expect(fragments[0].length, kMaxFragmentSize);
       expect(fragments[1].length, kFragmentHeaderSize + 1);
       // total_len header is identical across fragments and matches the input.
-      expect((fragments[0][1] << 8) | fragments[0][2], json.length);
-      expect((fragments[1][1] << 8) | fragments[1][2], json.length);
+      expect((fragments[0][1] << 8) | fragments[0][2], totalLen);
+      expect((fragments[1][1] << 8) | fragments[1][2], totalLen);
       // fragment_idx increments.
       expect(fragments[0][3], 0);
       expect(fragments[1][3], 1);
@@ -77,12 +82,14 @@ void main() {
       expect(() => encodeFragments(tooBig), throwsFormatException);
     });
 
-    test('multibyte UTF-8 sequences are not split mid-codepoint', () {
+    test('multibyte UTF-8 sequences reassemble correctly across fragment boundaries',
+        () {
       // Build a message that puts a 2-byte UTF-8 sequence ('é' = 0xC3 0xA9)
-      // straddling a fragment boundary in JSON-byte space. The reassembler's
-      // utf8.decode at the end ties the bytes back together — this just
-      // proves we don't accidentally chunk by characters and corrupt the
-      // sequence count.
+      // straddling a fragment boundary in JSON-byte space. Fragmentation
+      // operates on bytes (it must — we can't peek at codepoint structure
+      // through the GATT MTU) and the reassembler's utf8.decode at the
+      // end stitches the codepoint back together. Regression guard
+      // against anyone "fixing" the splitter to be character-aware.
       final junk = 'a' * (kMaxFragmentPayloadSize - 1);
       final json = '$junké$junk';
       final fragments = encodeFragments(json);

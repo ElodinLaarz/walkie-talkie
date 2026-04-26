@@ -142,7 +142,10 @@ class UnexpectedFragmentIndex extends FragmentError {
 class FragmentReassembler {
   int? _expectedTotalLen;
   int _nextIdx = 0;
-  final BytesBuilder _buffer = BytesBuilder(copy: false);
+  // Default-mode (copying) BytesBuilder: BLE callers commonly reuse
+  // packet buffers, so a non-copying view would corrupt our reassembly
+  // state out from under us. The copy is ≤4 KiB per message — cheap.
+  final BytesBuilder _buffer = BytesBuilder();
 
   /// Reset to an empty in-flight message. Useful when the underlying link
   /// drops mid-message and the receiver needs to discard the partial buffer
