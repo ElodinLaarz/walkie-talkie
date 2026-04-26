@@ -31,15 +31,14 @@ class VoiceFrame {
   final int senderTsMs;
   final Uint8List payload;
 
-  const VoiceFrame({
+  VoiceFrame({
     required this.seq,
     required this.senderTsMs,
     required this.payload,
-  })  : assert(seq >= 0 && seq <= 0xFFFFFFFF, 'seq must be a uint32'),
-        assert(
-          senderTsMs >= 0 && senderTsMs <= 0xFFFFFFFF,
-          'senderTsMs must be a uint32',
-        );
+  }) {
+    RangeError.checkValueInInterval(seq, 0, 0xFFFFFFFF, 'seq');
+    RangeError.checkValueInInterval(senderTsMs, 0, 0xFFFFFFFF, 'senderTsMs');
+  }
 
   /// Serialises to the 8-byte header followed by the Opus payload.
   Uint8List encode() {
@@ -80,7 +79,7 @@ class VoiceFrame {
     return VoiceFrame(
       seq: seq,
       senderTsMs: senderTsMs,
-      payload: Uint8List.sublistView(bytes, kVoiceHeaderSize),
+      payload: Uint8List.fromList(bytes.sublist(kVoiceHeaderSize)),
     );
   }
 

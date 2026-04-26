@@ -106,5 +106,42 @@ void main() {
     test('kVoiceMtu is at least 128', () {
       expect(kVoiceMtu, greaterThanOrEqualTo(128));
     });
+
+    test('constructor throws RangeError for seq > 0xFFFFFFFF', () {
+      expect(
+        () => VoiceFrame(
+          seq: 0x100000000,
+          senderTsMs: 0,
+          payload: Uint8List.fromList([0x01]),
+        ),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
+    test('constructor throws RangeError for negative seq', () {
+      expect(
+        () => VoiceFrame(
+          seq: -1,
+          senderTsMs: 0,
+          payload: Uint8List.fromList([0x01]),
+        ),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
+    test('decode returns a copy independent of the source buffer', () {
+      final buf = Uint8List(kVoiceHeaderSize + 2);
+      final view = ByteData.sublistView(buf);
+      view.setUint32(0, 1, Endian.big);
+      view.setUint32(4, 2, Endian.big);
+      buf[kVoiceHeaderSize] = 0xAB;
+      buf[kVoiceHeaderSize + 1] = 0xCD;
+
+      final frame = VoiceFrame.decode(buf);
+      // Mutate the source buffer after decode.
+      buf[kVoiceHeaderSize] = 0xFF;
+      // The frame's payload must not reflect the mutation.
+      expect(frame.payload[0], 0xAB);
+    });
   });
 }
