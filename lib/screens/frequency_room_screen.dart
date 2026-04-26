@@ -91,6 +91,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// player's own progress on every one of those.
   MediaState? _appliedSnapshot;
 
+  /// One-shot guard for the initial snapshot read in
+  /// [didChangeDependencies]. Subsequent rejoin snapshots come through
+  /// the `BlocListener` in [build].
+  bool _didReadInitialSnapshot = false;
+
   int _trackIdx = 0;
   bool _playing = true;
   int _progress = 37;
@@ -167,11 +172,16 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     final cubit = context.read<FrequencySessionCubit>();
     _mediaSub ??= cubit.mediaCommands.listen(_onMediaCommand);
     // Apply any mediaState snapshot that landed in `JoinAccepted` before
-    // this screen mounted. Subsequent snapshots (from `applyJoinAccepted`
-    // on rejoin) are picked up by the BlocListener in `build`.
-    final current = cubit.state;
-    if (current is SessionRoom && current.mediaState != null) {
-      _applyMediaSnapshot(current.mediaState!);
+    // this screen mounted. Gated by a one-shot so theme/locale-driven
+    // re-fires of `didChangeDependencies` don't yank the player back —
+    // rejoin updates after this point arrive via the BlocListener in
+    // [build].
+    if (!_didReadInitialSnapshot) {
+      _didReadInitialSnapshot = true;
+      final current = cubit.state;
+      if (current is SessionRoom && current.mediaState != null) {
+        _applyMediaSnapshot(current.mediaState!);
+      }
     }
   }
 

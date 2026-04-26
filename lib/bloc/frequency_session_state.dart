@@ -56,10 +56,17 @@ final class SessionRoom extends FrequencySessionState {
   /// Latest roster snapshot from the host. Empty until handshake.
   final List<ProtocolPeer> roster;
 
-  /// Snapshot of what's playing as of the most recent host message
-  /// (`JoinAccepted` or echoed `MediaCommand`). Null until set —
-  /// guests treat null as "host hasn't told me yet, render the local
-  /// queue's first track and wait for the snapshot to land."
+  /// Snapshot of what's playing as established by `JoinAccepted` (or
+  /// self-seeded for hosts). Null until set — guests treat null as
+  /// "host hasn't told me yet, render the local queue's first track
+  /// and wait for the snapshot to land."
+  ///
+  /// This field is **not** advanced by later echoed `MediaCommand`s in
+  /// the current implementation: the cubit lacks queue access and
+  /// can't correctly resolve trackIdx for `skip` / `prev`. The room
+  /// screen owns queue-aware advancement and treats this as the
+  /// initial / rejoin reseed only. See `applyHostMediaEcho` for the
+  /// rationale.
   final MediaState? mediaState;
 
   const SessionRoom({

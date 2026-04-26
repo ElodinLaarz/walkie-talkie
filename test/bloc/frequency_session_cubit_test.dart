@@ -331,6 +331,52 @@ void main() {
       },
     );
 
+    test('applyJoinAccepted after close is a silent no-op', () async {
+      // BLE callbacks can fire after the user navigates away and the
+      // cubit closes; we shouldn't throw on a post-dispose emit.
+      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+      await cubit.close();
+
+      expect(
+        () => cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+        )),
+        returnsNormally,
+      );
+    });
+
+    test('applyHostMediaEcho after close is a silent no-op', () async {
+      // Same shape: a late RESPONSE-notify shouldn't throw
+      // `Bad state: Cannot add new events after calling close`.
+      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+      await cubit.close();
+
+      expect(
+        () => cubit.applyHostMediaEcho(const MediaCommand(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          op: MediaOp.play,
+          source: 'YouTube Music',
+        )),
+        returnsNormally,
+      );
+    });
+
     test('applyHostMediaEcho outside SessionRoom is a no-op', () async {
       final cubit = FrequencySessionCubit(identityStore: _FakeStore());
       // No room emitted; we're sitting in Booting.

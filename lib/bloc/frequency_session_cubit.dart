@@ -144,12 +144,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Apply a `JoinAccepted` from the host. Replaces the room's snapshot
   /// (roster + hostPeerId + mediaState) with the host's view of the
   /// world, and resets the per-link sequence counter — both halves of
-  /// the protocol's reconnect contract. No-op outside `SessionRoom`.
+  /// the protocol's reconnect contract. No-op outside `SessionRoom`,
+  /// or after the cubit is closed (BLE callbacks can fire post-dispose).
   ///
   /// On the guest side, the room screen reacts to the new `mediaState`
   /// by seeking the local player and resuming if `playing == true`,
   /// satisfying the rejoin smoke-test acceptance criterion.
   void applyJoinAccepted(JoinAccepted msg) {
+    if (isClosed) return;
     final current = state;
     if (current is! SessionRoom) return;
     _seq = 0;
@@ -201,8 +203,19 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Re-emits on [mediaCommands] with the host's `peerId` so UI
   /// listeners can render "X paused" attribution from the echo.
   ///
-  /// No-op outside `SessionRoom`.
+  /// **What this method does *not* do.** It does not advance
+  /// `SessionRoom.mediaState`. The cubit doesn't have access to the
+  /// queue (`MediaSourceLib.queue.length`), so it can't correctly
+  /// resolve the trackIdx for `skip` / `prev`. The room screen owns
+  /// queue-aware advancement; the cubit's `mediaState` is the
+  /// `JoinAccepted` bootstrap snapshot only. Once the BLE host
+  /// implementation lands, the host side will track canonical
+  /// mediaState (with queue access) and snapshot it into every
+  /// outgoing `JoinAccepted` for guests to seed from.
+  ///
+  /// No-op outside `SessionRoom`, or after the cubit is closed.
   void applyHostMediaEcho(MediaCommand cmd) {
+    if (isClosed) return;
     final current = state;
     if (current is! SessionRoom) return;
     _mediaCommandsController.add(cmd);
