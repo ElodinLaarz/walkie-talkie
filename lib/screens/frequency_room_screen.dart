@@ -78,12 +78,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   final Set<String> _peerMuted = {};
   final Set<String> _removed = {};
 
-  String? _talkingId;
+  Set<String> _talkingPeerIds = {};
   Timer? _talkTicker;
   Timer? _progressTimer;
   Timer? _hostJoinDemoTimer;
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
+  StreamSubscription<Set<String>>? _talkingPeersSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -156,11 +157,17 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // startVoice resolves — without it, the trailing setMuted would land
     // after dispose has fired stopVoice and tell a torn-down engine to
     // mute itself.
-    final initialMuted = _meEffectivelyMuted;
-    unawaited(_audio.startVoice().then((_) {
-      if (!mounted) return;
-      _audio.setMuted(initialMuted);
-    }));
+    unawaited(() async {
+      final started = await _audio.startVoice();
+      if (!mounted || !started) return;
+      // Read _meEffectivelyMuted after the await so any toggle the user made
+      // during the async call is reflected rather than a stale snapshot.
+      await _audio.setMuted(_meEffectivelyMuted);
+    }());
+
+    // Subscribe to native talking-state events so the VU rings for remote
+    // peers reflect reality once BLE audio transport lands.
+    _talkingPeersSub = _audio.talkingPeers.listen(_onNativeTalkingPeers);
 
     _resolveMyPeerId();
     _startTalkSimulation();
@@ -292,8 +299,26 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _hostJoinDemoTimer?.cancel();
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
+    _talkingPeersSub?.cancel();
     unawaited(_audio.stopVoice());
     super.dispose();
+  }
+
+  /// Called when the native layer reports a change in which peers are
+  /// transmitting audio. The `'local'` sentinel represents this device's
+  /// mic — already reflected in [_meEffectivelyMuted], so it's excluded
+  /// here. Non-local IDs drive the talking VU rings for remote peers.
+  ///
+  /// Once real native events arrive, the demo simulation is stopped so it
+  /// can't clobber the authoritative state.
+  void _onNativeTalkingPeers(Set<String> peers) {
+    if (!mounted) return;
+    // Native has taken over — cancel the placeholder simulation.
+    _talkTicker?.cancel();
+    _talkTicker = null;
+    setState(() {
+      _talkingPeerIds = peers.where((id) => id != 'local').toSet();
+    });
   }
 
   /// Open-mic mute toggle. Updates the local UI state and pushes the new
@@ -390,12 +415,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           .map((p) => p.id)
           .toList();
       setState(() {
-        if (active.isEmpty) {
-          _talkingId = null;
-        } else if (Random().nextDouble() < 0.3) {
-          _talkingId = null;
+        if (active.isEmpty || Random().nextDouble() < 0.3) {
+          _talkingPeerIds = {};
         } else {
-          _talkingId = active[Random().nextInt(active.length)];
+          _talkingPeerIds = {active[Random().nextInt(active.length)]};
         }
       });
     });
@@ -531,7 +554,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                               key: ValueKey(peers[i].id),
                               person: peers[i],
                               first: i == 0,
-                              talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
+                              talking: _talkingPeerIds.contains(peers[i].id) && !_peerMuted.contains(peers[i].id),
                               muted: _peerMuted.contains(peers[i].id),
                               volume: _volumes[peers[i].id]!,
                               onTap: () => _showPeerDrawer(peers[i]),
@@ -626,7 +649,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         children: [
           FreqAvatar(
             person: _me,
-            talking: !_meEffectivelyMuted && _holdingPtt,
+            talking: !_meEffectivelyMuted,
             muted: _meEffectivelyMuted,
           ),
           const SizedBox(width: 12),

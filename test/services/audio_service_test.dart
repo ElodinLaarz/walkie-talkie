@@ -128,5 +128,58 @@ void main() {
         ]);
       },
     );
+
+    test('talkingPeers maps native events to peer ID sets', () async {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+
+      // Grab the codec the EventChannel registered so we can send events.
+      final codec = const StandardMethodCodec();
+
+      // Collect emitted peer sets.
+      final received = <Set<String>>[];
+      final sub = audioService.talkingPeers.listen(received.add);
+      addTearDown(sub.cancel);
+
+      // Simulate native emitting talkingPeers with the local sentinel.
+      final binding = TestDefaultBinaryMessengerBinding.instance;
+      binding.defaultBinaryMessenger.handlePlatformMessage(
+        eventChannelName,
+        codec.encodeSuccessEnvelope({'type': 'talkingPeers', 'peers': ['local']}),
+        (_) {},
+      );
+      await Future<void>.microtask(() {});
+
+      // Simulate native emitting an empty set (local stops talking).
+      binding.defaultBinaryMessenger.handlePlatformMessage(
+        eventChannelName,
+        codec.encodeSuccessEnvelope({'type': 'talkingPeers', 'peers': <String>[]}),
+        (_) {},
+      );
+      await Future<void>.microtask(() {});
+
+      expect(received, [
+        {'local'},
+        <String>{},
+      ]);
+    });
+
+    test('talkingPeers ignores unrelated native events', () async {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+      final codec = const StandardMethodCodec();
+
+      final received = <Set<String>>[];
+      final sub = audioService.talkingPeers.listen(received.add);
+      addTearDown(sub.cancel);
+
+      final binding = TestDefaultBinaryMessengerBinding.instance;
+      binding.defaultBinaryMessenger.handlePlatformMessage(
+        eventChannelName,
+        codec.encodeSuccessEnvelope({'type': 'deviceConnected', 'address': 'AA:BB'}),
+        (_) {},
+      );
+      await Future<void>.microtask(() {});
+
+      expect(received, isEmpty);
+    });
   });
 }

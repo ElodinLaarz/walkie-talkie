@@ -48,10 +48,22 @@ class AudioEngineManager {
     fun playAudioData(audioData: ShortArray) {
         nativePlayAudioData(audioData)
     }
-    
+
+    /**
+     * Gate whether captured mic frames are sent to the mixer / transport.
+     * Keeps streams warm so unmuting is instant.
+     * @param muted true to silence local mic in the audio path
+     * @return true on success
+     */
+    fun setMuted(muted: Boolean): Boolean {
+        Log.i(TAG, "Setting mute state: $muted")
+        return nativeSetMuted(muted)
+    }
+
     // Native methods
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeGetAudioData(numFrames: Int): ShortArray?
     private external fun nativePlayAudioData(audioData: ShortArray)
+    private external fun nativeSetMuted(muted: Boolean): Boolean
 }
