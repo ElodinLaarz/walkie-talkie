@@ -1,8 +1,11 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../data/frequency_mock_data.dart';
+import '../bloc/discovery_cubit.dart';
+import '../bloc/discovery_state.dart';
+import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 
@@ -36,7 +39,6 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
 }
 
 class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
-  bool _scanning = true;
   String? _selectedId;
 
   late final String _newFreq;
@@ -47,6 +49,11 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     super.initState();
     final rnd = Random();
     _newFreq = (88 + rnd.nextInt(_freqRng) + 0.1).toStringAsFixed(1);
+    
+    // Start scanning automatically when entering the screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<DiscoveryCubit>().startDiscovery();
+    });
   }
 
   @override
@@ -104,33 +111,41 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Widget _buildHero(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _scanning ? 'TUNING THE DIAL' : 'NOTHING NEARBY',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 1.2,
-              color: c.ink3,
-            ),
+    return BlocBuilder<DiscoveryCubit, DiscoveryState>(
+      builder: (context, state) {
+        final scanning = state is DiscoveryScanning;
+        final hasResults = (state is DiscoveryScanning && state.sessions.isNotEmpty) ||
+            (state is DiscoveryStopped && state.sessions.isNotEmpty);
+        
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                scanning ? 'TUNING THE DIAL' : (hasResults ? 'DISCOVERY PAUSED' : 'NOTHING NEARBY'),
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 1.2,
+                  color: c.ink3,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Phones around you,\non the same wavelength.',
+                style: Theme.of(context).textTheme.displayMedium,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Make a Frequency to chat & listen together, or tune in to one nearby.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Phones around you,\non the same wavelength.',
-            style: Theme.of(context).textTheme.displayMedium,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Make a Frequency to chat & listen together, or tune in to one nearby.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -169,34 +184,46 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Widget _buildScanIndicator(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_scanning) const PulseDot(size: 6),
-        if (_scanning) const SizedBox(width: 6),
-        Text(
-          _scanning ? 'Scanning' : 'Idle',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            color: _scanning ? c.accent : c.ink3,
-          ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () => setState(() => _scanning = !_scanning),
-          child: Text(
-            _scanning ? 'Pause' : 'Scan',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              color: c.ink2,
-              decoration: TextDecoration.underline,
-              decorationColor: c.line,
+    return BlocBuilder<DiscoveryCubit, DiscoveryState>(
+      builder: (context, state) {
+        final scanning = state is DiscoveryScanning;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (scanning) const PulseDot(size: 6),
+            if (scanning) const SizedBox(width: 6),
+            Text(
+              scanning ? 'Scanning' : 'Idle',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                color: scanning ? c.accent : c.ink3,
+              ),
             ),
-          ),
-        ),
-      ],
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                final cubit = context.read<DiscoveryCubit>();
+                if (scanning) {
+                  cubit.stopDiscovery();
+                } else {
+                  cubit.startDiscovery();
+                }
+              },
+              child: Text(
+                scanning ? 'Pause' : 'Scan',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  color: c.ink2,
+                  decoration: TextDecoration.underline,
+                  decorationColor: c.line,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -217,33 +244,45 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   }
 
   Widget _buildNearbyList(BuildContext context) {
-    return FreqCard(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          for (int i = 0; i < kNearby.length; i++)
-            _NearbyRow(
-              key: ValueKey(kNearby[i].id),
-              n: kNearby[i],
-              first: i == 0,
-              selected: _selectedId == kNearby[i].id,
-              onPick: () => setState(() => _selectedId = kNearby[i].id),
-              onJoin: () {
-                final phone = kNearby[i];
-                widget.onPick(DiscoveryResult(
-                  freq: phone.freq ?? _newFreq,
-                  isHost: false,
-                ));
-              },
-            ),
-        ],
-      ),
+    return BlocBuilder<DiscoveryCubit, DiscoveryState>(
+      builder: (context, state) {
+        final sessions = state is DiscoveryScanning 
+            ? state.sessions 
+            : (state is DiscoveryStopped ? state.sessions : const <DiscoveredSession>[]);
+        
+        if (sessions.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return FreqCard(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < sessions.length; i++)
+                _NearbyRow(
+                  key: ValueKey(sessions[i].sessionUuidLow8),
+                  s: sessions[i],
+                  first: i == 0,
+                  selected: _selectedId == sessions[i].sessionUuidLow8,
+                  onPick: () => setState(() => _selectedId = sessions[i].sessionUuidLow8),
+                  onJoin: () {
+                    final session = sessions[i];
+                    widget.onPick(DiscoveryResult(
+                      freq: session.mhzDisplay,
+                      isHost: false,
+                    ));
+                  },
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
 class _NearbyRow extends StatelessWidget {
-  final NearbyPhone n;
+  final DiscoveredSession s;
   final bool first;
   final bool selected;
   final VoidCallback onPick;
@@ -251,7 +290,7 @@ class _NearbyRow extends StatelessWidget {
 
   const _NearbyRow({
     super.key,
-    required this.n,
+    required this.s,
     required this.first,
     required this.selected,
     required this.onPick,
@@ -261,7 +300,7 @@ class _NearbyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    final hasFreq = n.freq != null;
+    // Discovered sessions always have a frequency by definition in v1.
     return Material(
       color: selected ? c.surface2 : c.surface,
       child: InkWell(
@@ -279,14 +318,14 @@ class _NearbyRow extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: hasFreq ? c.accentSoft : c.surface2,
+                  color: c.accentSoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
-                  hasFreq ? Icons.radio : Icons.bluetooth,
+                  Icons.radio,
                   size: 16,
-                  color: hasFreq ? c.accentInk : c.ink2,
+                  color: c.accentInk,
                 ),
               ),
               const SizedBox(width: 12),
@@ -295,7 +334,7 @@ class _NearbyRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      n.name,
+                      s.hostName.isEmpty ? 'Unknown Host' : s.hostName,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 14,
@@ -307,31 +346,28 @@ class _NearbyRow extends StatelessWidget {
                       style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
                       child: Row(
                         children: [
-                          Flexible(
+                          const Flexible(
                             child: Text(
-                              n.device,
+                              'Frequency Session',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const Text('  ·  '),
-                          if (hasFreq) ...[
-                            const Text('On '),
-                            Text(n.freq!, style: kMonoStyle.copyWith(fontSize: 12)),
-                          ] else
-                            const Text('Idle'),
+                          const Text('On '),
+                          Text(s.mhzDisplay, style: kMonoStyle.copyWith(fontSize: 12)),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              SignalBars(rssi: n.rssi),
+              SignalBars(rssi: s.rssi),
               if (selected) ...[
                 const SizedBox(width: 8),
                 FreqButton(
                   accent: true,
-                  label: hasFreq ? 'Tune in' : 'Invite',
+                  label: 'Tune in',
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   fontSize: 13,
                   onPressed: onJoin,
@@ -344,6 +380,7 @@ class _NearbyRow extends StatelessWidget {
     );
   }
 }
+
 
 /// Tappable circular chip in the chrome that shows the user's initials and
 /// opens the rename sheet when tapped.

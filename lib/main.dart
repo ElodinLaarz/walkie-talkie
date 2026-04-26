@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'bloc/discovery_cubit.dart';
 import 'bloc/frequency_session_cubit.dart';
 import 'bloc/frequency_session_state.dart';
 import 'data/frequency_mock_data.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
+import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
@@ -22,25 +24,47 @@ class WalkieTalkieApp extends StatelessWidget {
   /// Override for tests; defaults to the Hive-backed implementation.
   final IdentityStore? identityStore;
 
-  const WalkieTalkieApp({super.key, this.identityStore});
+  /// Override for tests; defaults to the real Bluetooth-LE implementation.
+  final DiscoveryService? discoveryService;
+
+  const WalkieTalkieApp({super.key, this.identityStore, this.discoveryService});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => FrequencySessionCubit(
-        identityStore: identityStore ?? HiveIdentityStore(),
-      )..bootstrap(),
-      child: MaterialApp(
-        title: 'Frequency',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.system,
-        // Wrap the navigator so toasts stay above pushed routes (modal bottom
-        // sheets, etc.) — a host inside `home` would render below the modal
-        // overlay and get hidden when a sheet is open.
-        builder: (context, child) => FrequencyToastHost(child: child!),
-        home: const FrequencyApp(),
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<IdentityStore>(
+          create: (_) => identityStore ?? HiveIdentityStore(),
+        ),
+        RepositoryProvider<DiscoveryService>(
+          create: (_) => discoveryService ?? DiscoveryService(),
+        ),
+      ],
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider(
+            create: (context) => FrequencySessionCubit(
+              identityStore: context.read<IdentityStore>(),
+            )..bootstrap(),
+          ),
+          BlocProvider(
+            create: (context) => DiscoveryCubit(
+              context.read<DiscoveryService>(),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          title: 'Frequency',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: ThemeMode.system,
+          // Wrap the navigator so toasts stay above pushed routes (modal bottom
+          // sheets, etc.) — a host inside `home` would render below the modal
+          // overlay and get hidden when a sheet is open.
+          builder: (context, child) => FrequencyToastHost(child: child!),
+          home: const FrequencyApp(),
+        ),
       ),
     );
   }
