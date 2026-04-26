@@ -3,6 +3,11 @@ import 'package:equatable/equatable.dart';
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 
+/// Sentinel marking an argument-not-supplied position in `copyWith`. A
+/// caller passing `null` explicitly is distinguishable from omitting
+/// the argument, which the `??` pattern can't model.
+const Object _unset = Object();
+
 /// Sealed hierarchy describing the session-level Frequency state. Each
 /// stage carries exactly the fields it needs — the UI exhaustively
 /// switches on the runtime type and the analyzer flags missing branches.
@@ -78,21 +83,31 @@ final class SessionRoom extends FrequencySessionState {
     this.mediaState,
   });
 
+  /// `??` would conflate "argument omitted" with "argument explicitly set
+  /// to null" for the nullable fields (`hostPeerId`, `mediaState`), so a
+  /// rejoin where the host has nothing playing — `applyJoinAccepted` with
+  /// `msg.mediaState == null` — would silently retain the stale snapshot.
+  /// The `_unset` sentinel lets callers distinguish the two: an omitted
+  /// param keeps the existing value, an explicit null clears it.
   SessionRoom copyWith({
     String? myName,
     String? roomFreq,
     bool? roomIsHost,
-    String? hostPeerId,
+    Object? hostPeerId = _unset,
     List<ProtocolPeer>? roster,
-    MediaState? mediaState,
+    Object? mediaState = _unset,
   }) =>
       SessionRoom(
         myName: myName ?? this.myName,
         roomFreq: roomFreq ?? this.roomFreq,
         roomIsHost: roomIsHost ?? this.roomIsHost,
-        hostPeerId: hostPeerId ?? this.hostPeerId,
+        hostPeerId: identical(hostPeerId, _unset)
+            ? this.hostPeerId
+            : hostPeerId as String?,
         roster: roster ?? this.roster,
-        mediaState: mediaState ?? this.mediaState,
+        mediaState: identical(mediaState, _unset)
+            ? this.mediaState
+            : mediaState as MediaState?,
       );
 
   @override

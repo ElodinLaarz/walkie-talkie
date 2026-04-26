@@ -102,6 +102,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late _LastAction _lastAction;
   AudioOutput _output = AudioOutput.bluetooth;
 
+  /// The canonical media source for this session — the `source` string
+  /// the protocol uses (`'Podcasts'`, `'YouTube Music'`, etc). Seeded
+  /// from `widget.mediaKind` and replaced wholesale by
+  /// [_applyMediaSnapshot] when the host's view differs (e.g. rejoining
+  /// a room whose host switched sources). Build text and every outgoing
+  /// `sendMediaCommand` reads from this so post-snapshot commands carry
+  /// the host's source rather than the screen's initial intent.
+  late String _source;
   late MediaSourceLib _lib;
   Track get _track => _lib.queue[_trackIdx];
 
@@ -123,7 +131,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _meMuted = widget.pttMode;
     _volumes = {for (final p in _roster) p.id: 0.7};
 
-    _lib = kMedia[widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music']!;
+    _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
+    _lib = kMedia[_source]!;
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
     _resolveMyPeerId();
@@ -215,6 +224,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     final clampedIdx = snapshot.trackIdx.clamp(0, lib.queue.length - 1);
     final positionSec = (snapshot.positionMs / 1000).round();
     setState(() {
+      _source = snapshot.source;
       _lib = lib;
       _trackIdx = clampedIdx;
       _playing = snapshot.playing;
@@ -288,15 +298,24 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     });
   }
 
-  /// Resolves a `peerId` from a wire message to a display name. Three
-  /// branches: it's me (use my display name), it's in the (mock for now)
-  /// roster (use that name), or it's an unknown peer (generic fallback).
+  /// Resolves a `peerId` from a wire message to a display name.
+  /// Priority: it's me, it's in the protocol roster (the
+  /// `JoinAccepted`/`RosterUpdate`-sourced `SessionRoom.roster`),
+  /// it's in the mock roster (v1 demo until BLE-backed peers land),
+  /// otherwise generic fallback.
   ///
   /// `_myPeerId` is resolved asynchronously on init; before it lands,
-  /// commands are attributed to "Someone" rather than guessing.
+  /// commands attributed to the local user fall through to the
+  /// "Someone" fallback rather than being guessed at.
   String _resolveSenderName(String peerId) {
     if (_myPeerId != null && peerId == _myPeerId) {
       return widget.myName.isEmpty ? 'You' : widget.myName;
+    }
+    final session = context.read<FrequencySessionCubit>().state;
+    if (session is SessionRoom) {
+      for (final p in session.roster) {
+        if (p.peerId == peerId) return p.displayName;
+      }
     }
     for (final p in _roster) {
       if (p.id == peerId) return p.name;
@@ -335,28 +354,28 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _togglePlay() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: _playing ? MediaOp.pause : MediaOp.play,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _next() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.skip,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _prev() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.prev,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _playAt(int i) {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.queuePlay,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
       trackIdx: i,
     );
   }
@@ -364,7 +383,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _scrub(double v) {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.seek,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
       positionMs: (v * 1000).round(),
     );
   }
@@ -376,7 +395,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    final source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
+    final source = _source;
     final peers = _roster.skip(1).where((p) => !_removed.contains(p.id)).toList();
 
     return BlocListener<FrequencySessionCubit, FrequencySessionState>(
@@ -404,7 +423,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     _NowPlayingCard(
                       track: _track,
                       source: source,
-                      isPodcast: widget.mediaKind == MediaKind.podcast,
+                      isPodcast: _source == 'Podcasts',
                       playing: _playing,
                       progress: _progress,
                       lastAction: _lastAction,

@@ -222,6 +222,43 @@ void main() {
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'applyJoinAccepted with null mediaState clears the prior snapshot on rejoin',
+      // The host-has-nothing-playing case: copyWith must distinguish
+      // "argument omitted" from "argument explicitly null", or the stale
+      // mediaState from the last connection survives the rejoin.
+      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      seed: () => SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+        hostPeerId: 'p-host',
+        mediaState: const MediaState(
+          source: 'YouTube Music',
+          trackIdx: 4,
+          playing: true,
+          positionMs: 60000,
+        ),
+      ),
+      act: (cubit) => cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [],
+        // mediaState omitted from the wire = null in the typed message.
+      )),
+      expect: () => [
+        const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+          hostPeerId: 'p-host',
+          // mediaState should be cleared, not retained from before.
+        ),
+      ],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
       'applyJoinAccepted outside SessionRoom is a no-op',
       build: () => FrequencySessionCubit(identityStore: _FakeStore()),
       seed: () => const SessionDiscovery(myName: 'Maya'),
