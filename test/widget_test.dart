@@ -4,6 +4,7 @@ import 'package:walkie_talkie/services/identity_store.dart';
 
 class _FakeIdentityStore implements IdentityStore {
   String? _name;
+  String? _peerId;
   _FakeIdentityStore({String? initial}) : _name = initial;
 
   @override
@@ -15,6 +16,9 @@ class _FakeIdentityStore implements IdentityStore {
     final trimmed = value.trim();
     _name = trimmed.isEmpty ? null : trimmed;
   }
+
+  @override
+  Future<String> getPeerId() async => _peerId ??= 'fake-peer-id';
 }
 
 void main() {
