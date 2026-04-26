@@ -4,6 +4,8 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <atomic>
+#include <cstring>
 #include "audio_mixer.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
@@ -94,7 +96,14 @@ public:
         if (audioStream->getDirection() == oboe::Direction::Input) {
             // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
-            
+
+            // When muted, zero the mic frames so they don't reach the mixer
+            // or any future BLE transport. The streams stay warm so unmuting
+            // is instant — no codec reinit round-trip.
+            if (g_muted.load(std::memory_order_relaxed)) {
+                std::memset(inputData, 0, numFrames * sizeof(int16_t));
+            }
+
             if (g_audioMixer != nullptr) {
                 // Here we'd ideally know which device this input is from.
                 // For a single phone mic, we can assign a special ID like 0.
@@ -114,8 +123,9 @@ public:
     }
 };
 
-// Global audio engine instance
+// Global audio engine instance and mute flag
 static AudioEngine* g_audioEngine = nullptr;
+static std::atomic<bool> g_muted{false};
 
 extern "C" {
 
@@ -136,7 +146,14 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv *env, jobjec
     }
 }
 
-// These methods can now be used for manual injection if needed, 
+JNIEXPORT jboolean JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetMuted(
+        JNIEnv *env, jobject thiz, jboolean muted) {
+    g_muted.store(muted, std::memory_order_relaxed);
+    return JNI_TRUE;
+}
+
+// These methods can now be used for manual injection if needed,
 // but the primary path is now internal to C++.
 
 JNIEXPORT jshortArray JNICALL

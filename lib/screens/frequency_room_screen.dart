@@ -84,6 +84,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _hostJoinDemoTimer;
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
+  StreamSubscription<Set<String>>? _talkingPeersSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -161,6 +162,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       if (!mounted) return;
       _audio.setMuted(initialMuted);
     }));
+
+    // Subscribe to native talking-state events so the VU rings for remote
+    // peers reflect reality once BLE audio transport lands.
+    _talkingPeersSub = _audio.talkingPeers.listen(_onNativeTalkingPeers);
 
     _resolveMyPeerId();
     _startTalkSimulation();
@@ -292,8 +297,19 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _hostJoinDemoTimer?.cancel();
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
+    _talkingPeersSub?.cancel();
     unawaited(_audio.stopVoice());
     super.dispose();
+  }
+
+  /// Called when the native layer reports a change in which peers are
+  /// transmitting audio. The `'local'` sentinel represents this device's
+  /// mic — already reflected in [_meEffectivelyMuted], so it's excluded
+  /// here. Non-local IDs drive the talking VU rings for remote peers.
+  void _onNativeTalkingPeers(Set<String> peers) {
+    if (!mounted) return;
+    final remoteTalking = peers.where((id) => id != 'local').toList();
+    setState(() => _talkingId = remoteTalking.isNotEmpty ? remoteTalking.first : null);
   }
 
   /// Open-mic mute toggle. Updates the local UI state and pushes the new
@@ -626,7 +642,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         children: [
           FreqAvatar(
             person: _me,
-            talking: !_meEffectivelyMuted && _holdingPtt,
+            talking: !_meEffectivelyMuted,
             muted: _meEffectivelyMuted,
           ),
           const SizedBox(width: 12),

@@ -172,4 +172,22 @@ class AudioService {
         });
     return _eventStream!;
   }
+
+  /// Stream of peer IDs that are currently transmitting audio.
+  ///
+  /// The sentinel `'local'` represents this device's mic. Remote peers will
+  /// be added once BLE audio transport is wired up. The room screen uses this
+  /// to drive the talking VU rings for remote peers; the local user's ring is
+  /// derived from the mute state directly.
+  Stream<Set<String>> get talkingPeers {
+    return audioEvents
+        .where((e) => e['type'] == 'talkingPeers')
+        .map((e) {
+          final raw = e['peers'];
+          if (raw is List) {
+            return Set<String>.from(raw.map((p) => p.toString()));
+          }
+          return <String>{};
+        });
+  }
 }
