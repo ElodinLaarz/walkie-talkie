@@ -217,10 +217,22 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// `didChangeDependencies` fired by an unrelated InheritedWidget
   /// change (rotation, keyboard inset, route restore) doesn't yank
   /// the player back to `positionMs` and erase local progress.
+  ///
+  /// If `snapshot.source` is a key we don't recognize in `kMedia`, we
+  /// skip the snapshot entirely (don't mutate `_source`/`_lib`). This
+  /// keeps the UI's queue and the source string we'd ship in outgoing
+  /// `sendMediaCommand`s in sync — desync would mean the next play /
+  /// seek / skip carries an unknown source the host then ignores.
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
+    final lib = kMedia[snapshot.source];
+    if (lib == null) {
+      debugPrint(
+        'Ignoring media snapshot for unknown source "${snapshot.source}"',
+      );
+      return;
+    }
     _appliedSnapshot = snapshot;
-    final lib = kMedia[snapshot.source] ?? _lib;
     final clampedIdx = snapshot.trackIdx.clamp(0, lib.queue.length - 1);
     final positionSec = (snapshot.positionMs / 1000).round();
     setState(() {
@@ -406,9 +418,20 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         return prev.mediaState != next.mediaState;
       },
       listener: (context, state) {
-        if (state is SessionRoom && state.mediaState != null) {
+        if (state is! SessionRoom) return;
+        if (state.mediaState != null) {
           _applyMediaSnapshot(state.mediaState!);
+          return;
         }
+        // Host published a JoinAccepted with no mediaState — i.e.
+        // "nothing is playing". Clear the cached snapshot and reset the
+        // transport so the UI reflects that, instead of stranding on
+        // whatever the previous snapshot was.
+        setState(() {
+          _appliedSnapshot = null;
+          _playing = false;
+          _progress = 0;
+        });
       },
       child: Scaffold(
         backgroundColor: c.bg,

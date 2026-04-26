@@ -89,6 +89,14 @@ final class SessionRoom extends FrequencySessionState {
   /// `msg.mediaState == null` — would silently retain the stale snapshot.
   /// The `_unset` sentinel lets callers distinguish the two: an omitted
   /// param keeps the existing value, an explicit null clears it.
+  ///
+  /// Incoming `roster` lists are wrapped in `List.unmodifiable` so a
+  /// caller hanging onto the original (e.g. `JoinAccepted.roster` from
+  /// the wire decoder, which is mutable) can't retroactively mutate
+  /// past states and break Equatable's diffing or UI rebuild
+  /// assumptions. `this.roster` is already either a const empty list
+  /// (from the constructor default) or a previously-wrapped
+  /// unmodifiable, so passing it through is safe.
   SessionRoom copyWith({
     String? myName,
     String? roomFreq,
@@ -104,7 +112,9 @@ final class SessionRoom extends FrequencySessionState {
         hostPeerId: identical(hostPeerId, _unset)
             ? this.hostPeerId
             : hostPeerId as String?,
-        roster: roster ?? this.roster,
+        roster: roster == null
+            ? this.roster
+            : List<ProtocolPeer>.unmodifiable(roster),
         mediaState: identical(mediaState, _unset)
             ? this.mediaState
             : mediaState as MediaState?,

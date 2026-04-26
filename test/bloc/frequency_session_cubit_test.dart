@@ -227,6 +227,29 @@ void main() {
       ],
     );
 
+    test('SessionRoom.copyWith returns an unmodifiable roster', () {
+      // Wire-decoded JoinAccepted.roster is a plain mutable list. Once
+      // it lands in SessionRoom, callers shouldn't be able to mutate
+      // it retroactively — past states must stay stable.
+      final mutable = <ProtocolPeer>[
+        const ProtocolPeer(peerId: 'a', displayName: 'A'),
+      ];
+      final room = const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ).copyWith(roster: mutable);
+
+      expect(
+        () => room.roster.add(const ProtocolPeer(peerId: 'b', displayName: 'B')),
+        throwsUnsupportedError,
+      );
+      // The originally-passed list is independent — mutating it must
+      // not bleed into the stored roster.
+      mutable.add(const ProtocolPeer(peerId: 'c', displayName: 'C'));
+      expect(room.roster, hasLength(1));
+    });
+
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'applyJoinAccepted with null mediaState clears the prior snapshot on rejoin',
       // The host-has-nothing-playing case: copyWith must distinguish

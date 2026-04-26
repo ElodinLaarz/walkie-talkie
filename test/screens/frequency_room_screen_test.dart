@@ -333,6 +333,91 @@ void main() {
     });
 
     testWidgets(
+      'rejoin with no mediaState resets the transport instead of stranding '
+      'on the prior snapshot',
+      (tester) async {
+        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        addTearDown(cubit.close);
+
+        cubit
+          ..emit(const SessionDiscovery(myName: 'Caleb'))
+          ..joinRoom(freq: '104.3', isHost: false);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Land an initial snapshot (track #1, playing).
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            source: 'YouTube Music',
+            trackIdx: 1,
+            playing: true,
+            positionMs: 91000,
+          ),
+        ));
+        await tester.pump();
+        expect(find.text('Soft Fascination'), findsOneWidget);
+        expect(find.text('Live'), findsOneWidget);
+
+        // Rejoin: host says "nothing playing" (mediaState absent on the
+        // wire). The transport should reset, not strand on track #1.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 2,
+          atMs: 1,
+          hostPeerId: 'p-host',
+          roster: const [],
+        ));
+        await tester.pump();
+        expect(find.text('Paused'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'snapshot for an unknown source is dropped — UI keeps the prior queue',
+      (tester) async {
+        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        addTearDown(cubit.close);
+
+        cubit
+          ..emit(const SessionDiscovery(myName: 'Caleb'))
+          ..joinRoom(freq: '104.3', isHost: false);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+        // Initial render — music queue's first track.
+        expect(find.text('Nightsong'), findsOneWidget);
+
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            // Truly absent from kMedia — a v2 host that supports a new
+            // source kind a v1 client doesn't know about.
+            source: 'TidalRadio',
+            trackIdx: 0,
+            playing: true,
+            positionMs: 0,
+          ),
+        ));
+        await tester.pump();
+
+        // Snapshot ignored — the screen still shows the local default,
+        // and `_source` hasn't been corrupted.
+        expect(find.text('Nightsong'), findsOneWidget);
+        expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'applyJoinAccepted snapshot seeds the local player on rejoin',
       (tester) async {
         // Real cubit so the BlocListener actually reacts to state changes.
