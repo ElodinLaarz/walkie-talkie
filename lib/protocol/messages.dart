@@ -256,7 +256,10 @@ final class JoinAccepted extends FrequencyMessage {
     required this.roster,
     this.mediaState,
     this.voicePsm,
-  });
+  }) : assert(
+          voicePsm == null || (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
+          'voicePsm must be odd and in range 0x0080-0x00FF',
+        );
 
   @override
   String get kind => 'join_accepted';
@@ -270,19 +273,30 @@ final class JoinAccepted extends FrequencyMessage {
         if (voicePsm != null) 'voicePsm': voicePsm,
       };
 
-  factory JoinAccepted._fromJson(Map<String, dynamic> j) => JoinAccepted(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        hostPeerId: j['hostPeerId'] as String,
-        roster: _parseRoster(j['roster']),
-        mediaState: j['mediaState'] == null
-            ? null
-            : MediaState.fromJson(
-                Map<String, dynamic>.from(j['mediaState'] as Map),
-              ),
-        voicePsm: j['voicePsm'] as int?,
-      );
+  factory JoinAccepted._fromJson(Map<String, dynamic> j) {
+    final voicePsm = j['voicePsm'] as int?;
+    if (voicePsm != null) {
+      if (voicePsm < 0x80 || voicePsm > 0xFF || voicePsm % 2 == 0) {
+        throw FormatException(
+          'Invalid voicePsm: $voicePsm (must be odd and in range 0x0080-0x00FF)',
+        );
+      }
+    }
+
+    return JoinAccepted(
+      peerId: j['peerId'] as String,
+      seq: j['seq'] as int,
+      atMs: j['atMs'] as int,
+      hostPeerId: j['hostPeerId'] as String,
+      roster: _parseRoster(j['roster']),
+      mediaState: j['mediaState'] == null
+          ? null
+          : MediaState.fromJson(
+              Map<String, dynamic>.from(j['mediaState'] as Map),
+            ),
+      voicePsm: voicePsm,
+    );
+  }
 }
 
 final class JoinDenied extends FrequencyMessage {

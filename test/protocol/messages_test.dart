@@ -152,6 +152,19 @@ void main() {
       expect(_roundTrip(withoutPsm).voicePsm, isNull);
     });
 
+    test('JoinAccepted rejects invalid voicePsm values', () {
+      const base =
+          '{"kind":"join_accepted","peerId":"p-host","seq":7,"atMs":1234,"v":1,"hostPeerId":"p-host","roster":[]}';
+
+      final evenPsm = base.replaceFirst('}', ',"voicePsm":128}');
+      final outOfRangeLow = base.replaceFirst('}', ',"voicePsm":127}');
+      final outOfRangeHigh = base.replaceFirst('}', ',"voicePsm":256}');
+
+      expect(() => FrequencyMessage.decode(evenPsm), throwsFormatException);
+      expect(() => FrequencyMessage.decode(outOfRangeLow), throwsFormatException);
+      expect(() => FrequencyMessage.decode(outOfRangeHigh), throwsFormatException);
+    });
+
     test('JoinDenied carries reason as wire string', () {
       const msg = JoinDenied(
         peerId: 'p-host',

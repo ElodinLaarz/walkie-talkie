@@ -10,8 +10,7 @@ transmission, media sync) build against.
 - **Bluetooth-only.** No internet required for voice (per the README and the
   app's pitch). Same goes for control: discovery, join, mute, media commands.
 - **Android-first**, targeting API 31+ (Android 12, when the BLUETOOTH_SCAN,
-  BLUETOOTH_CONNECT, and BLUETOOTH_ADVERTISE runtime permissions appeared —
-  the host advertises, so all three are required).
+  BLUETOOTH_CONNECT, and BLUETOOTH_ADVERTISE runtime permissions appeared).
 - **Star topology** with a designated host. Voice and control traffic both go
   through the host, who is the coordinator for the frequency. Mesh and host
   handover are out of scope for v1 (see [§ Out of scope](#out-of-scope)).
@@ -204,7 +203,7 @@ Guest **MUST** wait for the response before sending any further messages.
 {
   "kind": "join_accepted", "peerId": "<host>", "seq": 7, "atMs": ..., "v": 1,
   "hostPeerId": "<host>",
-  "voicePsm": 129,
+  "voicePsm": 129, // optional
   "roster": [ { "peerId": "...", "displayName": "Maya", "btDevice": "AirPods Pro",
                 "muted": false, "talking": false }, ... ],
   "mediaState": { "source": "YouTube Music", "trackIdx": 2,
@@ -217,9 +216,10 @@ Guest **MUST** wait for the response before sending any further messages.
   room is right now (track + playback + position) without waiting for the
   next manual command. Doubles as the [reconnect reconciliation
   payload](#reconnect-and-reconciliation).
-- **voicePsm** — the dynamic L2CAP PSM the host's voice server is bound
-  to. The guest opens an L2CAP CoC to this PSM after `JoinAccepted` lands;
-  see [§ Voice plane](#voice-plane).
+- **voicePsm** *(optional)* — the dynamic L2CAP PSM the host's voice server is
+  bound to. If present, the guest opens an L2CAP CoC to this PSM after
+  `JoinAccepted` lands; see [§ Voice plane](#voice-plane). If absent, join still
+  succeeds for control-plane behavior and the guest stays voice-silent.
 
 Guest uses these to render the room screen and start streaming voice.
 
@@ -382,8 +382,7 @@ SCO/HFP, etc.) are out of scope.
 
 ### PSM negotiation
 
-LE-CoC dynamic PSMs live in the range **`0x0080`–`0x00FF`** and **must be
-odd** (least-significant bit set) per the LE L2CAP spec. The host binds its
+L2CAP PSMs in the range `0x0080` to `0x00FF` are dynamic — assigned by the application at runtime for LE CoC. LE-CoC dynamic PSMs **must be odd** (least-significant bit set) per the LE L2CAP spec. The host binds its
 voice server to a free dynamic PSM at room-create time, and includes it in
 the [`join_accepted`](#join_accepted-host--guest) message under `voicePsm`.
 The guest opens its CoC to that PSM after `JoinAccepted` lands. A `voicePsm`
@@ -406,11 +405,7 @@ Comfortably under L2CAP throughput on any LE 4.2+ device.
 
 ### Voice frame format
 
-Each L2CAP write is a single Opus frame prefixed with an 8-byte header. The
-negotiated channel MTU **MUST** be at least **128 bytes** so an 8-byte header
-plus a typical Opus frame (~60–120 bytes at the recommended bitrate) always
-fits in a single SDU and we don't have to deal with mid-frame fragmentation
-in the application:
+Each L2CAP write is a single Opus frame prefixed with an 8-byte header (MTU **MUST** be ≥ 128 bytes):
 
 | offset | bytes | meaning                                                       |
 | ------ | ----- | ------------------------------------------------------------- |
