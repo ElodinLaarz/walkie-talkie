@@ -12,17 +12,21 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// Global mute flag — declared before AudioEngine so onAudioReady (inline
+// in the class body) can reference it without a forward declaration.
+static std::atomic<bool> g_muted{false};
+
 class AudioEngine : public oboe::AudioStreamDataCallback {
 private:
     std::shared_ptr<oboe::AudioStream> recordingStream;
     std::shared_ptr<oboe::AudioStream> playbackStream;
     std::mutex audioMutex;
-    
+
     // Audio configuration
     static constexpr int32_t kSampleRate = 48000;  // LE Audio standard
     static constexpr int32_t kChannelCount = 1;    // Mono for voice
     static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;  // 16-bit PCM
-    
+
 public:
     AudioEngine() {}
 
@@ -33,7 +37,7 @@ public:
     // Start audio streams
     bool start() {
         LOGI("Starting audio engine...");
-        
+
         // Create recording stream
         oboe::AudioStreamBuilder recordingBuilder;
         recordingBuilder.setDirection(oboe::Direction::Input)
@@ -43,13 +47,13 @@ public:
             ->setChannelCount(kChannelCount)
             ->setSampleRate(kSampleRate)
             ->setDataCallback(this);
-        
+
         oboe::Result result = recordingBuilder.openStream(recordingStream);
         if (result != oboe::Result::OK) {
             LOGE("Failed to create recording stream: %s", oboe::convertToText(result));
             return false;
         }
-        
+
         // Create playback stream
         oboe::AudioStreamBuilder playbackBuilder;
         playbackBuilder.setDirection(oboe::Direction::Output)
@@ -59,17 +63,17 @@ public:
             ->setChannelCount(kChannelCount)
             ->setSampleRate(kSampleRate);
             // We use direct write for playback currently, or could use another callback
-        
+
         result = playbackBuilder.openStream(playbackStream);
         if (result != oboe::Result::OK) {
             LOGE("Failed to create playback stream: %s", oboe::convertToText(result));
             return false;
         }
-        
+
         // Start streams
         recordingStream->requestStart();
         playbackStream->requestStart();
-        
+
         LOGI("Audio engine started successfully");
         return true;
     }
@@ -92,7 +96,7 @@ public:
             oboe::AudioStream *audioStream,
             void *audioData,
             int32_t numFrames) override {
-        
+
         if (audioStream->getDirection() == oboe::Direction::Input) {
             // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
@@ -108,24 +112,23 @@ public:
                 // Here we'd ideally know which device this input is from.
                 // For a single phone mic, we can assign a special ID like 0.
                 g_audioMixer->updateDeviceAudio(0, inputData, numFrames);
-                
+
                 // For demonstration: mix for device 0 (hearing others) and play it back
                 std::vector<int16_t> mixedOutput(numFrames);
                 g_audioMixer->getMixedAudioForDevice(0, mixedOutput.data(), numFrames);
-                
+
                 if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
                     playbackStream->write(mixedOutput.data(), numFrames, 0);
                 }
             }
         }
-        
+
         return oboe::DataCallbackResult::Continue;
     }
 };
 
-// Global audio engine instance and mute flag
+// Global audio engine instance
 static AudioEngine* g_audioEngine = nullptr;
-static std::atomic<bool> g_muted{false};
 
 extern "C" {
 

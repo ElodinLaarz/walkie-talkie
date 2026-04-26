@@ -21,9 +21,10 @@ class MainActivity : FlutterActivity() {
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var eventSink: EventChannel.EventSink? = null
 
-    // Audio engine owned by MainActivity; lifecycle follows startVoice/stopVoice
-    // calls so it only runs while the user is in a room.
+    // Audio engine and mixer owned by MainActivity; lifecycle follows
+    // startVoice/stopVoice calls so they only run while the user is in a room.
     private var audioEngineManager: AudioEngineManager? = null
+    private var audioMixerManager: AudioMixerManager? = null
     private var voiceActive = false
     private var currentlyMuted = true
 
@@ -121,6 +122,11 @@ class MainActivity : FlutterActivity() {
                 }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
+                    // AudioMixerManager initializes the native g_audioMixer global
+                    // that the Oboe callback reads — must be created first.
+                    if (audioMixerManager == null) {
+                        audioMixerManager = AudioMixerManager()
+                    }
                     if (audioEngineManager == null) {
                         audioEngineManager = AudioEngineManager()
                     }
@@ -137,6 +143,8 @@ class MainActivity : FlutterActivity() {
                     Log.i(TAG, "Stopping voice capture")
                     audioEngineManager?.stop()
                     audioEngineManager = null
+                    audioMixerManager?.clear()
+                    audioMixerManager = null
                     voiceActive = false
                     sendEventToFlutter(mapOf("type" to "talkingPeers", "peers" to emptyList<String>()))
                     result.success(true)
@@ -190,6 +198,8 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
         audioEngineManager?.stop()
         audioEngineManager = null
+        audioMixerManager?.clear()
+        audioMixerManager = null
         bluetoothManager?.cleanup()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
