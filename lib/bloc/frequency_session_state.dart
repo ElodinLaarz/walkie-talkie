@@ -1,5 +1,13 @@
 import 'package:equatable/equatable.dart';
 
+import '../protocol/messages.dart';
+import '../protocol/peer.dart';
+
+/// Sentinel marking an argument-not-supplied position in `copyWith`. A
+/// caller passing `null` explicitly is distinguishable from omitting
+/// the argument, which the `??` pattern can't model.
+const Object _unset = Object();
+
 /// Sealed hierarchy describing the session-level Frequency state. Each
 /// stage carries exactly the fields it needs — the UI exhaustively
 /// switches on the runtime type and the analyzer flags missing branches.
@@ -36,16 +44,83 @@ final class SessionDiscovery extends FrequencySessionState {
 
 /// User is in a room. Both [roomFreq] and [roomIsHost] are non-nullable
 /// by construction, so the UI can read them without force-unwrapping.
+///
+/// [hostPeerId], [roster], and [mediaState] are populated from the host's
+/// `JoinAccepted` (or self-issued for hosts) — they're nullable on entry
+/// because the room is joined before the handshake completes; they're
+/// settled with `applyJoinAccepted`.
 final class SessionRoom extends FrequencySessionState {
   final String myName;
   final String roomFreq;
   final bool roomIsHost;
+
+  /// Peer-id of the room's host. Always null until `applyJoinAccepted`
+  /// fires (or the local user is the host and self-seeds it).
+  final String? hostPeerId;
+
+  /// Latest roster snapshot from the host. Empty until handshake.
+  final List<ProtocolPeer> roster;
+
+  /// Snapshot of what's playing as established by `JoinAccepted` (or
+  /// self-seeded for hosts). Null until set — guests treat null as
+  /// "host hasn't told me yet, render the local queue's first track
+  /// and wait for the snapshot to land."
+  ///
+  /// This field is **not** advanced by later echoed `MediaCommand`s in
+  /// the current implementation: the cubit lacks queue access and
+  /// can't correctly resolve trackIdx for `skip` / `prev`. The room
+  /// screen owns queue-aware advancement and treats this as the
+  /// initial / rejoin reseed only. See `applyHostMediaEcho` for the
+  /// rationale.
+  final MediaState? mediaState;
+
   const SessionRoom({
     required this.myName,
     required this.roomFreq,
     required this.roomIsHost,
+    this.hostPeerId,
+    this.roster = const [],
+    this.mediaState,
   });
 
+  /// `??` would conflate "argument omitted" with "argument explicitly set
+  /// to null" for the nullable fields (`hostPeerId`, `mediaState`), so a
+  /// rejoin where the host has nothing playing — `applyJoinAccepted` with
+  /// `msg.mediaState == null` — would silently retain the stale snapshot.
+  /// The `_unset` sentinel lets callers distinguish the two: an omitted
+  /// param keeps the existing value, an explicit null clears it.
+  ///
+  /// Incoming `roster` lists are wrapped in `List.unmodifiable` so a
+  /// caller hanging onto the original (e.g. `JoinAccepted.roster` from
+  /// the wire decoder, which is mutable) can't retroactively mutate
+  /// past states and break Equatable's diffing or UI rebuild
+  /// assumptions. `this.roster` is already either a const empty list
+  /// (from the constructor default) or a previously-wrapped
+  /// unmodifiable, so passing it through is safe.
+  SessionRoom copyWith({
+    String? myName,
+    String? roomFreq,
+    bool? roomIsHost,
+    Object? hostPeerId = _unset,
+    List<ProtocolPeer>? roster,
+    Object? mediaState = _unset,
+  }) =>
+      SessionRoom(
+        myName: myName ?? this.myName,
+        roomFreq: roomFreq ?? this.roomFreq,
+        roomIsHost: roomIsHost ?? this.roomIsHost,
+        hostPeerId: identical(hostPeerId, _unset)
+            ? this.hostPeerId
+            : hostPeerId as String?,
+        roster: roster == null
+            ? this.roster
+            : List<ProtocolPeer>.unmodifiable(roster),
+        mediaState: identical(mediaState, _unset)
+            ? this.mediaState
+            : mediaState as MediaState?,
+      );
+
   @override
-  List<Object?> get props => [myName, roomFreq, roomIsHost];
+  List<Object?> get props =>
+      [myName, roomFreq, roomIsHost, hostPeerId, roster, mediaState];
 }

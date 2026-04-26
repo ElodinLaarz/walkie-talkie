@@ -70,8 +70,9 @@ class DiscoveredSession {
     if (version != 1) return null; // Only v1 supported.
 
     final role = data[1];
-    if (role != 0x01) return null; // Only host role is currently supported (Thread 7).
-    final isHost = true;
+    if (role != 0x01) return null; // v1 only defines a host role; future roles
+                                   // will get their own value.
+    const isHost = true;
 
     final sessionUuidLow8 = data
         .sublist(2, 10)

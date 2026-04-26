@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/frequency_session_cubit.dart';
+import '../bloc/frequency_session_state.dart';
 import '../data/frequency_mock_data.dart';
 import '../protocol/messages.dart';
 import '../theme/app_theme.dart';
@@ -75,12 +76,40 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
 
+  /// Local peer's stable id, resolved once asynchronously from the
+  /// identity store. Until it lands, originator-vs-remote attribution
+  /// in [_onMediaCommand] falls back to "treat as remote." That's
+  /// safe — the identity-store read returns within a couple of frames
+  /// in practice, and any commands that arrive earlier are loopback
+  /// from the local user anyway.
+  String? _myPeerId;
+
+  /// The last `MediaState` snapshot we snapped the local player to.
+  /// Used by [_applyMediaSnapshot] to short-circuit redundant applies —
+  /// `didChangeDependencies` can fire on rotation / keyboard inset
+  /// changes / route restorations, and we don't want to clobber the
+  /// player's own progress on every one of those.
+  MediaState? _appliedSnapshot;
+
+  /// One-shot guard for the initial snapshot read in
+  /// [didChangeDependencies]. Subsequent rejoin snapshots come through
+  /// the `BlocListener` in [build].
+  bool _didReadInitialSnapshot = false;
+
   int _trackIdx = 0;
   bool _playing = true;
   int _progress = 37;
   late _LastAction _lastAction;
   AudioOutput _output = AudioOutput.bluetooth;
 
+  /// The canonical media source for this session — the `source` string
+  /// the protocol uses (`'Podcasts'`, `'YouTube Music'`, etc). Seeded
+  /// from `widget.mediaKind` and replaced wholesale by
+  /// [_applyMediaSnapshot] when the host's view differs (e.g. rejoining
+  /// a room whose host switched sources). Build text and every outgoing
+  /// `sendMediaCommand` reads from this so post-snapshot commands carry
+  /// the host's source rather than the screen's initial intent.
+  late String _source;
   late MediaSourceLib _lib;
   Track get _track => _lib.queue[_trackIdx];
 
@@ -102,9 +131,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _meMuted = widget.pttMode;
     _volumes = {for (final p in _roster) p.id: 0.7};
 
-    _lib = kMedia[widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music']!;
+    _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
+    _lib = kMedia[_source]!;
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
+    _resolveMyPeerId();
     _startTalkSimulation();
     _startProgressTick();
 
@@ -147,7 +178,70 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _mediaSub ??= context.read<FrequencySessionCubit>().mediaCommands.listen(_onMediaCommand);
+    final cubit = context.read<FrequencySessionCubit>();
+    _mediaSub ??= cubit.mediaCommands.listen(_onMediaCommand);
+    // Apply any mediaState snapshot that landed in `JoinAccepted` before
+    // this screen mounted. Gated by a one-shot so theme/locale-driven
+    // re-fires of `didChangeDependencies` don't yank the player back —
+    // rejoin updates after this point arrive via the BlocListener in
+    // [build].
+    if (!_didReadInitialSnapshot) {
+      _didReadInitialSnapshot = true;
+      final current = cubit.state;
+      if (current is SessionRoom && current.mediaState != null) {
+        _applyMediaSnapshot(current.mediaState!);
+      }
+    }
+  }
+
+  Future<void> _resolveMyPeerId() async {
+    try {
+      final peerId = await context.read<FrequencySessionCubit>().identityStore.getPeerId();
+      if (!mounted) return;
+      // Stored without setState — the field only affects attribution in
+      // the next [_onMediaCommand], which sets state itself.
+      _myPeerId = peerId;
+    } catch (_) {
+      // Identity store failure is non-fatal here: if this one-time read
+      // fails, attribution falls back to "remote sender" for this
+      // screen session, which doesn't matter for in-frame UX.
+    }
+  }
+
+  /// Snap the local player to the canonical state the host published.
+  /// Called on initial entry (snapshot from the JoinAccepted in
+  /// SessionRoom) and on every subsequent SessionRoom emission whose
+  /// mediaState changes (rejoin reconciliation).
+  ///
+  /// Idempotent: re-applying the same snapshot is a no-op so a
+  /// `didChangeDependencies` fired by an unrelated InheritedWidget
+  /// change (rotation, keyboard inset, route restore) doesn't yank
+  /// the player back to `positionMs` and erase local progress.
+  ///
+  /// If `snapshot.source` is a key we don't recognize in `kMedia`, we
+  /// skip the snapshot entirely (don't mutate `_source`/`_lib`). This
+  /// keeps the UI's queue and the source string we'd ship in outgoing
+  /// `sendMediaCommand`s in sync — desync would mean the next play /
+  /// seek / skip carries an unknown source the host then ignores.
+  void _applyMediaSnapshot(MediaState snapshot) {
+    if (_appliedSnapshot == snapshot) return;
+    final lib = kMedia[snapshot.source];
+    if (lib == null) {
+      debugPrint(
+        'Ignoring media snapshot for unknown source "${snapshot.source}"',
+      );
+      return;
+    }
+    _appliedSnapshot = snapshot;
+    final clampedIdx = snapshot.trackIdx.clamp(0, lib.queue.length - 1);
+    final positionSec = (snapshot.positionMs / 1000).round();
+    setState(() {
+      _source = snapshot.source;
+      _lib = lib;
+      _trackIdx = clampedIdx;
+      _playing = snapshot.playing;
+      _progress = positionSec.clamp(0, lib.queue[clampedIdx].durationSeconds);
+    });
   }
 
   @override
@@ -174,29 +268,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _onMediaCommand(MediaCommand cmd) {
     if (!mounted) return;
     setState(() {
-      // Because we don't have a full peer mapping synced in MVP, we just match by name/id
-      // but IdentityStore generates UUIDs. If it's the sender's UUID, we just use "You",
-      // otherwise "Someone" unless we can map it via roster.
-      // Wait, IdentityStore returns a UUID. The UI here uses a mock roster.
-      // Let's check if the identityStore peerId matches `_me.id` which is currently hardcoded to 'me'.
-      // Actually, IdentityStore will have generated a real UUID, so `isMe` might be false.
-      // Let's resolve the identity better.
-      String senderName = 'Someone';
-      if (cmd.peerId == context.read<FrequencySessionCubit>().identityStore.getPeerId().toString()) {
-        // Not awaitable here, but we can assume if it's not in the mock roster it's probably "You"
-        // in a local test.
-        senderName = widget.myName.isEmpty ? 'You' : widget.myName;
-      } else {
-        // Check roster if it exists
-        try {
-          final p = _roster.firstWhere((p) => p.id == cmd.peerId);
-          senderName = p.name;
-        } catch (_) {
-          // In the mock UI, the local cubit peerId is a real UUID but the mock roster uses string IDs.
-          // Since it's a loopback, it's always "You".
-          senderName = widget.myName.isEmpty ? 'You' : widget.myName;
-        }
-      }
+      final senderName = _resolveSenderName(cmd.peerId);
 
       switch (cmd.op) {
         case MediaOp.play:
@@ -238,6 +310,31 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     });
   }
 
+  /// Resolves a `peerId` from a wire message to a display name.
+  /// Priority: it's me, it's in the protocol roster (the
+  /// `JoinAccepted`/`RosterUpdate`-sourced `SessionRoom.roster`),
+  /// it's in the mock roster (v1 demo until BLE-backed peers land),
+  /// otherwise generic fallback.
+  ///
+  /// `_myPeerId` is resolved asynchronously on init; before it lands,
+  /// commands attributed to the local user fall through to the
+  /// "Someone" fallback rather than being guessed at.
+  String _resolveSenderName(String peerId) {
+    if (_myPeerId != null && peerId == _myPeerId) {
+      return widget.myName.isEmpty ? 'You' : widget.myName;
+    }
+    final session = context.read<FrequencySessionCubit>().state;
+    if (session is SessionRoom) {
+      for (final p in session.roster) {
+        if (p.peerId == peerId) return p.displayName;
+      }
+    }
+    for (final p in _roster) {
+      if (p.id == peerId) return p.name;
+    }
+    return 'Someone';
+  }
+
   void _startTalkSimulation() {
     _talkTicker?.cancel();
     _talkTicker = Timer.periodic(const Duration(milliseconds: 1800), (_) {
@@ -269,28 +366,28 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _togglePlay() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: _playing ? MediaOp.pause : MediaOp.play,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _next() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.skip,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _prev() {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.prev,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
     );
   }
 
   void _playAt(int i) {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.queuePlay,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
       trackIdx: i,
     );
   }
@@ -298,7 +395,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _scrub(double v) {
     context.read<FrequencySessionCubit>().sendMediaCommand(
       op: MediaOp.seek,
-      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      source: _source,
       positionMs: (v * 1000).round(),
     );
   }
@@ -310,82 +407,106 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    final source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
+    final source = _source;
     final peers = _roster.skip(1).where((p) => !_removed.contains(p.id)).toList();
 
-    return Scaffold(
-      backgroundColor: c.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildChrome(context),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-                children: [
-                  _NowPlayingCard(
-                    track: _track,
-                    source: source,
-                    isPodcast: widget.mediaKind == MediaKind.podcast,
-                    playing: _playing,
-                    progress: _progress,
-                    lastAction: _lastAction,
-                    onPlay: _togglePlay,
-                    onNext: _next,
-                    onPrev: _prev,
-                    onScrub: _scrub,
-                    onOpenQueue: _showQueueSheet,
-                  ),
-                  SectionLabel(
-                    text: 'On this frequency · ${peers.length + 1}',
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(_output.icon, size: 11, color: c.ink3),
-                        const SizedBox(width: 4),
-                        Text(
-                          _outputName(),
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            color: c.ink3,
+    return BlocListener<FrequencySessionCubit, FrequencySessionState>(
+      listenWhen: (prev, next) {
+        // Only react to mediaState transitions inside the room — entering /
+        // leaving the room is handled at the WalkieTalkieApp router level.
+        if (prev is! SessionRoom || next is! SessionRoom) return false;
+        return prev.mediaState != next.mediaState;
+      },
+      listener: (context, state) {
+        if (state is! SessionRoom) return;
+        if (state.mediaState != null) {
+          _applyMediaSnapshot(state.mediaState!);
+          return;
+        }
+        // Host published a JoinAccepted with no mediaState — i.e.
+        // "nothing is playing". Clear the cached snapshot and reset the
+        // transport so the UI reflects that, instead of stranding on
+        // whatever the previous snapshot was.
+        setState(() {
+          _appliedSnapshot = null;
+          _playing = false;
+          _progress = 0;
+        });
+      },
+      child: Scaffold(
+        backgroundColor: c.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildChrome(context),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                  children: [
+                    _NowPlayingCard(
+                      track: _track,
+                      source: source,
+                      isPodcast: _source == 'Podcasts',
+                      playing: _playing,
+                      progress: _progress,
+                      lastAction: _lastAction,
+                      onPlay: _togglePlay,
+                      onNext: _next,
+                      onPrev: _prev,
+                      onScrub: _scrub,
+                      onOpenQueue: _showQueueSheet,
+                    ),
+                    SectionLabel(
+                      text: 'On this frequency · ${peers.length + 1}',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(_output.icon, size: 11, color: c.ink3),
+                          const SizedBox(width: 4),
+                          Text(
+                            _outputName(),
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              color: c.ink3,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  _buildMeRow(context),
-                  const SizedBox(height: 8),
-                  FreqCard(
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        for (int i = 0; i < peers.length; i++)
-                          _PeerRow(
-                            key: ValueKey(peers[i].id),
-                            person: peers[i],
-                            first: i == 0,
-                            talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
-                            muted: _peerMuted.contains(peers[i].id),
-                            volume: _volumes[peers[i].id]!,
-                            onTap: () => _showPeerDrawer(peers[i]),
-                          ),
-                      ],
+                    _buildMeRow(context),
+                    const SizedBox(height: 8),
+                    FreqCard(
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < peers.length; i++)
+                            _PeerRow(
+                              key: ValueKey(peers[i].id),
+                              person: peers[i],
+                              first: i == 0,
+                              talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
+                              muted: _peerMuted.contains(peers[i].id),
+                              volume: _volumes[peers[i].id]!,
+                              onTap: () => _showPeerDrawer(peers[i]),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Text(
-                      widget.pttMode
-                          ? 'Push-to-talk · hold the mic button to transmit'
-                          : 'Open mic · everyone hears you when not muted',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: Text(
+                        widget.pttMode
+                            ? 'Push-to-talk · hold the mic button to transmit'
+                            : 'Open mic · everyone hears you when not muted',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
