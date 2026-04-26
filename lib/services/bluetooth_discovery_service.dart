@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../protocol/discovery.dart';
 
 /// DiscoveryService scans for nearby Frequency hosts using Bluetooth LE.
@@ -11,7 +12,6 @@ class DiscoveryService {
   Stream<List<DiscoveredSession>> get results => _resultsController.stream;
 
   final Map<String, DiscoveredSession> _discovered = {};
-  Timer? _cleanupTimer;
   StreamSubscription? _scanSubscription;
 
   /// Starts scanning for Frequency advertisements.
@@ -19,6 +19,17 @@ class DiscoveryService {
     // 1. Check if Bluetooth is available and on.
     if (await FlutterBluePlus.isSupported == false) {
       throw Exception('Bluetooth LE is not supported on this device');
+    }
+
+    if (await FlutterBluePlus.adapterState.first == BluetoothAdapterState.off) {
+      throw Exception('Bluetooth adapter is off');
+    }
+
+    // Check runtime permissions.
+    final scanStatus = await Permission.bluetoothScan.request();
+    final connectStatus = await Permission.bluetoothConnect.request();
+    if (!scanStatus.isGranted || !connectStatus.isGranted) {
+      throw Exception('Bluetooth permissions denied');
     }
 
     _discovered.clear();
@@ -43,19 +54,11 @@ class DiscoveryService {
       // We remove the timeout to let the user control pausing/scanning
       // and prevent silent timeout failures (Thread 5, 11).
     );
-
-    // 4. Periodically clean up old results.
-    _cleanupTimer?.cancel();
-    _cleanupTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      // In a real app, we might check timestamps. For now, we'll keep it simple.
-    });
   }
 
   /// Stops the active scan.
   Future<void> stopScan() async {
     await FlutterBluePlus.stopScan();
-    _cleanupTimer?.cancel();
-    _cleanupTimer = null;
     await _scanSubscription?.cancel();
     _scanSubscription = null;
   }

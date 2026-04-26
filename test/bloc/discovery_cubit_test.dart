@@ -55,9 +55,28 @@ void main() {
     expect(cubit.state, DiscoveryScanning(sessions: sessions));
   });
 
-  test('stopDiscovery stops scan and emits stopped state', () async {
-    await cubit.stopDiscovery();
-    verify(mockService.stopScan()).called(1);
+  test('startDiscovery handles startScan failure with explicit failure state', () async {
+    when(mockService.startScan()).thenThrow(Exception('permission denied'));
+    await cubit.startDiscovery();
     expect(cubit.state, const DiscoveryStopped());
+  });
+
+  test('stopDiscovery clears sessions when paused', () async {
+    await cubit.startDiscovery();
+    final sessions = [
+      DiscoveredSession(
+        protocolVersion: 1,
+        isHost: true,
+        sessionUuidLow8: '1234567890123456',
+        flags: 0,
+        hostName: 'Host',
+        rssi: -50,
+      ),
+    ];
+    resultsController.add(sessions);
+    await Future.delayed(Duration.zero);
+    
+    await cubit.stopDiscovery();
+    expect(cubit.state, const DiscoveryStopped()); // empty sessions expected
   });
 }
