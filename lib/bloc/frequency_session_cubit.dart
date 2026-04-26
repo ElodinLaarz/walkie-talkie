@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../protocol/messages.dart';
 import '../services/identity_store.dart';
 import 'frequency_session_state.dart';
 
@@ -18,6 +21,10 @@ import 'frequency_session_state.dart';
 /// the divergence on next launch when the previous value loads back.
 class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final IdentityStore identityStore;
+
+  final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
+  Stream<MediaCommand> get mediaCommands => _mediaCommandsController.stream;
+  int _seq = 0;
 
   FrequencySessionCubit({required this.identityStore})
       : super(const SessionBooting());
@@ -101,5 +108,33 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final current = state;
     if (current is! SessionRoom) return;
     emit(SessionDiscovery(myName: current.myName));
+  }
+
+  /// Broadcasts a media command to all peers in the room. For the MVP, we
+  /// echo it locally to the broadcast stream to simulate applying the effect
+  /// via the host loopback.
+  Future<void> sendMediaCommand({
+    required MediaOp op,
+    required String source,
+    int? trackIdx,
+    int? positionMs,
+  }) async {
+    final peerId = await identityStore.getPeerId();
+    final cmd = MediaCommand(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      op: op,
+      source: source,
+      trackIdx: trackIdx,
+      positionMs: positionMs,
+    );
+    _mediaCommandsController.add(cmd);
+  }
+
+  @override
+  Future<void> close() {
+    _mediaCommandsController.close();
+    return super.close();
   }
 }
