@@ -46,9 +46,9 @@ class WalkieTalkieApp extends StatelessWidget {
   }
 }
 
-/// Selects a screen based on the current `SessionStage`. State and the
-/// transitions between stages live in [FrequencySessionCubit]; this widget
-/// is a pure projection of `FrequencySessionState`.
+/// Selects a screen based on the runtime type of `FrequencySessionState`.
+/// State and the transitions between stages live in
+/// [FrequencySessionCubit]; this widget is a pure projection.
 class FrequencyApp extends StatelessWidget {
   const FrequencyApp({super.key});
 
@@ -59,7 +59,7 @@ class FrequencyApp extends StatelessWidget {
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
           child: KeyedSubtree(
-            key: ValueKey(state.stage),
+            key: ValueKey(state.runtimeType),
             child: _buildStage(context, state),
           ),
         );
@@ -69,31 +69,36 @@ class FrequencyApp extends StatelessWidget {
 
   Widget _buildStage(BuildContext context, FrequencySessionState state) {
     final cubit = context.read<FrequencySessionCubit>();
-    switch (state.stage) {
-      case SessionStage.booting:
-        return const _BootSplash();
-      case SessionStage.onboarding:
-        return FrequencyOnboardingScreen(onDone: cubit.completeOnboarding);
-      case SessionStage.discovery:
-        return FrequencyDiscoveryScreen(
-          myName: state.myName,
-          onRename: cubit.rename,
+    return switch (state) {
+      SessionBooting() => const _BootSplash(),
+      SessionOnboarding() => FrequencyOnboardingScreen(
+          // Wrap in a void closure so the screen's `ValueChanged<String>`
+          // signature isn't asked to absorb the cubit's `Future<void>`.
+          onDone: (name) {
+            cubit.completeOnboarding(name);
+          },
+        ),
+      SessionDiscovery(:final myName) => FrequencyDiscoveryScreen(
+          myName: myName,
+          onRename: (name) {
+            cubit.rename(name);
+          },
           onPick: (result) => cubit.joinRoom(
             freq: result.freq,
             isHost: result.isHost,
           ),
-        );
-      case SessionStage.room:
-        return FrequencyRoomScreen(
-          freq: state.roomFreq!,
-          isHost: state.roomIsHost,
-          myName: state.myName,
+        ),
+      SessionRoom(:final myName, :final roomFreq, :final roomIsHost) =>
+        FrequencyRoomScreen(
+          freq: roomFreq,
+          isHost: roomIsHost,
+          myName: myName,
           groupSize: 5,
           mediaKind: MediaKind.music,
           pttMode: false,
           onLeave: cubit.leaveRoom,
-        );
-    }
+        ),
+    };
   }
 }
 

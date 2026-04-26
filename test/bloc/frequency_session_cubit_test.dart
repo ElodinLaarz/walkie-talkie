@@ -29,70 +29,43 @@ class _FakeStore implements IdentityStore {
 
 void main() {
   group('FrequencySessionCubit', () {
-    test('starts in the booting stage with no name', () {
+    test('starts in SessionBooting', () {
       final cubit = FrequencySessionCubit(identityStore: _FakeStore());
-      expect(cubit.state.stage, SessionStage.booting);
-      expect(cubit.state.myName, '');
-      expect(cubit.state.roomFreq, isNull);
-      expect(cubit.state.roomIsHost, isFalse);
+      expect(cubit.state, isA<SessionBooting>());
     });
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'bootstrap with a persisted name routes to discovery',
+      'bootstrap with a persisted name routes to Discovery',
       build: () => FrequencySessionCubit(
         identityStore: _FakeStore(initial: 'Maya'),
       ),
       act: (cubit) => cubit.bootstrap(),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.discovery,
-          myName: 'Maya',
-        ),
-      ],
+      expect: () => [const SessionDiscovery(myName: 'Maya')],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'bootstrap without a persisted name routes to onboarding',
+      'bootstrap without a persisted name routes to Onboarding',
       build: () => FrequencySessionCubit(identityStore: _FakeStore()),
       act: (cubit) => cubit.bootstrap(),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.onboarding,
-          myName: '',
-        ),
-      ],
+      expect: () => [const SessionOnboarding()],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'bootstrap falls through to onboarding when the store throws',
+      'bootstrap falls through to Onboarding when the store throws',
       build: () => FrequencySessionCubit(
         identityStore: _FakeStore()..throwOnGet = true,
       ),
       act: (cubit) => cubit.bootstrap(),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.onboarding,
-          myName: '',
-        ),
-      ],
+      expect: () => [const SessionOnboarding()],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'completeOnboarding persists and advances to discovery',
+      'completeOnboarding persists and advances to Discovery',
       build: () => FrequencySessionCubit(identityStore: _FakeStore()),
-      seed: () => const FrequencySessionState(
-        stage: SessionStage.onboarding,
-        myName: '',
-      ),
+      seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.completeOnboarding('Devon'),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.discovery,
-          myName: 'Devon',
-        ),
-      ],
+      expect: () => [const SessionDiscovery(myName: 'Devon')],
       verify: (cubit) async {
-        // setDisplayName actually got called.
         expect((cubit.identityStore as _FakeStore).setCalls, 1);
         expect(await cubit.identityStore.getDisplayName(), 'Devon');
       },
@@ -103,48 +76,64 @@ void main() {
       build: () => FrequencySessionCubit(
         identityStore: _FakeStore()..throwOnSet = true,
       ),
-      seed: () => const FrequencySessionState(
-        stage: SessionStage.onboarding,
-        myName: '',
-      ),
+      seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.completeOnboarding('Sam'),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.discovery,
-          myName: 'Sam',
-        ),
-      ],
+      expect: () => [const SessionDiscovery(myName: 'Sam')],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'rename updates the name without changing the stage',
+      'rename in Discovery updates the name in place',
       build: () => FrequencySessionCubit(
         identityStore: _FakeStore(initial: 'Maya'),
       ),
-      seed: () => const FrequencySessionState(
-        stage: SessionStage.discovery,
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) => cubit.rename('Maya R.'),
+      expect: () => [const SessionDiscovery(myName: 'Maya R.')],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'rename still updates name when persistence throws',
+      build: () => FrequencySessionCubit(
+        identityStore: _FakeStore(initial: 'Maya')..throwOnSet = true,
+      ),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) => cubit.rename('Maya R.'),
+      expect: () => [const SessionDiscovery(myName: 'Maya R.')],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'rename in Room preserves freq + host role',
+      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      seed: () => const SessionRoom(
         myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: true,
       ),
       act: (cubit) => cubit.rename('Maya R.'),
       expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.discovery,
+        const SessionRoom(
           myName: 'Maya R.',
+          roomFreq: '104.3',
+          roomIsHost: true,
         ),
       ],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'joinRoom enters the room stage with the freq and host flag',
+      'rename in Booting/Onboarding is a no-op on the visible state',
       build: () => FrequencySessionCubit(identityStore: _FakeStore()),
-      seed: () => const FrequencySessionState(
-        stage: SessionStage.discovery,
-        myName: 'Maya',
-      ),
+      seed: () => const SessionOnboarding(),
+      act: (cubit) => cubit.rename('Sam'),
+      expect: () => const <FrequencySessionState>[],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'joinRoom from Discovery enters the Room with freq + host flag',
+      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
       act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
       expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.room,
+        const SessionRoom(
           myName: 'Maya',
           roomFreq: '104.3',
           roomIsHost: true,
@@ -153,64 +142,53 @@ void main() {
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'leaveRoom drops the room fields and goes back to discovery',
+      'joinRoom outside Discovery is a no-op',
       build: () => FrequencySessionCubit(identityStore: _FakeStore()),
-      seed: () => const FrequencySessionState(
-        stage: SessionStage.room,
+      seed: () => const SessionOnboarding(),
+      act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
+      expect: () => const <FrequencySessionState>[],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'leaveRoom drops back to Discovery with the prior name',
+      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      seed: () => const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
         roomIsHost: true,
       ),
       act: (cubit) => cubit.leaveRoom(),
-      expect: () => [
-        const FrequencySessionState(
-          stage: SessionStage.discovery,
-          myName: 'Maya',
-          roomFreq: null,
-          roomIsHost: false,
-        ),
-      ],
+      expect: () => [const SessionDiscovery(myName: 'Maya')],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'leaveRoom outside Room is a no-op',
+      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) => cubit.leaveRoom(),
+      expect: () => const <FrequencySessionState>[],
     );
   });
 
   group('FrequencySessionState', () {
-    test('copyWith preserves untouched fields', () {
-      const a = FrequencySessionState(
-        stage: SessionStage.room,
-        myName: 'Maya',
-        roomFreq: '104.3',
-        roomIsHost: true,
-      );
-      final b = a.copyWith(myName: 'Maya R.');
-      expect(b.stage, SessionStage.room);
-      expect(b.myName, 'Maya R.');
-      expect(b.roomFreq, '104.3');
-      expect(b.roomIsHost, isTrue);
-    });
-
-    test('copyWith(clearRoom: true) drops both room fields', () {
-      const a = FrequencySessionState(
-        stage: SessionStage.room,
-        myName: 'Maya',
-        roomFreq: '104.3',
-        roomIsHost: true,
-      );
-      final b = a.copyWith(stage: SessionStage.discovery, clearRoom: true);
-      expect(b.stage, SessionStage.discovery);
-      expect(b.roomFreq, isNull);
-      expect(b.roomIsHost, isFalse);
-    });
-
-    test('equatable equality treats identical fields as equal', () {
-      const a = FrequencySessionState(
-        stage: SessionStage.discovery,
-        myName: 'Maya',
-      );
-      const b = FrequencySessionState(
-        stage: SessionStage.discovery,
-        myName: 'Maya',
-      );
+    test('Equatable equality treats identical fields as equal', () {
+      const a = SessionDiscovery(myName: 'Maya');
+      const b = SessionDiscovery(myName: 'Maya');
       expect(a, equals(b));
+    });
+
+    test('Equatable equality distinguishes Booting from Onboarding', () {
+      expect(const SessionBooting(), isNot(equals(const SessionOnboarding())));
+    });
+
+    test('SessionRoom carries non-null freq + host', () {
+      const r = SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: true,
+      );
+      expect(r.roomFreq, '104.3');
+      expect(r.roomIsHost, isTrue);
     });
   });
 }

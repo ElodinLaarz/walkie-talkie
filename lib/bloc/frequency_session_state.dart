@@ -1,53 +1,51 @@
 import 'package:equatable/equatable.dart';
 
-/// High-level navigation stages for the Frequency app.
-enum SessionStage { booting, onboarding, discovery, room }
+/// Sealed hierarchy describing the session-level Frequency state. Each
+/// stage carries exactly the fields it needs — the UI exhaustively
+/// switches on the runtime type and the analyzer flags missing branches.
+/// Force-unwraps and "is this field set?" plumbing aren't required.
+sealed class FrequencySessionState extends Equatable {
+  const FrequencySessionState();
+}
 
-/// Single source of truth for session-level Frequency state: which screen
-/// the user is on, who they are, and (when in a room) which frequency they
-/// joined and whether they're the host.
-///
-/// Room-internal state (roster, mute, media playback, output selection) is
-/// still owned by `FrequencyRoomScreen` for now and will migrate here in a
-/// follow-up PR.
-class FrequencySessionState extends Equatable {
-  final SessionStage stage;
-  final String myName;
-  final String? roomFreq;
-  final bool roomIsHost;
-
-  const FrequencySessionState({
-    required this.stage,
-    required this.myName,
-    this.roomFreq,
-    this.roomIsHost = false,
-  });
-
-  /// Initial state: app just launched, identity store hasn't been read yet.
-  const FrequencySessionState.booting()
-      : stage = SessionStage.booting,
-        myName = '',
-        roomFreq = null,
-        roomIsHost = false;
-
-  /// Returns a copy with updated fields. Pass `clearRoom: true` to drop
-  /// `roomFreq` / `roomIsHost` regardless of the corresponding parameters
-  /// (used on `leaveRoom`).
-  FrequencySessionState copyWith({
-    SessionStage? stage,
-    String? myName,
-    String? roomFreq,
-    bool? roomIsHost,
-    bool clearRoom = false,
-  }) {
-    return FrequencySessionState(
-      stage: stage ?? this.stage,
-      myName: myName ?? this.myName,
-      roomFreq: clearRoom ? null : (roomFreq ?? this.roomFreq),
-      roomIsHost: clearRoom ? false : (roomIsHost ?? this.roomIsHost),
-    );
-  }
+/// App just launched; the identity store hasn't been read yet.
+final class SessionBooting extends FrequencySessionState {
+  const SessionBooting();
 
   @override
-  List<Object?> get props => [stage, myName, roomFreq, roomIsHost];
+  List<Object?> get props => const [];
+}
+
+/// No persisted display name; the user is going through onboarding.
+final class SessionOnboarding extends FrequencySessionState {
+  const SessionOnboarding();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// User has a persisted display name and is on Discovery, but hasn't
+/// joined or created a frequency yet.
+final class SessionDiscovery extends FrequencySessionState {
+  final String myName;
+  const SessionDiscovery({required this.myName});
+
+  @override
+  List<Object?> get props => [myName];
+}
+
+/// User is in a room. Both [roomFreq] and [roomIsHost] are non-nullable
+/// by construction, so the UI can read them without force-unwrapping.
+final class SessionRoom extends FrequencySessionState {
+  final String myName;
+  final String roomFreq;
+  final bool roomIsHost;
+  const SessionRoom({
+    required this.myName,
+    required this.roomFreq,
+    required this.roomIsHost,
+  });
+
+  @override
+  List<Object?> get props => [myName, roomFreq, roomIsHost];
 }
