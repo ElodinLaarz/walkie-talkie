@@ -84,6 +84,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// from the local user anyway.
   String? _myPeerId;
 
+  /// The last `MediaState` snapshot we snapped the local player to.
+  /// Used by [_applyMediaSnapshot] to short-circuit redundant applies —
+  /// `didChangeDependencies` can fire on rotation / keyboard inset
+  /// changes / route restorations, and we don't want to clobber the
+  /// player's own progress on every one of those.
+  MediaState? _appliedSnapshot;
+
   int _trackIdx = 0;
   bool _playing = true;
   int _progress = 37;
@@ -186,7 +193,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// Called on initial entry (snapshot from the JoinAccepted in
   /// SessionRoom) and on every subsequent SessionRoom emission whose
   /// mediaState changes (rejoin reconciliation).
+  ///
+  /// Idempotent: re-applying the same snapshot is a no-op so a
+  /// `didChangeDependencies` fired by an unrelated InheritedWidget
+  /// change (rotation, keyboard inset, route restore) doesn't yank
+  /// the player back to `positionMs` and erase local progress.
   void _applyMediaSnapshot(MediaState snapshot) {
+    if (_appliedSnapshot == snapshot) return;
+    _appliedSnapshot = snapshot;
     final lib = kMedia[snapshot.source] ?? _lib;
     final clampedIdx = snapshot.trackIdx.clamp(0, lib.queue.length - 1);
     final positionSec = (snapshot.positionMs / 1000).round();

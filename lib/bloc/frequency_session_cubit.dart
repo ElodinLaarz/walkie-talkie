@@ -105,21 +105,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     switch (state) {
       case SessionDiscovery():
         emit(SessionDiscovery(myName: name));
-      case SessionRoom(
-          :final roomFreq,
-          :final roomIsHost,
-          :final hostPeerId,
-          :final roster,
-          :final mediaState
-        ):
-        emit(SessionRoom(
-          myName: name,
-          roomFreq: roomFreq,
-          roomIsHost: roomIsHost,
-          hostPeerId: hostPeerId,
-          roster: roster,
-          mediaState: mediaState,
-        ));
+      case final SessionRoom room:
+        emit(room.copyWith(myName: name));
       case SessionBooting():
       case SessionOnboarding():
         break;
