@@ -8,6 +8,7 @@ import '../bloc/frequency_session_cubit.dart';
 import '../bloc/frequency_session_state.dart';
 import '../data/frequency_mock_data.dart';
 import '../protocol/messages.dart';
+import '../services/audio_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import '../widgets/frequency_toast_host.dart';
@@ -44,6 +45,13 @@ class FrequencyRoomScreen extends StatefulWidget {
   final String myName;
   final VoidCallback onLeave;
 
+  /// Native audio bridge. Optional so widget tests that don't care about the
+  /// MethodChannel can omit it (the catch-blocks inside [AudioService]
+  /// swallow `MissingPluginException`); production wiring constructs the
+  /// default instance. Tests that *do* assert on audio engine calls can
+  /// pass an instance whose channel handler they've registered.
+  final AudioService? audioService;
+
   const FrequencyRoomScreen({
     super.key,
     required this.freq,
@@ -53,6 +61,7 @@ class FrequencyRoomScreen extends StatefulWidget {
     required this.isHost,
     required this.myName,
     required this.onLeave,
+    this.audioService,
   });
 
   @override
@@ -115,6 +124,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   bool get _meEffectivelyMuted => widget.pttMode ? !_holdingPtt : _meMuted;
 
+  late final AudioService _audio;
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +145,16 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
     _lib = kMedia[_source]!;
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
+
+    _audio = widget.audioService ?? AudioService();
+    // Spin up the capture engine, then push the initial mute state. The
+    // sequence matters: pushing `setMuted` before `startVoice` finishes
+    // would race the encoder init on slower devices and the first toggle
+    // would silently no-op.
+    final initialMuted = _meEffectivelyMuted;
+    unawaited(_audio.startVoice().then((_) {
+      _audio.setMuted(initialMuted);
+    }));
 
     _resolveMyPeerId();
     _startTalkSimulation();
@@ -252,6 +273,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         _meMuted = widget.pttMode;
         _holdingPtt = false;
       });
+      // Switching pttMode resets effective mute (open mic ⇒ unmuted,
+      // PTT ⇒ muted-until-held), so the engine needs the new state.
+      unawaited(_audio.setMuted(_meEffectivelyMuted));
     }
   }
 
@@ -262,7 +286,23 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _hostJoinDemoTimer?.cancel();
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
+    unawaited(_audio.stopVoice());
     super.dispose();
+  }
+
+  /// Open-mic mute toggle. Updates the local UI state and pushes the new
+  /// mute flag to the native audio engine in one step so they can't drift.
+  void _setOpenMicMuted(bool muted) {
+    setState(() => _meMuted = muted);
+    unawaited(_audio.setMuted(muted));
+  }
+
+  /// PTT press/release. While held the mic is unmuted; on release we
+  /// re-mute so a stuck pointer or a missed `onPointerCancel` can't leave
+  /// the user open-mic'd against their intent.
+  void _setPttHolding(bool holding) {
+    setState(() => _holdingPtt = holding);
+    unawaited(_audio.setMuted(!holding));
   }
 
   void _onMediaCommand(MediaCommand cmd) {
@@ -620,7 +660,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           if (widget.pttMode)
             _PushToTalkButton(
               holding: _holdingPtt,
-              onChange: (h) => setState(() => _holdingPtt = h),
+              onChange: _setPttHolding,
             )
           else
             SizedBox(
@@ -631,14 +671,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                       label: 'Unmute',
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       fontSize: 13,
-                      onPressed: () => setState(() => _meMuted = false),
+                      onPressed: () => _setOpenMicMuted(false),
                     )
                   : PrimaryButton(
                       icon: Icons.mic,
                       label: 'Mute',
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       fontSize: 13,
-                      onPressed: () => setState(() => _meMuted = true),
+                      onPressed: () => _setOpenMicMuted(true),
                     ),
             ),
         ],

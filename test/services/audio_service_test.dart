@@ -23,6 +23,9 @@ void main() {
                 case 'scanDevices':
                 case 'connectDevice':
                 case 'disconnectDevice':
+                case 'startVoice':
+                case 'stopVoice':
+                case 'setMuted':
                   return true;
                 case 'stopScan':
                   return null;
@@ -87,6 +90,29 @@ void main() {
           'disconnectDevice',
           arguments: {'macAddress': '00:00:00:00:00:00'},
         ),
+      ]);
+    });
+
+    test('startVoice calls correct method', () async {
+      final result = await audioService.startVoice();
+      expect(result, true);
+      expect(log, <Matcher>[isMethodCall('startVoice', arguments: null)]);
+    });
+
+    test('stopVoice calls correct method', () async {
+      final result = await audioService.stopVoice();
+      expect(result, true);
+      expect(log, <Matcher>[isMethodCall('stopVoice', arguments: null)]);
+    });
+
+    test('setMuted forwards the muted flag in the args', () async {
+      final muted = await audioService.setMuted(true);
+      final unmuted = await audioService.setMuted(false);
+      expect(muted, true);
+      expect(unmuted, true);
+      expect(log, <Matcher>[
+        isMethodCall('setMuted', arguments: {'muted': true}),
+        isMethodCall('setMuted', arguments: {'muted': false}),
       ]);
     });
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -12,6 +13,10 @@ import 'package:walkie_talkie/screens/frequency_room_screen.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
+
+/// MethodChannel name the audio service uses to talk to the native engine.
+/// Must match the constant in `lib/services/audio_service.dart`.
+const _audioChannel = MethodChannel('com.elodin.walkie_talkie/audio');
 
 class MockFrequencySessionCubit extends Mock implements FrequencySessionCubit {}
 class MockIdentityStore extends Mock implements IdentityStore {}
@@ -102,6 +107,10 @@ Widget _room({
     );
 
 void main() {
+  /// Captures every audio MethodChannel call the room screen makes during a
+  /// single test. Reset in `setUp` so cross-test bleed is impossible.
+  final audioCalls = <MethodCall>[];
+
   setUpAll(() {
     registerFallbackValue(MediaOp.play);
   });
@@ -111,6 +120,20 @@ void main() {
     binding.platformDispatcher.implicitView!
       ..physicalSize = _viewport
       ..devicePixelRatio = 1.0;
+
+    // Stub the audio MethodChannel so `AudioService` calls land on the test
+    // recorder instead of throwing `MissingPluginException`. The screen's
+    // initState fires startVoice + setMuted before the first pump, so the
+    // handler must be in place before pumpWidget.
+    audioCalls.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_audioChannel, (call) async {
+      audioCalls.add(call);
+      // All audio methods this screen calls return bool today; returning
+      // true keeps the await chain happy without forcing per-method
+      // dispatch.
+      return true;
+    });
   });
 
   tearDown(() {
@@ -118,6 +141,8 @@ void main() {
     binding.platformDispatcher.implicitView!
       ..resetPhysicalSize()
       ..resetDevicePixelRatio();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_audioChannel, null);
   });
 
   group('FrequencyRoomScreen', () {
@@ -414,6 +439,96 @@ void main() {
         // and `_source` hasn't been corrupted.
         expect(find.text('Nightsong'), findsOneWidget);
         expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'startVoice fires on entry, stopVoice fires on dispose',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        // Drain the post-frame microtask that resolves startVoice's then().
+        await tester.pump();
+
+        expect(
+          audioCalls.where((c) => c.method == 'startVoice').length,
+          1,
+          reason: 'startVoice must be called once on entry',
+        );
+
+        // Pump an empty widget tree to dispose the room.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+
+        expect(
+          audioCalls.where((c) => c.method == 'stopVoice').length,
+          1,
+          reason: 'stopVoice must be called on dispose',
+        );
+      },
+    );
+
+    testWidgets(
+      'open-mic mute toggle pushes setMuted to the audio engine',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Initial: not muted (open-mic default).
+        // Tap Mute → setMuted(true) on the engine.
+        await tester.tap(find.text('Mute'));
+        await tester.pump();
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': true}),
+        );
+
+        // Tap Unmute → setMuted(false).
+        await tester.tap(find.text('Unmute'));
+        await tester.pump();
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': false}),
+        );
+      },
+    );
+
+    testWidgets(
+      'PTT hold/release pushes setMuted(false) and setMuted(true)',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room(pttMode: true)));
+        await tester.pump();
+
+        // Press the PTT button — engine unmutes.
+        final ptt = find.text('Hold to talk');
+        final pttCenter = tester.getCenter(ptt);
+        final gesture = await tester.startGesture(pttCenter);
+        await tester.pump();
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': false}),
+        );
+
+        // Release — engine re-mutes.
+        await gesture.up();
+        await tester.pump();
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': true}),
+        );
+      },
+    );
+
+    testWidgets(
+      'PTT mode start emits setMuted(true) — push-to-talk default is muted',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room(pttMode: true)));
+        await tester.pump();
+
+        // The very first setMuted after startVoice resolves must reflect
+        // the PTT default (muted-until-held), not the open-mic default.
+        final firstSetMuted =
+            audioCalls.firstWhere((c) => c.method == 'setMuted');
+        expect(firstSetMuted.arguments, {'muted': true});
       },
     );
 
