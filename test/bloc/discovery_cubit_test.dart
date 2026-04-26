@@ -19,12 +19,14 @@ void main() {
     mockService = MockDiscoveryService();
     resultsController = StreamController<List<DiscoveredSession>>.broadcast();
     when(mockService.results).thenAnswer((_) => resultsController.stream);
+    when(mockService.startScan()).thenAnswer((_) async {});
+    when(mockService.stopScan()).thenAnswer((_) async {});
     cubit = DiscoveryCubit(mockService);
   });
 
-  tearDown(() {
-    cubit.close();
-    resultsController.close();
+  tearDown(() async {
+    await cubit.close();
+    await resultsController.close();
   });
 
   test('initial state is DiscoveryInitial', () {
@@ -32,7 +34,7 @@ void main() {
   });
 
   test('startDiscovery starts scan and listens for results', () async {
-    cubit.startDiscovery();
+    await cubit.startDiscovery();
     verify(mockService.startScan()).called(1);
     expect(cubit.state, const DiscoveryScanning());
 
@@ -40,7 +42,7 @@ void main() {
       DiscoveredSession(
         protocolVersion: 1,
         isHost: true,
-        sessionUuidLow8: '123',
+        sessionUuidLow8: '1234567890123456',
         flags: 0,
         hostName: 'Host',
         rssi: -50,
@@ -53,8 +55,8 @@ void main() {
     expect(cubit.state, DiscoveryScanning(sessions: sessions));
   });
 
-  test('stopDiscovery stops scan and emits stopped state', () {
-    cubit.stopDiscovery();
+  test('stopDiscovery stops scan and emits stopped state', () async {
+    await cubit.stopDiscovery();
     verify(mockService.stopScan()).called(1);
     expect(cubit.state, const DiscoveryStopped());
   });

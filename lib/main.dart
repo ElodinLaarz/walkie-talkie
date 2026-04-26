@@ -31,6 +31,10 @@ class WalkieTalkieApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // If the service is not provided, we create it here. Since RepositoryProvider
+    // doesn't have a dispose callback like Provider, it's safer to provide it via
+    // a StatefulWidget if we need to manage its lifecycle, but for the global
+    // app scope it's okay to just let it live.
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<IdentityStore>(

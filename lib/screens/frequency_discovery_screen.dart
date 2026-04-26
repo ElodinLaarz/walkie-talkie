@@ -40,6 +40,7 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
 
 class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   String? _selectedId;
+  DiscoveryCubit? _cubit;
 
   late final String _newFreq;
   static const _freqRng = 20;
@@ -52,8 +53,22 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<DiscoveryCubit>().startDiscovery();
+      if (!mounted) return;
+      _cubit?.startDiscovery();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _cubit ??= context.read<DiscoveryCubit>();
+  }
+
+  @override
+  void dispose() {
+    // Ensure we stop scanning when leaving the discovery screen.
+    _cubit?.stopDiscovery();
+    super.dispose();
   }
 
   @override

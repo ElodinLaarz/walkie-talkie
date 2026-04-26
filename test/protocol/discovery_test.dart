@@ -37,7 +37,7 @@ void main() {
     });
 
     test('rejects truncated advertisement', () {
-      final data = Uint8List.fromList([0x01, 0x01, 0x00]);
+      final data = Uint8List.fromList([0x01, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00, 0x00, 0x00]);
       final session = DiscoveredSession.fromManufacturerData(data, hostName: 'X', rssi: 0);
       expect(session, isNull);
     });

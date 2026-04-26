@@ -11,6 +11,7 @@ class DiscoveredSession {
   final int flags;
   final String hostName;
   final int rssi;
+  final String mhzDisplay;
 
   DiscoveredSession({
     required this.protocolVersion,
@@ -19,13 +20,13 @@ class DiscoveredSession {
     required this.flags,
     required this.hostName,
     required this.rssi,
-  });
+  }) : mhzDisplay = _deriveMhz(sessionUuidLow8);
 
   /// Derives the cosmetic MHz display string from the session UUID.
   /// 
   /// tenths = 880 + (low_12_bits % 200)
   /// mhz    = tenths / 10.0
-  String get mhzDisplay {
+  static String _deriveMhz(String sessionUuidLow8) {
     // We only have the low 8 bytes (64 bits) of the session UUID in the 
     // advertisement. The protocol says low 12 bits of the full UUID are used.
     // The advertisement layout says offset 2 contains "low 8 bytes of sessionUuid".
@@ -63,7 +64,7 @@ class DiscoveredSession {
     required String hostName,
     required int rssi,
   }) {
-    if (data.length < 12) return null;
+    if (data.length < 16) return null;
 
     final version = data[0];
     if (version != 1) return null; // Only v1 supported.

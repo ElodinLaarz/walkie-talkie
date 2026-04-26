@@ -10,29 +10,43 @@ class DiscoveryCubit extends Cubit<DiscoveryState> {
 
   DiscoveryCubit(this._discoveryService) : super(DiscoveryInitial());
 
-  void startDiscovery() {
-    _subscription?.cancel();
+  Future<void> startDiscovery() async {
+    emit(const DiscoveryScanning());
+    await _subscription?.cancel();
     _subscription = _discoveryService.results.listen((sessions) {
       emit(DiscoveryScanning(sessions: sessions));
     });
-    _discoveryService.startScan();
-    emit(const DiscoveryScanning());
+    try {
+      await _discoveryService.startScan();
+    } catch (_) {
+      await _subscription?.cancel();
+      _subscription = null;
+      final sessions = state is DiscoveryScanning
+          ? (state as DiscoveryScanning).sessions
+          : (state is DiscoveryStopped
+              ? (state as DiscoveryStopped).sessions
+              : const <DiscoveredSession>[]);
+      emit(DiscoveryStopped(sessions: sessions));
+    }
   }
 
-  void stopDiscovery() {
-    _discoveryService.stopScan();
+  Future<void> stopDiscovery() async {
     final sessions = state is DiscoveryScanning
         ? (state as DiscoveryScanning).sessions
         : (state is DiscoveryStopped
             ? (state as DiscoveryStopped).sessions
             : const <DiscoveredSession>[]);
+    final subscription = _subscription;
+    _subscription = null;
+    await subscription?.cancel();
+    await _discoveryService.stopScan();
     emit(DiscoveryStopped(sessions: sessions));
-    _subscription?.cancel();
   }
 
   @override
-  Future<void> close() {
-    _subscription?.cancel();
+  Future<void> close() async {
+    await _discoveryService.stopScan();
+    await _subscription?.cancel();
     return super.close();
   }
 }

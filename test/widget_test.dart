@@ -34,7 +34,7 @@ class _FakeDiscoveryService implements DiscoveryService {
   Future<void> stopScan() async {}
 
   @override
-  void dispose() {}
+  Future<void> dispose() async {}
 }
 
 void main() {

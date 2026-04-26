@@ -14,9 +14,9 @@ Widget _wrap(Widget child, {DiscoveryCubit? cubit}) {
   if (cubit == null) {
     when(() => mockCubit.state).thenReturn(DiscoveryInitial());
     when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
-    when(() => mockCubit.startDiscovery()).thenReturn(null);
-    when(() => mockCubit.stopDiscovery()).thenReturn(null);
-    when(() => mockCubit.close()).thenAnswer((_) async => null);
+    when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+    when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+    when(() => mockCubit.close()).thenAnswer((_) async {});
   }
 
   return MaterialApp(
