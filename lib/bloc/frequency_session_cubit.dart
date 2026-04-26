@@ -37,10 +37,15 @@ import 'frequency_session_state.dart';
 ///     responsive, AND would write it to the host's GATT REQUEST
 ///     characteristic when the BLE transport is wired.
 ///   * [applyHostMediaEcho] — host echo path. The host (or the loopback
-///     in v1) calls this to apply the canonical version of a command:
-///     for non-originators it's the only place mediaState mutates; for
-///     originators it reconciles the optimistic local apply against
-///     whatever the host actually committed (host wins).
+///     in v1) calls this to forward the host-approved command onto
+///     [mediaCommands] so listeners can react to the canonical wire
+///     event. This currently does **not** mutate
+///     `SessionRoom.mediaState`; the cubit's room snapshot only
+///     changes when room state is replaced (e.g. via
+///     [applyJoinAccepted]). The room screen owns queue-aware
+///     advancement against the echo — see the per-method doc on
+///     [applyHostMediaEcho] for why mediaState advancement isn't in
+///     the cubit.
 class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final IdentityStore identityStore;
 
