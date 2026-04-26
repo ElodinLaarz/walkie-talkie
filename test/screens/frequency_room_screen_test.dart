@@ -1,9 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
+import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/data/frequency_mock_data.dart';
+import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
+import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
+
+class MockFrequencySessionCubit extends Mock implements FrequencySessionCubit {}
+class MockIdentityStore extends Mock implements IdentityStore {}
 
 /// Phone-portrait viewport. The chrome's intrinsic content width sits in
 /// the 372–375px range (live chip + HOST chip + 3 ghost buttons), so 412dp
@@ -19,21 +30,60 @@ const _viewport = Size(432, 1200);
 /// weak-signal toast (fires at 7.2s) — those are demo timers in initState.
 const _settle = Duration(milliseconds: 500);
 
-Widget _wrap(Widget child) => MaterialApp(
-      theme: AppTheme.light(),
-      // Match production placement so toast pushes inside the room don't
-      // trip the FrequencyToastHost.of() lookup.
-      builder: (context, c) => FrequencyToastHost(
-        child: MediaQuery(
-          // Test environment can inject a fake keyboard inset when text
-          // fields focus, which would push modal sheet content off-screen
-          // (same gotcha as the discovery rename test).
-          data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
+Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
+  final mockCubit = cubit ?? MockFrequencySessionCubit();
+  final mockStore = MockIdentityStore();
+  
+  if (cubit == null) {
+    when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
+    when(() => mockCubit.identityStore).thenReturn(mockStore);
+    when(() => mockCubit.state).thenReturn(const SessionBooting());
+    when(() => mockCubit.stream).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
+    
+    final controller = StreamController<MediaCommand>.broadcast();
+    when(() => mockCubit.mediaCommands).thenAnswer((_) => controller.stream);
+    
+    when(() => mockCubit.sendMediaCommand(
+          op: any(named: 'op'),
+          source: any(named: 'source'),
+          trackIdx: any(named: 'trackIdx'),
+          positionMs: any(named: 'positionMs'),
+        )).thenAnswer((invocation) async {
+      final op = invocation.namedArguments[#op] as MediaOp;
+      final source = invocation.namedArguments[#source] as String;
+      final trackIdx = invocation.namedArguments[#trackIdx] as int?;
+      final positionMs = invocation.namedArguments[#positionMs] as int?;
+      controller.add(MediaCommand(
+        peerId: 'me',
+        seq: 1,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+        op: op,
+        source: source,
+        trackIdx: trackIdx,
+        positionMs: positionMs,
+      ));
+    });
+  }
+
+  return MaterialApp(
+    theme: AppTheme.light(),
+    // Match production placement so toast pushes inside the room don't
+    // trip the FrequencyToastHost.of() lookup.
+    builder: (context, c) => FrequencyToastHost(
+      child: MediaQuery(
+        // Test environment can inject a fake keyboard inset when text
+        // fields focus, which would push modal sheet content off-screen
+        // (same gotcha as the discovery rename test).
+        data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
+        child: BlocProvider<FrequencySessionCubit>.value(
+          value: mockCubit,
           child: c!,
         ),
       ),
-      home: child,
-    );
+    ),
+    home: child,
+  );
+}
 
 Widget _room({
   bool isHost = false,
@@ -52,6 +102,10 @@ Widget _room({
     );
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(MediaOp.play);
+  });
+
   setUp(() {
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
     binding.platformDispatcher.implicitView!

@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../bloc/frequency_session_cubit.dart';
 import '../data/frequency_mock_data.dart';
+import '../protocol/messages.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import '../widgets/frequency_toast_host.dart';
@@ -70,6 +73,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _progressTimer;
   Timer? _hostJoinDemoTimer;
   Timer? _weakSignalDemoTimer;
+  StreamSubscription<MediaCommand>? _mediaSub;
 
   int _trackIdx = 0;
   bool _playing = true;
@@ -141,6 +145,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _mediaSub ??= context.read<FrequencySessionCubit>().mediaCommands.listen(_onMediaCommand);
+  }
+
+  @override
   void didUpdateWidget(covariant FrequencyRoomScreen old) {
     super.didUpdateWidget(old);
     if (old.pttMode != widget.pttMode) {
@@ -157,7 +167,75 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _progressTimer?.cancel();
     _hostJoinDemoTimer?.cancel();
     _weakSignalDemoTimer?.cancel();
+    _mediaSub?.cancel();
     super.dispose();
+  }
+
+  void _onMediaCommand(MediaCommand cmd) {
+    if (!mounted) return;
+    setState(() {
+      // Because we don't have a full peer mapping synced in MVP, we just match by name/id
+      // but IdentityStore generates UUIDs. If it's the sender's UUID, we just use "You",
+      // otherwise "Someone" unless we can map it via roster.
+      // Wait, IdentityStore returns a UUID. The UI here uses a mock roster.
+      // Let's check if the identityStore peerId matches `_me.id` which is currently hardcoded to 'me'.
+      // Actually, IdentityStore will have generated a real UUID, so `isMe` might be false.
+      // Let's resolve the identity better.
+      String senderName = 'Someone';
+      if (cmd.peerId == context.read<FrequencySessionCubit>().identityStore.getPeerId().toString()) {
+        // Not awaitable here, but we can assume if it's not in the mock roster it's probably "You"
+        // in a local test.
+        senderName = widget.myName.isEmpty ? 'You' : widget.myName;
+      } else {
+        // Check roster if it exists
+        try {
+          final p = _roster.firstWhere((p) => p.id == cmd.peerId);
+          senderName = p.name;
+        } catch (_) {
+          // In the mock UI, the local cubit peerId is a real UUID but the mock roster uses string IDs.
+          // Since it's a loopback, it's always "You".
+          senderName = widget.myName.isEmpty ? 'You' : widget.myName;
+        }
+      }
+
+      switch (cmd.op) {
+        case MediaOp.play:
+          _playing = true;
+          _lastAction = _LastAction(by: senderName, action: 'resumed', when: 'just now');
+          break;
+        case MediaOp.pause:
+          _playing = false;
+          _lastAction = _LastAction(by: senderName, action: 'paused', when: 'just now');
+          break;
+        case MediaOp.skip:
+          _trackIdx = (_trackIdx + 1) % _lib.queue.length;
+          _progress = 0;
+          _lastAction = _LastAction(by: senderName, action: 'skipped', when: 'just now');
+          break;
+        case MediaOp.prev:
+          _trackIdx = (_trackIdx - 1 + _lib.queue.length) % _lib.queue.length;
+          _progress = 0;
+          _lastAction = _LastAction(by: senderName, action: 'went back', when: 'just now');
+          break;
+        case MediaOp.seek:
+          if (cmd.positionMs != null) {
+            // Anchor scrub seeks to peer clocks
+            final deltaMs = DateTime.now().millisecondsSinceEpoch - cmd.atMs;
+            final effectiveMs = cmd.positionMs! + (deltaMs > 0 ? deltaMs : 0);
+            _progress = (effectiveMs / 1000).round();
+            _lastAction = _LastAction(by: senderName, action: 'scrubbed', when: 'just now');
+          }
+          break;
+        case MediaOp.queuePlay:
+          if (cmd.trackIdx != null) {
+            _trackIdx = cmd.trackIdx!;
+            _progress = 0;
+            _playing = true;
+            _lastAction = _LastAction(by: senderName, action: 'queued up track', when: 'just now');
+          }
+          break;
+      }
+    });
   }
 
   void _startTalkSimulation() {
@@ -188,56 +266,42 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     });
   }
 
-  void _togglePlay() => setState(() {
-        _playing = !_playing;
-        _lastAction = _LastAction(
-          by: widget.myName.isEmpty ? 'You' : widget.myName,
-          action: _playing ? 'resumed' : 'paused',
-          when: 'just now',
-        );
-      });
-
-  void _next() => setState(() {
-        _trackIdx = (_trackIdx + 1) % _lib.queue.length;
-        _progress = 0;
-        _lastAction = _LastAction(
-          by: widget.myName.isEmpty ? 'You' : widget.myName,
-          action: 'skipped',
-          when: 'just now',
-        );
-      });
-
-  void _prev() => setState(() {
-        _trackIdx = (_trackIdx - 1 + _lib.queue.length) % _lib.queue.length;
-        _progress = 0;
-        _lastAction = _LastAction(
-          by: widget.myName.isEmpty ? 'You' : widget.myName,
-          action: 'went back',
-          when: 'just now',
-        );
-      });
-
-  void _playAt(int i) {
-    setState(() {
-      _trackIdx = i;
-      _progress = 0;
-      _playing = true;
-      _lastAction = _LastAction(
-        by: widget.myName.isEmpty ? 'You' : widget.myName,
-        action: 'queued up track',
-        when: 'just now',
-      );
-    });
+  void _togglePlay() {
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: _playing ? MediaOp.pause : MediaOp.play,
+      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+    );
   }
 
-  void _scrub(double v) => setState(() {
-        _progress = v.round();
-        _lastAction = _LastAction(
-          by: widget.myName.isEmpty ? 'You' : widget.myName,
-          action: 'scrubbed',
-          when: 'just now',
-        );
-      });
+  void _next() {
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.skip,
+      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+    );
+  }
+
+  void _prev() {
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.prev,
+      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+    );
+  }
+
+  void _playAt(int i) {
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.queuePlay,
+      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      trackIdx: i,
+    );
+  }
+
+  void _scrub(double v) {
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.seek,
+      source: widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music',
+      positionMs: (v * 1000).round(),
+    );
+  }
 
   String _outputName() {
     return _output == AudioOutput.bluetooth ? 'headphones' : _output.label;
