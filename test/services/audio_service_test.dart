@@ -49,10 +49,18 @@ void main() {
           );
     });
 
-    test('startService calls correct method', () async {
+    test('startService calls correct method without freq', () async {
       final result = await audioService.startService();
       expect(result, true);
       expect(log, <Matcher>[isMethodCall('startService', arguments: null)]);
+    });
+
+    test('startService passes freq to native layer', () async {
+      final result = await audioService.startService(freq: '104.3');
+      expect(result, true);
+      expect(log, <Matcher>[
+        isMethodCall('startService', arguments: <String, dynamic>{'freq': '104.3'}),
+      ]);
     });
 
     test('stopService calls correct method', () async {

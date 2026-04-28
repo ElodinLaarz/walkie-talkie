@@ -15,16 +15,16 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
     }
-    
+
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
     private var eventSink: EventChannel.EventSink? = null
-    
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
         // Initialize audio routing manager
         // Auto-detect will be started when voice capture begins (startVoice)
         audioRoutingManager = AudioRoutingManager(this)
@@ -40,7 +40,7 @@ class MainActivity : FlutterActivity() {
                     "name" to name
                 ))
             }
-            
+
             onDeviceConnected = { address ->
                 Log.i(TAG, "Device connected: $address")
                 sendEventToFlutter(mapOf(
@@ -48,7 +48,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-            
+
             onDeviceDisconnected = { address ->
                 Log.i(TAG, "Device disconnected: $address")
                 sendEventToFlutter(mapOf(
@@ -56,7 +56,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-            
+
             onError = { message ->
                 Log.e(TAG, "Bluetooth error: $message")
                 sendEventToFlutter(mapOf(
@@ -65,14 +65,17 @@ class MainActivity : FlutterActivity() {
                 ))
             }
         }
-        
+
         // Set up MethodChannel for Flutter -> Native communication
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startService" -> {
-                    Log.i(TAG, "Starting WalkieTalkieService")
-                    val intent = Intent(this, WalkieTalkieService::class.java)
+                    val freq = call.argument<String>("freq")
+                    Log.i(TAG, "Starting WalkieTalkieService, freq=$freq")
+                    val intent = Intent(this, WalkieTalkieService::class.java).apply {
+                        if (freq != null) putExtra(WalkieTalkieService.EXTRA_FREQ, freq)
+                    }
                     startForegroundService(intent)
                     result.success(true)
                 }
@@ -163,7 +166,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        
+
         // Set up EventChannel for Native -> Flutter events
         eventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
         eventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
@@ -178,13 +181,24 @@ class MainActivity : FlutterActivity() {
             }
         })
     }
-    
+
     private fun sendEventToFlutter(event: Map<String, Any>) {
         Handler(Looper.getMainLooper()).post {
             eventSink?.success(event)
         }
     }
-    
+
+    // Called when the notification's Leave action brings this activity back to
+    // the foreground (singleTop launchMode prevents a new instance). The action
+    // extra is forwarded to Flutter so the room screen can call leaveRoom().
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
+            Log.i(TAG, "Leave action received via notification intent")
+            sendEventToFlutter(mapOf("type" to "leaveRoom"))
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         audioRoutingManager?.cleanup()
