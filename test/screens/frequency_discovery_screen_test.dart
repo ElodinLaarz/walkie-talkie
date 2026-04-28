@@ -177,5 +177,70 @@ void main() {
       expect(picked!.isHost, isTrue);
       expect(picked!.freq, isNotEmpty);
     });
+
+    testWidgets(
+      'omits the Recent section when there are no persisted frequencies',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            // recentHostedFrequencies defaults to empty.
+          ),
+        ));
+        await tester.pump();
+
+        expect(find.text('RECENT'), findsNothing);
+        expect(find.text('Resume'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'renders a Resume row per persisted recent frequency',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const ['100.1', '92.4'],
+          ),
+        ));
+        await tester.pump();
+
+        expect(find.text('RECENT'), findsOneWidget);
+        // One Resume button per row.
+        expect(find.text('Resume'), findsNWidgets(2));
+        // Each row's freq is rendered inside a Text.rich span, so match
+        // by substring rather than exact text.
+        expect(find.textContaining('100.1'), findsOneWidget);
+        expect(find.textContaining('92.4'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping a Resume row fires onPick with isHost: true and that freq',
+      (tester) async {
+        DiscoveryResult? picked;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (r) => picked = r,
+            onRename: (_) {},
+            recentHostedFrequencies: const ['100.1', '92.4'],
+          ),
+        ));
+        await tester.pump();
+
+        // Tap the second row's Resume button.
+        await tester.tap(find.text('Resume').last);
+        await tester.pump();
+
+        expect(picked, isNotNull);
+        expect(picked!.isHost, isTrue);
+        expect(picked!.freq, '92.4');
+      },
+    );
   });
 }

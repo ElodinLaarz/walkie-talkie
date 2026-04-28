@@ -17,10 +17,14 @@ class AudioService {
   Stream<Map<String, dynamic>>? _eventStream;
   Stream<Map<String, dynamic>>? _controlBytesStream;
 
-  /// Start the foreground service
-  Future<bool> startService() async {
+  /// Start the foreground service. Pass [freq] to show the active frequency
+  /// in the notification ("On 104.3 · Tap to return").
+  Future<bool> startService({String? freq}) async {
     try {
-      final result = await _methodChannel.invokeMethod('startService');
+      final result = await _methodChannel.invokeMethod(
+        'startService',
+        freq != null ? <String, dynamic>{'freq': freq} : null,
+      );
       return result as bool;
     } catch (e) {
       debugPrint('Error starting service: $e');

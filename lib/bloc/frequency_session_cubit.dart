@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../protocol/messages.dart';
 import '../services/identity_store.dart';
+import '../services/recent_frequencies_store.dart';
 import 'frequency_session_state.dart';
 
 /// Owns session-level Frequency state and the side-effects that mutate it:
@@ -48,6 +49,7 @@ import 'frequency_session_state.dart';
 ///     the cubit.
 class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final IdentityStore identityStore;
+  final RecentFrequenciesStore recentFrequenciesStore;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
 
@@ -60,8 +62,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   int _seq = 0;
 
-  FrequencySessionCubit({required this.identityStore})
-      : super(const SessionBooting());
+  FrequencySessionCubit({
+    required this.identityStore,
+    required this.recentFrequenciesStore,
+  }) : super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
   /// exists, otherwise into Onboarding. Always exits Booting — even if the
@@ -75,9 +79,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
-    emit(persisted != null
-        ? SessionDiscovery(myName: persisted)
-        : const SessionOnboarding());
+    if (persisted == null) {
+      emit(const SessionOnboarding());
+      return;
+    }
+    final recent = await _loadRecentFrequencies();
+    if (isClosed) return;
+    emit(SessionDiscovery(
+      myName: persisted,
+      recentHostedFrequencies: recent,
+    ));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -90,7 +101,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
-    emit(SessionDiscovery(myName: name));
+    final recent = await _loadRecentFrequencies();
+    if (isClosed) return;
+    emit(SessionDiscovery(
+      myName: name,
+      recentHostedFrequencies: recent,
+    ));
   }
 
   /// Persists the new [name] without changing the current stage. Same
@@ -108,8 +124,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
     if (isClosed) return;
     switch (state) {
-      case SessionDiscovery():
-        emit(SessionDiscovery(myName: name));
+      case final SessionDiscovery discovery:
+        // Preserve the loaded recent-frequencies list across renames —
+        // re-reading would be a wasted disk hit and would briefly flicker
+        // the Recent section if persistence is slow.
+        emit(SessionDiscovery(
+          myName: name,
+          recentHostedFrequencies: discovery.recentHostedFrequencies,
+        ));
       case final SessionRoom room:
         emit(room.copyWith(myName: name));
       case SessionBooting():
@@ -125,10 +147,23 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///
   /// Resets the per-link sequence counter to 0 so the next sent message
   /// starts at `seq = 1` per the protocol's reconnect rule.
-  void joinRoom({required String freq, required bool isHost}) {
+  ///
+  /// When [isHost] is true, the freq is recorded to the recent-hosted
+  /// list as a side-effect. Persistence runs in the background — a
+  /// failure or slow disk shouldn't block the transition into the room.
+  /// The updated list shows up the next time the user lands on
+  /// Discovery (via [leaveRoom]'s re-read).
+  Future<void> joinRoom({required String freq, required bool isHost}) async {
     final current = state;
     if (current is! SessionDiscovery) return;
     _seq = 0;
+    if (isHost) {
+      // Fire-and-forget: the user has already committed to entering the
+      // room, so we shouldn't await disk I/O before emitting. Errors are
+      // logged on the future and surfaced on next launch as a missing
+      // entry; nothing else depends on success here.
+      unawaited(_recordRecentFrequency(freq));
+    }
     emit(SessionRoom(
       myName: current.myName,
       roomFreq: freq,
@@ -139,11 +174,39 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Drops back to Discovery and forgets the room. No-op if not in a
   /// room (e.g. duplicate leave triggered during a transition). Resets
   /// the sequence counter so the next room starts fresh.
-  void leaveRoom() {
+  ///
+  /// Re-reads the recent-frequencies list so a freq the user just
+  /// hosted appears at the top of the Recent section as soon as they
+  /// return to Discovery.
+  Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
     _seq = 0;
-    emit(SessionDiscovery(myName: current.myName));
+    final recent = await _loadRecentFrequencies();
+    if (isClosed) return;
+    emit(SessionDiscovery(
+      myName: current.myName,
+      recentHostedFrequencies: recent,
+    ));
+  }
+
+  Future<List<String>> _loadRecentFrequencies() async {
+    try {
+      return await recentFrequenciesStore.getRecent();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load recent frequencies: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return const [];
+    }
+  }
+
+  Future<void> _recordRecentFrequency(String freq) async {
+    try {
+      await recentFrequenciesStore.record(freq);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to record recent frequency: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   /// Apply a `JoinAccepted` from the host. Replaces the room's snapshot
@@ -239,6 +302,28 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final current = state;
     if (current is! SessionRoom) return;
     _mediaCommandsController.add(cmd);
+  }
+
+  /// Broadcasts a mute-state change originated by the local peer.
+  ///
+  /// Builds a `MuteState` message with the local peerId and a fresh seq,
+  /// then sends it via the BLE control transport (once wired). Until the
+  /// transport lands, this is a no-op — the local `_audio.setMuted` call
+  /// in the room screen is the only side effect.
+  ///
+  /// The host will apply the mute state to its roster snapshot and echo
+  /// it to all peers (including the originator) so UI indicators reflect
+  /// the canonical view.
+  Future<void> broadcastMute(bool muted) async {
+    // TODO(transport): once BLE control transport lands, resolve peerId and send:
+    //   final peerId = await identityStore.getPeerId();
+    //   await transport.send(MuteState(peerId: peerId, seq: ++_seq,
+    //                         atMs: DateTime.now().millisecondsSinceEpoch, muted: muted));
+    // For now, this is a no-op — the local audio engine state is the only
+    // side effect. The host will apply + echo mute changes when the wire
+    // protocol is live.
+    // Increment sequence counter to keep it synchronized for when transport lands.
+    _seq++;
   }
 
   @override

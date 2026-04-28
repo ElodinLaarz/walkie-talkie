@@ -2,6 +2,7 @@
 #include <vector>
 #include <map>
 #include <mutex>
+#include <cstdio>
 #include <cstring>
 #include <cassert>
 #include <algorithm>
