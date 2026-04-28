@@ -405,6 +405,134 @@ void main() {
       },
     );
 
+    test(
+      'joinRoom as host bails out when peerId resolution fails — '
+      'no broken room is emitted',
+      () async {
+        // hostPeerId is load-bearing for the protocol's message
+        // attribution; seeding a room without it would just put the user
+        // into a broken state they'd have to leave manually. Stay on
+        // Discovery so the UI can retry.
+        final store = _FakeStore(initial: 'Maya')..throwOnGetPeerId = true;
+        final cubit = _makeCubit(identityStore: store);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, isA<SessionDiscovery>());
+        await cubit.close();
+      },
+    );
+
+    test(
+      'leaveRoom on a host room calls stopAdvertising + stopGattServer',
+      () async {
+        // Symmetric teardown: the host kicks off advertising + GATT in
+        // joinRoom, so backing out of the room must close both surfaces.
+        // Otherwise nearby phones keep seeing a phantom session.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        calls.clear();
+        await cubit.leaveRoom();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, containsAll(<String>{'stopAdvertising', 'stopGattServer'}));
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'leaveRoom on a guest room does NOT call host-side stop methods',
+      () async {
+        // Guests don't own the advertiser / GATT server, so leaving a
+        // guest-role room mustn't tear down a (possibly co-hosted) room
+        // on the same device.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+        ));
+
+        calls.clear();
+        await cubit.leaveRoom();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, isNot(contains('stopAdvertising')));
+        expect(methods, isNot(contains('stopGattServer')));
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'close() while in a host room tears down host BLE surfaces',
+      () async {
+        // Same teardown as leaveRoom — without it, killing the cubit
+        // mid-session leaks the advertiser + GATT server.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        calls.clear();
+        await cubit.close();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, containsAll(<String>{'stopAdvertising', 'stopGattServer'}));
+      },
+    );
+
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'leaveRoom drops back to Discovery with the prior name',
       build: () => _makeCubit(),
