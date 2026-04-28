@@ -76,6 +76,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// guest: notify a host drop via [notifyDrop]).
   final HeartbeatScheduler _heartbeats;
 
+  /// Re-entrancy guard for [_sendHeartbeat]. The scheduler tick is
+  /// `unawaited`-launched, so a slow GATT write could otherwise overlap
+  /// the next tick and let two `send()` calls interleave on the same
+  /// transport. When a send is in flight, later ticks become no-ops
+  /// (and the seq counter stays put — the dropped tick effectively
+  /// merges with the in-flight one).
+  bool _heartbeatSendInFlight = false;
+
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   ReconnectController? _reconnectController;
 
@@ -201,6 +209,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       _seq++;
       return;
     }
+    // Coalesce overlapping ticks: a slow link must not fan out into
+    // concurrent transport writes that interleave fragments on the wire.
+    if (_heartbeatSendInFlight) return;
     final String peerId;
     try {
       peerId = await identityStore.getPeerId();
@@ -216,7 +227,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       seq: ++_seq,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
-    unawaited(t.send(msg));
+    _heartbeatSendInFlight = true;
+    try {
+      await t.send(msg);
+    } catch (error, stackTrace) {
+      // Transport-layer failures are already logged inside
+      // BleControlTransport; swallow here so a single bad tick doesn't
+      // poison the timer.
+      debugPrint('Heartbeat send failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      _heartbeatSendInFlight = false;
+    }
   }
 
   /// Fired by [HeartbeatScheduler] when [missThreshold] elapses without
@@ -238,9 +260,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final current = state;
     if (current is! SessionRoom) return;
     if (current.roomIsHost) {
-      // Don't react to a "lost" event for the local host's own peerId
-      // (defensive — shouldn't happen, but a stale watermark from a
-      // prior session shouldn't trigger a self-delete).
+      // Defensive guard: never react to a "lost" event for the local
+      // host's own peerId — a stale watermark must not self-delete the
+      // host roster entry or emit a `RosterUpdate` that erases it.
+      // The host's own peerId shouldn't end up in `_lastSeen` in
+      // production (we never receive our own messages back through the
+      // wire), but the guard is cheap and removes the failure mode.
+      if (peerId == current.hostPeerId) return;
       final updated =
           current.roster.where((p) => p.peerId != peerId).toList();
       if (updated.length == current.roster.length) return;

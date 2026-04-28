@@ -136,6 +136,33 @@ void main() {
       scheduler.stop();
     });
 
+    test('fires onPeerLost when elapsed time exactly equals missThreshold',
+        () {
+      // Boundary test: the protocol's "~15 s elapsed" wording is read as
+      // an inclusive boundary, so a tick at exactly 15s should declare
+      // the peer lost rather than waiting one more interval.
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 60),
+        missThreshold: const Duration(seconds: 15),
+        clock: () => fakeNow,
+      );
+      final lost = <String>[];
+      scheduler.start(onTick: () {}, onPeerLost: lost.add);
+
+      scheduler.notePingFrom('peer-a');
+
+      fakeNow = fakeNow.add(const Duration(seconds: 14));
+      scheduler.debugTick();
+      expect(lost, isEmpty, reason: '14s < 15s threshold');
+
+      fakeNow = fakeNow.add(const Duration(seconds: 1)); // exactly 15s
+      scheduler.debugTick();
+      expect(lost, ['peer-a'], reason: '15s ≥ 15s threshold (inclusive)');
+
+      scheduler.stop();
+    });
+
     test('fires onPeerLost when missThreshold elapses since last ping', () {
       // Drive a fake clock so the test is deterministic under
       // millisecond-jitter.

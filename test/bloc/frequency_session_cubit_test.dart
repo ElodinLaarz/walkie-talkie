@@ -1210,6 +1210,44 @@ void main() {
     });
 
     test(
+      'inbound non-Heartbeat messages also refresh the watermark',
+      () async {
+        // The cubit treats any inbound activity as a sign-of-life so an
+        // actively-chatty peer can't be declared lost on a delayed
+        // dedicated ping. Pin that contract — `notePingFrom` must run
+        // for non-`Heartbeat` kinds too.
+        final t = makeTestTransport();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        final updateJson = const RosterUpdate(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          roster: [],
+        ).encode();
+        for (final frag in encodeFragments(updateJson)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(scheduler.lastSeen, contains('p-guest'));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
       'incoming Heartbeat refreshes the watermark for the sender',
       () async {
         final t = makeTestTransport();

@@ -118,9 +118,13 @@ class HeartbeatScheduler {
     final now = _now();
     // Snapshot keys before iterating so the onPeerLost callback can
     // mutate the map (forgetPeer / notePingFrom) without breaking the loop.
+    //
+    // Use `>=` so a peer silent for exactly [missThreshold] is declared
+    // lost on this tick rather than the next — matches the protocol's
+    // "~15 s elapsed since last arrival" wording.
     final lost = <String>[];
     _lastSeen.forEach((peerId, last) {
-      if (now.difference(last) > missThreshold) {
+      if (now.difference(last) >= missThreshold) {
         lost.add(peerId);
       }
     });
