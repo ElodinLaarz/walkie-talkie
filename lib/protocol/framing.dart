@@ -1,19 +1,22 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// Maximum control-plane MTU the protocol negotiates with Android.
-///
-/// Android caps GATT MTU at 247 bytes; the negotiation lives in the platform
-/// layer (see `docs/protocol.md` § GATT service) and the framing code below
-/// just sees byte buffers sized to that ceiling. Receivers SHOULD honour the
-/// `total_len` and `fragment_idx` header on the wire and not assume any
-/// particular fragment size, but encoders in this codebase default to
-/// splitting at [kMaxFragmentSize] when no negotiated MTU is supplied.
+/// Maximum bytes per wire fragment (full header + payload) that the v1
+/// protocol emits. This is the *fragment-size* ceiling, not an ATT MTU:
+/// callers with a negotiated ATT MTU of N should pass `min(N - 3, 247)` to
+/// [encodeFragments] (3 bytes go to the ATT write/notify opcode + handle).
+/// The negotiation itself lives in the platform layer (see
+/// `docs/protocol.md` § GATT service); the framing code only sees byte
+/// buffers sized at or below this ceiling. Receivers honour each
+/// fragment's `total_len` + `fragment_idx` header and never assume a
+/// particular per-fragment size.
 const int kMaxFragmentSize = 247;
 
-/// BLE default ATT MTU floor (23 bytes — BLE 4.0 spec). Two devices that
-/// fail to negotiate a higher MTU still guarantee at least this much per
-/// write, so the encoder rejects anything smaller as a caller bug rather
+/// Smallest fragment-size budget the encoder will honour, matching the
+/// BLE default GATT MTU of 23 bytes that two devices are guaranteed to
+/// support before any negotiation (see `docs/protocol.md` § GATT
+/// service). At that floor the payload budget is `23 - 4 = 19` bytes per
+/// fragment. The encoder rejects anything smaller as a caller bug rather
 /// than silently producing fragments the link can't carry.
 const int kMinFragmentSize = 23;
 
@@ -58,10 +61,11 @@ const int kFragmentFlagsV1 = 0x00;
 /// Each fragment is an independent BLE write — the receiver reassembles them
 /// using the `total_len` + `fragment_idx` header carried on every fragment.
 ///
-/// [maxFragmentSize] is the per-write byte ceiling (header + payload) and
-/// defaults to [kMaxFragmentSize]. Callers with access to a negotiated GATT
-/// MTU should pass it here so the encoder doesn't emit fragments the link
-/// will fragment again unpredictably. Must be in the closed range
+/// [maxFragmentSize] is the per-write byte ceiling (full fragment buffer
+/// = 4-byte header + payload) and defaults to [kMaxFragmentSize]. Callers
+/// with a negotiated ATT MTU should pass `min(mtu - 3, kMaxFragmentSize)`
+/// here so the encoder doesn't emit fragments the link will refragment
+/// unpredictably. Must be in the closed range
 /// `[kMinFragmentSize, kMaxFragmentSize]`; values outside throw
 /// `ArgumentError`.
 List<Uint8List> encodeFragments(

@@ -83,15 +83,18 @@ void main() {
     });
 
     test('a custom maxFragmentSize splits at that boundary and reassembles', () {
-      // 96-byte payload per fragment (header is 4 bytes).
-      const mtu = 100;
-      const payloadPerFragment = mtu - kFragmentHeaderSize;
+      // 96-byte payload per fragment (header is 4 bytes). Naming this
+      // `maxFragmentSize` rather than `mtu` keeps the test honest: the
+      // encoder takes a per-fragment buffer ceiling, not an ATT MTU.
+      const maxFragmentSize = 100;
+      const payloadPerFragment = maxFragmentSize - kFragmentHeaderSize;
       // 250 bytes → ceil(250/96) = 3 fragments: 96 + 96 + 58.
       final json = 'a' * 250;
-      final fragments = encodeFragments(json, maxFragmentSize: mtu);
+      final fragments =
+          encodeFragments(json, maxFragmentSize: maxFragmentSize);
       expect(fragments, hasLength(3));
-      expect(fragments[0].length, mtu);
-      expect(fragments[1].length, mtu);
+      expect(fragments[0].length, maxFragmentSize);
+      expect(fragments[1].length, maxFragmentSize);
       expect(fragments[2].length, kFragmentHeaderSize + 58);
       // total_len header is identical across fragments and matches the input.
       for (var i = 0; i < fragments.length; i++) {
