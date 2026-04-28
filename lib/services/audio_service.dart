@@ -256,6 +256,49 @@ class AudioService {
     }
   }
 
+  /// Snapshot the current RSSI for each peer connected over the GATT
+  /// link. Returns one entry per neighbor `(peerId, rssi)`; `rssi` is in
+  /// dBm (negative values; closer to 0 is stronger). Empty list when no
+  /// peers are connected, the native side hasn't wired up
+  /// `BluetoothGatt.readRemoteRssi` yet, or the platform call throws.
+  ///
+  /// Used by [SignalReporter] on the guest side to build the protocol's
+  /// 10-second `SignalReport` envelope.
+  ///
+  /// **Note on `peerId`.** The native layer keys connections by Bluetooth
+  /// MAC, not by application-level `peerId`. The current contract is that
+  /// the native side returns the MAC as the `peerId` field; mapping MAC
+  /// back to the application `peerId` will land alongside the GATT-client
+  /// issue (#43) which records that mapping during the handshake. Until
+  /// then, the host side treats the value as opaque — its detection logic
+  /// keys on whatever string arrives. Reports for `peerId`s the host
+  /// can't resolve against its current roster are dropped before
+  /// surfacing a toast (see `_onSignalReport` in `FrequencySessionCubit`).
+  Future<List<({String peerId, int rssi})>> getCurrentRssi() async {
+    try {
+      final result =
+          await _methodChannel.invokeMethod<List<dynamic>>('getCurrentRssi');
+      if (result == null) return const [];
+      return result
+          .map((entry) {
+            // Type-check before casting — a non-Map element from the
+            // platform side would otherwise throw, and the outer
+            // try/catch would discard the *entire* batch (including
+            // valid samples). Drop just the bad entry instead.
+            if (entry is! Map) return null;
+            final peerId = entry['peerId'];
+            final rssi = entry['rssi'];
+            if (peerId is! String || rssi is! int) return null;
+            return (peerId: peerId, rssi: rssi);
+          })
+          .whereType<({String peerId, int rssi})>()
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('Error getting current RSSI: $e');
+      return const [];
+    }
+  }
+
   /// Stop the GATT server.
   Future<bool> stopGattServer() async {
     try {

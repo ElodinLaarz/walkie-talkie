@@ -13,6 +13,8 @@ import 'package:walkie_talkie/services/ble_control_transport.dart';
 import 'package:walkie_talkie/services/heartbeat_scheduler.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
+import 'package:walkie_talkie/services/signal_reporter.dart';
+import 'package:walkie_talkie/services/weak_signal_detector.dart';
 
 class _FakeStore implements IdentityStore {
   String? _name;
@@ -100,6 +102,8 @@ FrequencySessionCubit _makeCubit({
   List<Duration>? reconnectDelays,
   HeartbeatScheduler? heartbeats,
   BleControlTransport? transport,
+  SignalReporter? signalReporter,
+  WeakSignalDetector? weakSignalDetector,
 }) =>
     FrequencySessionCubit(
       identityStore: identityStore ?? _FakeStore(),
@@ -109,6 +113,8 @@ FrequencySessionCubit _makeCubit({
       reconnectDelays: reconnectDelays,
       heartbeats: heartbeats,
       transport: transport,
+      signalReporter: signalReporter,
+      weakSignalDetector: weakSignalDetector,
     );
 
 void main() {
@@ -1626,6 +1632,458 @@ void main() {
       // activity refreshes the watermark) and then forgetPeer(p-guest). The
       // net effect on the table is "removed".
       expect(scheduler.lastSeen, isNot(contains('p-guest')));
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+  });
+
+  // ── SignalReport / weak-signal ────────────────────────────────────────
+
+  group('SignalReport', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    /// Same harness shape as the Heartbeats group's `makeTestTransport`,
+    /// duplicated here to keep the two groups independently movable.
+    ({
+      BleControlTransport transport,
+      List<Uint8List> outbox,
+      StreamController<({String endpointId, Uint8List bytes})> inbox,
+    }) makeTestTransport() {
+      final outbox = <Uint8List>[];
+      final inbox =
+          StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+      final transport = BleControlTransport.forTest(
+        controlBytes: inbox.stream,
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      return (transport: transport, outbox: outbox, inbox: inbox);
+    }
+
+    /// Audio service backed by the test message channel — getCurrentRssi
+    /// returns whatever's in [rssi] at the time of the call. Mutating the
+    /// list between cubit ticks lets a test simulate signal changes.
+    AudioService makeRssiAudio(List<({String peerId, int rssi})> rssi) {
+      final audio = AudioService();
+      const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getCurrentRssi') {
+          return rssi
+              .map((r) => {'peerId': r.peerId, 'rssi': r.rssi})
+              .toList();
+        }
+        return null;
+      });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      return audio;
+    }
+
+    test(
+      'guest joinRoom with audio + transport starts the SignalReporter; '
+      'leaveRoom stops it',
+      () async {
+        final t = makeTestTransport();
+        final reporter =
+            SignalReporter(interval: const Duration(hours: 1));
+        final cubit = _makeCubit(
+          transport: t.transport,
+          audio: makeRssiAudio(const []),
+          signalReporter: reporter,
+          // Reuse a long-interval scheduler so the heartbeat plane
+          // doesn't fight the test for the foreground.
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        expect(reporter.isRunning, isFalse);
+        await cubit.joinRoom(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB',
+        );
+        expect(reporter.isRunning, isTrue);
+
+        await cubit.leaveRoom();
+        expect(reporter.isRunning, isFalse);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host joinRoom does NOT start the SignalReporter (host receives only)',
+      () async {
+        final t = makeTestTransport();
+        final reporter =
+            SignalReporter(interval: const Duration(hours: 1));
+        final cubit = _makeCubit(
+          transport: t.transport,
+          audio: makeRssiAudio(const []),
+          signalReporter: reporter,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        expect(reporter.isRunning, isFalse,
+            reason: 'host receives reports rather than sending them');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('guest joinRoom without audio does NOT start the SignalReporter',
+        () async {
+      // Without audio there's no RSSI source to sample; starting the
+      // reporter would just emit empty `SignalReport`s every 10s.
+      final t = makeTestTransport();
+      final reporter =
+          SignalReporter(interval: const Duration(hours: 1));
+      final cubit = _makeCubit(
+        transport: t.transport,
+        signalReporter: reporter,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB',
+      );
+
+      expect(reporter.isRunning, isFalse);
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('cubit.close() stops the SignalReporter', () async {
+      final t = makeTestTransport();
+      final reporter =
+          SignalReporter(interval: const Duration(hours: 1));
+      final cubit = _makeCubit(
+        transport: t.transport,
+        audio: makeRssiAudio(const []),
+        signalReporter: reporter,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB',
+      );
+      expect(reporter.isRunning, isTrue);
+
+      await cubit.close();
+      expect(reporter.isRunning, isFalse);
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test(
+      'host with two consecutive weak inbound reports emits weakSignalEvents',
+      () async {
+        final t = makeTestTransport();
+        final cubit = _makeCubit(
+          transport: t.transport,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        // Host's roster needs the neighbor's peerId so the cubit can
+        // resolve a display name for the toast.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-target', displayName: 'Maya'),
+          ],
+        ));
+
+        final fired = <({String peerId, String displayName})>[];
+        final sub = cubit.weakSignalEvents.listen(fired.add);
+        addTearDown(sub.cancel);
+
+        // Helper: serialize and feed a SignalReport into the inbox.
+        Future<void> feedReport(int seq, int rssi) async {
+          final json = SignalReport(
+            peerId: 'p-guest',
+            seq: seq,
+            atMs: seq * 1000,
+            neighbors: [NeighborSignal(peerId: 'p-target', rssi: rssi)],
+          ).encode();
+          for (final frag in encodeFragments(json)) {
+            t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        await feedReport(1, -85);
+        // One weak report — under the threshold gate, no toast yet.
+        expect(fired, isEmpty);
+
+        await feedReport(2, -90);
+        // Second consecutive weak — trips. Display name resolved from
+        // the roster, not the wire.
+        expect(fired, hasLength(1));
+        expect(fired.first.peerId, 'p-target');
+        expect(fired.first.displayName, 'Maya');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('host suppresses toast for a neighbor that is not in the roster',
+        () async {
+      // Stale or off-roster neighbor reports should be a silent drop, not
+      // a toast with a generic name. The host's roster is the source of
+      // truth for who's actually in the room.
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+      ));
+
+      final fired = <({String peerId, String displayName})>[];
+      final sub = cubit.weakSignalEvents.listen(fired.add);
+      addTearDown(sub.cancel);
+
+      Future<void> feedReport(int seq) async {
+        final json = SignalReport(
+          peerId: 'p-guest',
+          seq: seq,
+          atMs: seq * 1000,
+          neighbors: [
+            const NeighborSignal(peerId: 'p-ghost', rssi: -90),
+          ],
+        ).encode();
+        for (final frag in encodeFragments(json)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await feedReport(1);
+      await feedReport(2);
+      expect(fired, isEmpty,
+          reason: 'p-ghost is not in the roster — drop the event');
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('host ignores inbound SignalReports when local role is guest',
+        () async {
+      // The host-only role check guards against a misbehaving / forged
+      // report from another guest leaking into the local UI on a guest
+      // device. Only the host owns the toast surface.
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB',
+      );
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [
+          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ProtocolPeer(peerId: 'p-target', displayName: 'Sam'),
+        ],
+      ));
+
+      final fired = <({String peerId, String displayName})>[];
+      final sub = cubit.weakSignalEvents.listen(fired.add);
+      addTearDown(sub.cancel);
+
+      Future<void> feedReport(int seq) async {
+        final json = SignalReport(
+          peerId: 'p-other-guest',
+          seq: seq,
+          atMs: seq * 1000,
+          neighbors: const [NeighborSignal(peerId: 'p-target', rssi: -90)],
+        ).encode();
+        for (final frag in encodeFragments(json)) {
+          t.inbox.add((endpointId: 'BB:CC', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await feedReport(1);
+      await feedReport(2);
+      expect(fired, isEmpty);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('weakSignalDetector is cleared on leaveRoom', () async {
+      // Pre-trip a counter, leave, re-join — the detector must start
+      // fresh, not inherit the prior session's "one weak report" toward
+      // the next trip.
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [
+          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ProtocolPeer(peerId: 'p-target', displayName: 'Maya'),
+        ],
+      ));
+
+      final fired = <({String peerId, String displayName})>[];
+      final sub = cubit.weakSignalEvents.listen(fired.add);
+      addTearDown(sub.cancel);
+
+      // First report — starts a counter for p-target.
+      for (final frag in encodeFragments(const SignalReport(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 1000,
+        neighbors: [NeighborSignal(peerId: 'p-target', rssi: -90)],
+      ).encode())) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Leave + rejoin — counter should be wiped on leave.
+      await cubit.leaveRoom();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [
+          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ProtocolPeer(peerId: 'p-target', displayName: 'Maya'),
+        ],
+      ));
+
+      // One weak report in the new session — must NOT trip if the
+      // detector was cleared on leave. (If state leaked, this would be
+      // the second weak in a row and would fire.)
+      for (final frag in encodeFragments(const SignalReport(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 1000,
+        neighbors: [NeighborSignal(peerId: 'p-target', rssi: -90)],
+      ).encode())) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fired, isEmpty);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('host self-toast is suppressed for the local hostPeerId', () async {
+      // A guest's report can include the host as a neighbor (the host's
+      // adverts/notifications are visible to the guest, so the GATT
+      // client samples its RSSI). The host shouldn't toast itself.
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        ),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+      ));
+
+      final fired = <({String peerId, String displayName})>[];
+      final sub = cubit.weakSignalEvents.listen(fired.add);
+      addTearDown(sub.cancel);
+
+      for (var seq = 1; seq <= 2; seq++) {
+        for (final frag in encodeFragments(SignalReport(
+          peerId: 'p-guest',
+          seq: seq,
+          atMs: seq * 1000,
+          neighbors: const [NeighborSignal(peerId: 'p-host', rssi: -95)],
+        ).encode())) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(fired, isEmpty,
+          reason: 'host should not surface a toast for itself');
 
       await cubit.close();
       await t.inbox.close();
