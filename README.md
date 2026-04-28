@@ -1,168 +1,287 @@
 # walkie_talkie
 
-The Walkie-Talkie app is a simple Android app that allows users to connect multiple bluetooth headsets to the phone
-and send audio between the headsets without need of any internet connection.
+Frequency is an Android walkie-talkie app: open the app, "tune in" to someone
+nearby's frequency, and you're on a shared voice channel with everyone else
+tuned to the same one. No internet, no accounts, no cloud — just Bluetooth LE
+between phones in the same room.
 
-## Restrictions
+## Transport
 
-**The Bluetooth "Single-SCO" Bottleneck**
-Standard Bluetooth (Classic) on most Android phones only supports **one** active bidirectional audio channel (HFP/HSP) at a time. While you can *pair* multiple headsets, the OS typically routes audio to only one "Active" device.
+Voice and control both ride on **Bluetooth LE**, in a star topology with one
+designated **host** per frequency. The control plane is GATT (small JSON
+messages); the voice plane is **L2CAP CoC** carrying **Opus**-encoded frames.
+The full wire format — message kinds, fragmentation, reconnect rules, voice
+frame layout — lives in [docs/protocol.md](docs/protocol.md). The README
+below covers the architecture and the team-facing roadmap; the protocol doc
+is the contract.
 
-To achieve your goal of routing distinct audio to multiple headsets simultaneously, you must rely on **Bluetooth LE Audio (Low Energy Audio)** with **BIS (Broadcast Isochronous Streams)** or **CIS (Connected Isochronous Streams)**. This requires Android 13+ (API 33) and headsets that specifically support LE Audio/Auracast.
-
-*The design below assumes we are building for this modern standard or using a low-level native workaround (NDK/Oboe) to attempt stream splitting, though the latter is hardware-dependent.*
+> **Note:** an earlier version of this README pitched Bluetooth LE Audio
+> CIS / BIS as the voice transport. That was walked back: consumer Android
+> phones are LE Audio *sources*, not Auracast sinks, so phone-to-phone LE
+> Audio doesn't work in practice. L2CAP CoC + Opus is the v1 voice plane.
+> See [docs/protocol.md § Voice plane](docs/protocol.md#voice-plane).
 
 -----
 
-### High-Level Architecture (HLD)
+## High-Level Architecture (HLD)
 
-The application will follow a **Layered Architecture**. Since Flutter cannot handle low-level audio stream routing or raw Bluetooth packet manipulation directly, the "Heavy Lifting" must be done in the Android Native layer (Kotlin/C++), with Flutter acting strictly as the UI and Control plane.
+The application follows a **Layered Architecture**. Flutter handles UI and
+control-plane state; the Android native layer (Kotlin + a thin C++ mixer)
+handles BLE radio, L2CAP sockets, mic capture, and Opus.
 
-[Image of layered software architecture diagram]
-
-#### A. The Layers
+### Layers
 
 1.  **Presentation Layer (Flutter):**
-      * Handles User Inputs (Rename devices, Mute toggle, Volume sliders).
-      * Visualizes connection status and audio levels (VU meters).
-      * Persists user preferences (Device Names).
-2.  **Bridge Layer (MethodChannels & EventChannels):**
-      * Communication pipe between Dart and Kotlin.
-      * Flutter sends commands: `connect(macAddress)`, `setRouting(matrix)`.
-      * Native sends events: `onAudioLevelChange`, `onDeviceConnected`.
-3.  **Service Layer (Android Native - Kotlin):**
-      * **Foreground Service:** Ensures the app runs even when the screen is off.
-      * **Connection Manager:** Manages Bluetooth LeAudio connections.
-      * **Audio Engine:** Creates the "Mix-Minus" routing.
-4.  **Hardware Layer (HAL):**
-      * Bluetooth Radio.
-      * Audio Flinger (Android Audio System).
+    * Onboarding, Discovery, and the Room screen.
+    * Renders roster, talking-rings, mute / push-to-talk, shared-media
+      controls.
+    * Persists display name + stable `peerId` via Hive
+      ([lib/services/identity_store.dart](lib/services/identity_store.dart)).
+2.  **State Layer (BLoC / Cubit):**
+    * [`DiscoveryCubit`](lib/bloc/discovery_cubit.dart) drives the
+      Discovery screen.
+    * [`FrequencySessionCubit`](lib/bloc/frequency_session_cubit.dart) owns
+      room-level state (roster, mute, talking, media) and emits
+      protocol-shaped messages.
+3.  **Bridge Layer (MethodChannels & EventChannels):**
+    * Communication pipe between Dart and Kotlin
+      ([MainActivity.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt)).
+    * Today: `scanDevices` / `connectDevice` / `disconnectDevice` methods
+      and `deviceDiscovered` events drive the headset-routing manager.
+      [audio_service.dart](lib/services/audio_service.dart) is the Dart
+      side of that surface.
+    * Phase 2 (planned, see roadmap): the BLE control-plane bridge —
+      Frequency-shaped methods like `startAdvertising`, `connectToHost`,
+      and `setMuted`, plus events like `onPeerDiscovered` and
+      `onJoinAccepted`. Tracked under
+      [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
+4.  **Service Layer (Android Native — Kotlin):**
+    * **Foreground Service**
+      ([WalkieTalkieService.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/WalkieTalkieService.kt))
+      keeps the mic + radio alive when the screen is off.
+    * **BT headset routing** today
+      ([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
+      — pairs the user's headset and routes phone audio to it.
+    * **BLE Connection Manager** (Phase 2) — LE advertise (host), scan
+      (guest), GATT server / client, L2CAP CoC server / client. Not yet
+      implemented; tracked in the Phase 2 issues below.
+    * **Audio Engine** (Phase 3) — mic capture (Oboe), Opus encode/decode,
+      mix-minus. Not yet implemented.
+5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
 
 -----
 
-### The Audio Routing Engine (The "Pipe")
+## The Audio Routing Engine (mix-minus, host-only)
 
-This is the core logic. To prevent users from hearing their own voice (echo), we need a **Mix-Minus Matrix**.
+To prevent everyone from hearing themselves echo, the **host** runs a
+**mix-minus matrix**. The host is the only device that ever mixes audio;
+guests just encode their own mic and decode whatever the host sends them.
 
-**Concept:**
-If User A, B, and C are connected:
+**Concept** — for guests A and B connected to host H (the diagram below
+matches this two-guest example; the same pattern scales to N guests):
 
-  * **Headset A hears:** (B + C + Phone Media) - (A's Input).
-  * **Headset B hears:** (A + C + Phone Media) - (B's Input).
+  * **Headset A hears:**  H + B  *(A's own mic is subtracted)*
+  * **Headset B hears:**  H + A  *(B's own mic is subtracted)*
 
-[Image of audio matrix mixer diagram]
+**Logical flow:**
 
-**Logical Flow:**
+1.  **Capture.** Each peer records its own mic with Oboe (~10-ms callbacks).
+2.  **Encode + uplink (guests).** Each guest encodes 20-ms PCM frames to
+    Opus locally and writes them over its L2CAP CoC to the host. The host
+    captures its own mic locally as PCM and does **not** uplink to itself.
+3.  **Mix (host only).** The host decodes incoming guest Opus streams,
+    mixes them with its own local mic PCM, and produces *N* output
+    streams — one per guest, each with that guest's contribution removed.
+4.  **Distribute.** The host re-encodes each output stream to Opus and
+    writes it back over that guest's L2CAP CoC.
+5.  **Decode + render.** Each guest decodes the host's stream and plays it
+    through Oboe to the active audio device (phone speaker or paired
+    Bluetooth headset, see
+    [BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt)).
 
-1.  **Capture:** The app spins up an `AudioRecord` instance for each input source (if hardware allows simultaneous capture) or a single Multi-Channel input.
-2.  **Buffer:** Raw PCM data is stored in circular buffers.
-3.  **Mixer:** The loop sums the audio bytes.
-4.  **Distribution:** The `AudioTrack` writes the mixed bytes to specific device IDs.
-
------
-
-### Proposed UI/UX Design
-
-The requirement is "incredibly user-friendly." We should avoid technical jargon.
-
-**Screen 1: The "Command Center" (Dashboard)**
-
-  * **Central Hub Visual:** A graphic of the phone in the center.
-  * **Orbiting Satellites:** Headsets appear as circles orbiting the phone.
-  * **Status Indicators:**
-      * Green Ring: Connected & Active.
-      * Grey Ring: Disconnected.
-      * Pulse Animation: User is speaking.
-  * **Quick Controls:** Tap a headset to open its drawer.
-
-**Screen 2: Device Drawer (Bottom Sheet)**
-
-  * **Rename Field:** Text box pre-filled with "Bluetooth-XYZ", editable to "Fred".
-  * **Routing Toggle:** A switch labeled "Send Phone Audio" (enables/disables media piping).
-  * **Volume Slider:** Independent gain control for that user.
-
-**Screen 3: Discovery Mode**
-
-  * "Radar" animation scanning for devices.
-  * Simple "Tap to Connect" cards.
+The host's *own* mic is added into every guest's output but not into its
+own (the host hears guests but not itself, same rule). Shared media bed
+(YouTube / Spotify) is **not** mixed in by the host — see
+[docs/protocol.md § Shared media](docs/protocol.md#shared-media): each
+peer plays its own copy, the host only broadcasts control signals.
 
 -----
 
-### Component Diagrams
+## UI / UX
 
-#### System Sequence Diagram (Connection & Rename)
+The current screens (matching what's checked in under [lib/screens](lib/screens)):
+
+**Onboarding** — request the BT + mic permissions and capture a display name.
+Persisted to Hive so this only happens once.
+
+**Discovery** — radar-style list of nearby hosts advertising the Frequency
+service UUID. Each row shows host name + cosmetic MHz dial reading. Tap
+*Tune in* to send a `JoinRequest`. Includes an identity chip that opens a
+rename sheet for changing your display name later.
+
+**Frequency Room** — central frequency dial, orbiting peer chips with
+talking-rings, push-to-talk button, mute toggle, shared-media controls,
+and a *Leave* button. Joining is implicit — the host's `JoinAccepted`
+delivers the roster + current `mediaState` so the room renders fully
+populated on entry.
+
+-----
+
+## Component Diagrams
+
+### System sequence diagram (host advertise → guest tune in)
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant FlutterUI
-    participant Database as LocalStorage (Hive)
-    participant Native as Android Service
-    participant BT as Bluetooth Device
+    participant Guest
+    participant Host
+    participant BTRadio as BT Radio
 
-    User->>FlutterUI: Scans for devices
-    FlutterUI->>Native: startScan()
-    Native-->>FlutterUI: Found "XX:XX:XX"
-    User->>FlutterUI: Taps "Connect"
-    FlutterUI->>Native: connectToDevice(macAddress)
-    Native->>BT: Pair & Connect (LE Audio)
-    BT-->>Native: Connected
-    Native-->>FlutterUI: Status: Connected
-    
-    User->>FlutterUI: Renames to "Fred"
-    FlutterUI->>Database: Save("XX:XX:XX", "Fred")
-    FlutterUI-->>User: UI Updates Label
+    Host->>BTRadio: startAdvertising(WalkieTalkieService UUID, sessionUuid)
+    Host->>Host: bind GATT server (REQUEST/RESPONSE) + L2CAP CoC server
+    Note over Guest: Tap Discovery / start scan
+    BTRadio-->>Guest: LE adv (sessionUuid, role=host)
+    Guest->>Guest: derive mhz, render row
+    Note over Guest: Tap "Tune in"
+    Guest->>Host: GATT connect + subscribe RESPONSE
+    Guest->>Host: JoinRequest (peerId, displayName, btDevice)
+    Host-->>Guest: JoinAccepted (roster, mediaState, voicePsm)
+    Guest->>Host: open L2CAP CoC to voicePsm
+    Host-->>Guest: RosterUpdate (broadcast)
+    Note over Guest, Host: voice + control flow until Leave
 ```
 
-#### Audio Processing Flow
+### Audio processing flow
 
 ```mermaid
 graph TD
-    MicA[Headset A Mic] --> InputBuffer
-    MicB[Headset B Mic] --> InputBuffer
-    PhoneMedia[Youtube/Spotify] --> InputBuffer
-
-    subgraph "Native Audio Mixer (Kotlin/C++)"
-        InputBuffer --> MixerEngine
-        MixerEngine --> |Logic: Sum All - A| OutputA
-        MixerEngine --> |Logic: Sum All - B| OutputB
+    subgraph "Guest devices"
+        MicA[Guest A mic] --> OpusA[Opus encode]
+        MicB[Guest B mic] --> OpusB[Opus encode]
+        OpusA --> L2CAPInA[L2CAP CoC]
+        OpusB --> L2CAPInB[L2CAP CoC]
     end
 
-    OutputA --> SpeakerA[Headset A Spkr]
-    OutputB --> SpeakerB[Headset B Spkr]
+    subgraph "Host phone (mix-minus)"
+        L2CAPInA --> Decode[Opus decode]
+        L2CAPInB --> Decode
+        Decode --> Mixer[Sum-then-subtract-self]
+        MicH[Host mic PCM] --> Mixer
+        Mixer --> EncA[Encode for A: H+B]
+        Mixer --> EncB[Encode for B: H+A]
+        Mixer --> SpkH[Host speaker: A+B]
+    end
+
+    EncA --> SpkA[Guest A speaker]
+    EncB --> SpkB[Guest B speaker]
 ```
 
 -----
 
-### Recommended Tech Stack & Libraries
+## Tech Stack & Libraries
 
-Since this requires offline capability and high performance, we minimize cloud dependencies.
+### Flutter (Dart)
 
-#### Flutter (Dart) Libraries
+1.  **`flutter_bloc`** — state management for Discovery and the Frequency
+    session cubits.
+2.  **`hive` & `hive_flutter`** — local-only persistence for `peerId` and
+    display name. No cloud sync (intentional).
+3.  **`permission_handler`** — Bluetooth scan / connect / advertise + mic
+    permissions. The runtime asks happen during onboarding
+    ([lib/services/onboarding_permission_gateway.dart](lib/services/onboarding_permission_gateway.dart)).
+4.  **`google_fonts`** — typography.
 
-1.  **`flutter_bloc`**: For state management. Essential for handling the complex states of multiple device connections and audio levels.
-2.  **`hive` & `hive_flutter`**: A lightweight, NoSQL local database.
-      * *Usage:* Storing the mapping between MAC addresses and user-friendly names (e.g., `{"AA:BB:CC": "Fred"}`).
-3.  **`permission_handler`**: To gracefully handle Bluetooth Connect/Scan and Microphone permissions on Android 13+.
-4.  **`google_fonts`**: For clean, modern typography in the UI.
+### Android Native (Kotlin / C++)
 
-#### Android Native (Kotlin/Gradle) Libraries
+The libraries / APIs below are the planned native surface for Phases 2-3
+(see roadmap). Today's native code under `android/app/src/main/kotlin/`
+is the headset-routing manager
+([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
+plus the foreground service shell — none of the BLE control / L2CAP / Opus
+pieces are wired up yet.
 
-1.  **`Android Bluetooth LE Audio API`**: (Native Android Framework). You cannot use a generic Flutter Bluetooth plugin for *streaming audio*. You must use the native `BluetoothLeAudio` and `BluetoothManager` classes.
-2.  **`Oboe` (C++)**: High-performance audio library by Google.
-      * *Usage:* Java/Kotlin audio APIs (`AudioTrack`) might introduce too much latency for a walkie-talkie app. Oboe allows you to write the audio mixing logic in C++ for near-zero latency.
-3.  **`Gson`**: For serializing complex data objects to send back to Flutter via MethodChannels.
+1.  **AndroidX Bluetooth APIs** *(Phase 2)* — `BluetoothLeAdvertiser`,
+    `BluetoothLeScanner`, `BluetoothGattServer` / `BluetoothGatt`, and
+    `BluetoothSocket` opened in L2CAP CoC mode
+    (`createInsecureL2capChannel` / `listenUsingInsecureL2capChannel`,
+    **API 29+ / Android 10+**). The voice plane is L2CAP CoC + Opus,
+    **not** LE Audio CIS / BIS — see the transport note above.
+2.  **`libopus`** (C / NDK) *(Phase 3)* — voice codec, narrowband /
+    wideband, 20-ms frames at 24 kbps. Per-peer encode on guests, decode +
+    re-encode on the host's mix-minus.
+3.  **`Oboe`** (C++) *(Phase 3)* — low-latency mic capture and playback.
+    Java-side `AudioRecord` / `AudioTrack` introduce too much latency for
+    a walkie-talkie feel.
+4.  **`kotlinx.serialization`** *(Phase 2)* — JSON for the GATT control
+    plane (preferred over Gson for compile-time safety on a Kotlin-first
+    codebase).
 
-### Development Roadmap
+-----
 
-1.  **Phase 1 (Proof of Concept):** Build a native Android app that simply connects two LE Audio devices and plays a sine wave to both simultaneously. (Verify hardware support).
-2.  **Phase 2 (The Bridge):** Set up the Flutter UI and the MethodChannel infrastructure. Implement the scanning logic.
-3.  **Phase 3 (The Mixer):** Implement the C++/Kotlin audio engine to capture mic input and route it.
-4.  **Phase 4 (UX Polish):** Implement the renaming persistence and the "Phone Audio" injection toggle (which requires capturing system audio via `AudioPlaybackCaptureConfiguration` - *Note: this restricts capturing to apps that allow it, e.g., YouTube might block capture due to DRM*).
+## Development Roadmap
 
-### Important Technical "Gotcha"
+This roadmap mirrors the open issues in
+[github.com/ElodinLaarz/walkie-talkie/issues](https://github.com/ElodinLaarz/walkie-talkie/issues);
+that's the source of truth, this is the friendly map.
 
-**DRM and Phone Audio Injection:**
-Requirement \#3 mentions piping phone audio (e.g., YouTube). Android prevents apps from capturing the audio of other apps (like Spotify or YouTube) easily due to copyright/DRM.
+### Phase 1 — Dart skeleton ✅ done
 
-  * **Workaround:** You cannot "record" YouTube and pipe it. You must rely on **Android Audio Sharing (Auracast)** logic where the OS handles the mixing. Your app would simply manage the *control* signals, not the actual audio bytes of the YouTube video.
+UI screens, onboarding + permissions, BLoC state, Hive persistence
+(`peerId` + display name), wire-protocol Dart stubs (framing,
+sequence filter, message envelope, voice-frame), foreground service shell.
+
+### Phase 2 — Native BLE control plane (in flight)
+
+End-to-end host advertise → guest connect → JoinAccepted snapshot, all on
+real radios.
+
+* [#38](https://github.com/ElodinLaarz/walkie-talkie/issues/38) Onboarding asks for `BLUETOOTH_ADVERTISE`.
+* [#41](https://github.com/ElodinLaarz/walkie-talkie/issues/41) Native LE advertiser (host).
+* [#42](https://github.com/ElodinLaarz/walkie-talkie/issues/42) Native GATT server with REQUEST/RESPONSE characteristics.
+* [#43](https://github.com/ElodinLaarz/walkie-talkie/issues/43) Native GATT client + connect flow on the guest.
+* [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44) `BleControlTransport` cubit bridging Dart ↔ native.
+* [#45](https://github.com/ElodinLaarz/walkie-talkie/issues/45) Negotiated GATT MTU plumbing.
+* [#37](https://github.com/ElodinLaarz/walkie-talkie/issues/37) Carry `sessionUuid` + BT MAC end-to-end through discovery.
+* [#39](https://github.com/ElodinLaarz/walkie-talkie/issues/39) Host-side session bootstrap (mint `sessionUuid`, self-seed `JoinAccepted`).
+* [#40](https://github.com/ElodinLaarz/walkie-talkie/issues/40) Replace mock roster + media in the room screen with cubit state.
+
+### Phase 3 — Voice plane
+
+Real audio between two phones.
+
+* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) Native L2CAP CoC server (host) + client (guest).
+* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) Native libopus encoder + decoder.
+* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) Real mix-minus across multiple peers.
+* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) Per-peer voice-frame seq tracking with stuck-producer prune.
+* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) Voice-activity detection + outbound `TalkingState` messages.
+
+### Phase 4 — Reliability
+
+* [#51](https://github.com/ElodinLaarz/walkie-talkie/issues/51) Heartbeats + dirty-disconnect detection.
+* [#53](https://github.com/ElodinLaarz/walkie-talkie/issues/53) `SignalReport` on a 10s timer (replaces the demo weak-signal toast).
+* [#55](https://github.com/ElodinLaarz/walkie-talkie/issues/55) Android Audio Focus management (phone calls + Spotify clashes).
+* [#56](https://github.com/ElodinLaarz/walkie-talkie/issues/56) Graceful auto-reconnect for transient drops (≤30s).
+* [#57](https://github.com/ElodinLaarz/walkie-talkie/issues/57) Permissions revocation handling (mic / BT revoked while in-room).
+
+### Phase 5 — Release polish
+
+* [#34](https://github.com/ElodinLaarz/walkie-talkie/issues/34) Release signing config (replace debug-key fallback).
+* [#35](https://github.com/ElodinLaarz/walkie-talkie/issues/35) CI: build & run native `mixer_test` (and delete the checked-in binary).
+* [#36](https://github.com/ElodinLaarz/walkie-talkie/issues/36) Delete iOS / macOS / Windows / Linux scaffolding (Android-only v1).
+* [#52](https://github.com/ElodinLaarz/walkie-talkie/issues/52) Verify foreground notification configuration in `WalkieTalkieService`.
+
+Out of scope for v1: encryption beyond LE pairing, host handover, mesh
+topology, > 12 peers per room. See
+[docs/protocol.md § Out of scope](docs/protocol.md#out-of-scope).
+
+-----
+
+## Important Technical "Gotcha"
+
+**DRM and shared-media injection.** The shared-media controls (play / pause /
+skip) propagate as **control signals only**. Each peer plays its own local
+copy of YouTube Music / Spotify / etc.; the host doesn't capture and rebroadcast
+the audio because Android blocks cross-app capture of DRM'd media. This is
+also why media isn't mixed into the host's mix-minus: there's nothing to mix.
+See [docs/protocol.md § Shared media](docs/protocol.md#shared-media) for the
+exact echo / reconciliation rules.
