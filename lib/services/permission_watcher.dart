@@ -136,6 +136,12 @@ class DefaultPermissionWatcher
       onCancel: () async {
         await inner?.cancel();
         inner = null;
+        // Close the per-subscriber controller so we don't keep an open
+        // instance around after the caller has cancelled (e.g. consumers
+        // of `.first`, which auto-cancel as soon as the first event lands).
+        if (!out.isClosed) {
+          await out.close();
+        }
       },
     );
     return out.stream;

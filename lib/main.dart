@@ -78,6 +78,26 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
   }
 
   @override
+  void didUpdateWidget(covariant WalkieTalkieApp old) {
+    super.didUpdateWidget(old);
+    // Reconcile [permissionWatcher] across parent rebuilds: if the caller
+    // flips between supplying a watcher and asking us to own one (rare in
+    // production, but reachable from a test that switches fakes), make
+    // sure we either dispose what we owned or stand up a fresh default.
+    final wasOwning = old.permissionWatcher == null;
+    final stillOwning = widget.permissionWatcher == null;
+    if (wasOwning && !stillOwning) {
+      // We owned it; the caller is now supplying one. Release ours.
+      unawaited(_ownedWatcher?.dispose());
+      _ownedWatcher = null;
+    } else if (!wasOwning && stillOwning) {
+      // The caller dropped the supplied watcher; mint a default so build()
+      // never sees a null on both sides.
+      _ownedWatcher = DefaultPermissionWatcher();
+    }
+  }
+
+  @override
   void dispose() {
     // Only dispose if we created it; a caller-supplied watcher is the
     // caller's responsibility to release.

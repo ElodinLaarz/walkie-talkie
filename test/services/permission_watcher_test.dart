@@ -315,6 +315,22 @@ void main() {
       },
     );
 
+    test('watch() throws after dispose', () async {
+      _setHandler(_FakePermissions({
+        _kMicrophone: _kGranted,
+        _kBluetoothScan: _kGranted,
+        _kBluetoothConnect: _kGranted,
+        _kBluetoothAdvertise: _kGranted,
+      }));
+
+      final watcher = DefaultPermissionWatcher();
+      await watcher.dispose();
+      expect(
+        () => watcher.watch(),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('checkNow throws after dispose', () async {
       _setHandler(_FakePermissions({
         _kMicrophone: _kGranted,
