@@ -75,11 +75,12 @@ guests just encode their own mic and decode whatever the host sends them.
 **Logical flow:**
 
 1.  **Capture.** Each peer records its own mic with Oboe (~10-ms callbacks).
-2.  **Encode.** Each peer encodes 20-ms PCM frames to Opus locally and
-    writes them over its L2CAP CoC to the host.
-3.  **Mix (host only).** The host decodes every incoming Opus stream, sums
-    them, and produces *N* output streams — one per guest, each with that
-    guest's contribution removed.
+2.  **Encode + uplink (guests).** Each guest encodes 20-ms PCM frames to
+    Opus locally and writes them over its L2CAP CoC to the host. The host
+    captures its own mic locally as PCM and does **not** uplink to itself.
+3.  **Mix (host only).** The host decodes incoming guest Opus streams,
+    mixes them with its own local mic PCM, and produces *N* output
+    streams — one per guest, each with that guest's contribution removed.
 4.  **Distribute.** The host re-encodes each output stream to Opus and
     writes it back over that guest's L2CAP CoC.
 5.  **Decode + render.** Each guest decodes the host's stream and plays it
@@ -153,8 +154,8 @@ graph TD
     subgraph "Host phone (mix-minus)"
         L2CAPInA --> Decode[Opus decode]
         L2CAPInB --> Decode
-        MicH[Host mic] --> Decode
         Decode --> Mixer[Sum-then-subtract-self]
+        MicH[Host mic PCM] --> Mixer
         Mixer --> EncA[Encode for A: H+B]
         Mixer --> EncB[Encode for B: H+A]
         Mixer --> SpkH[Host speaker: A+B]
