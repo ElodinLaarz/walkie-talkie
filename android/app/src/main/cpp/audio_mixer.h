@@ -20,11 +20,18 @@ class AudioMixer {
 private:
     // Device registry protected by mutex (rare changes: peer join/leave)
     std::mutex deviceRegistryMutex;
-    std::map<int, std::unique_ptr<DeviceAudioBuffer>> devices;
+    std::map<int, std::shared_ptr<DeviceAudioBuffer>> devices;  // shared_ptr for safe concurrent access
+
+    // Pre-allocated buffers for mixing (avoid heap allocations in audio path)
+    std::vector<std::pair<int, std::shared_ptr<DeviceAudioBuffer>>> deviceSnapshotBuffer;
+    std::vector<int16_t> tempMixBuffer;
 
     static constexpr int kMaxDevices = 8;  // Increased from 3 to support more peers
+    static constexpr int kMaxFrames = 1024;  // Max frames for tempMixBuffer
 
 public:
+    AudioMixer();
+
     // Add a device (peer) to the mixer. Returns true on success.
     bool addDevice(int deviceId);
 

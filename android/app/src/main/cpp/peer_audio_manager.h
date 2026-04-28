@@ -22,9 +22,10 @@ private:
     std::thread mixerThread;
     std::atomic<bool> mixerRunning{false};
 
-    // Opus encoders per peer (one per device ID)
-    std::mutex encodersMutex;
+    // Opus encoders and decoders per peer (one per device ID)
+    std::mutex codecsMutex;
     std::map<int, std::unique_ptr<::OpusEncoder>> encoders;
+    std::map<int, std::unique_ptr<::OpusDecoder>> decoders;
 
     // JNI callback references
     JavaVM* jvm = nullptr;

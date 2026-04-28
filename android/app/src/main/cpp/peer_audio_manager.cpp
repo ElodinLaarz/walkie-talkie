@@ -42,10 +42,11 @@ int PeerAudioManager::registerPeer(const std::string& macAddress) {
         g_audioMixer->addDevice(deviceId);
     }
 
-    // Create Opus encoder for this peer
+    // Create Opus encoder and decoder for this peer
     {
-        std::lock_guard<std::mutex> encoderLock(encodersMutex);
+        std::lock_guard<std::mutex> codecsLock(codecsMutex);
         encoders[deviceId] = std::make_unique<::OpusEncoder>();
+        decoders[deviceId] = std::make_unique<::OpusDecoder>();
     }
 
     LOGI("Peer %s registered with device ID %d", macAddress.c_str(), deviceId);
@@ -67,10 +68,11 @@ void PeerAudioManager::unregisterPeer(const std::string& macAddress) {
         g_audioMixer->removeDevice(deviceId);
     }
 
-    // Remove encoder
+    // Remove encoder and decoder
     {
-        std::lock_guard<std::mutex> encoderLock(encodersMutex);
+        std::lock_guard<std::mutex> codecsLock(codecsMutex);
         encoders.erase(deviceId);
+        decoders.erase(deviceId);
     }
 
     // Remove from maps
@@ -121,8 +123,15 @@ void PeerAudioManager::mixerTickLoop() {
 
     constexpr int kTickIntervalMs = 20;  // 20 ms ticks
     constexpr int kFrameSize = 320;      // 20 ms at 16 kHz
+
+    // Pre-allocate buffers outside the loop (avoid heap allocations)
     std::vector<int16_t> mixedBuffer(kFrameSize);
     std::vector<uint8_t> opusBuffer(4000);  // Max Opus packet size
+    std::vector<int> deviceIds;
+    std::vector<std::string> macAddresses;
+    deviceIds.reserve(8);  // Reserve space for max devices
+    macAddresses.reserve(8);
+
     std::map<int, uint32_t> seqNumbers;     // Per-peer sequence numbers
 
     auto nextTick = std::chrono::steady_clock::now();
@@ -131,9 +140,9 @@ void PeerAudioManager::mixerTickLoop() {
         auto now = std::chrono::steady_clock::now();
 
         if (now >= nextTick) {
-            // Get list of active devices
-            std::vector<int> deviceIds;
-            std::vector<std::string> macAddresses;
+            // Get list of active devices (reuse pre-allocated vectors)
+            deviceIds.clear();
+            macAddresses.clear();
             {
                 std::lock_guard<std::mutex> lock(peerRegistryMutex);
                 for (const auto& [mac, deviceId] : macToDeviceId) {
@@ -155,7 +164,7 @@ void PeerAudioManager::mixerTickLoop() {
                 // Encode with Opus
                 ::OpusEncoder* encoder = nullptr;
                 {
-                    std::lock_guard<std::mutex> encoderLock(encodersMutex);
+                    std::lock_guard<std::mutex> codecsLock(codecsMutex);
                     auto it = encoders.find(deviceId);
                     if (it != encoders.end()) {
                         encoder = it->second.get();
@@ -251,10 +260,11 @@ void PeerAudioManager::clear() {
         }
     }
 
-    // Clear encoders
+    // Clear encoders and decoders
     {
-        std::lock_guard<std::mutex> encoderLock(encodersMutex);
+        std::lock_guard<std::mutex> codecsLock(codecsMutex);
         encoders.clear();
+        decoders.clear();
     }
 
     macToDeviceId.clear();
@@ -347,14 +357,26 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
         return;
     }
 
-    // Decode Opus
-    static ::OpusDecoder decoder;  // One decoder can handle all peers (stateless for different streams)
+    // Get the decoder for this peer
+    ::OpusDecoder* decoder = nullptr;
+    {
+        std::lock_guard<std::mutex> codecsLock(g_peerAudioManager->codecsMutex);
+        auto it = g_peerAudioManager->decoders.find(deviceId);
+        if (it != g_peerAudioManager->decoders.end()) {
+            decoder = it->second.get();
+        }
+    }
+
+    if (!decoder) {
+        LOGE("No decoder found for device ID %d", deviceId);
+        return;
+    }
 
     jsize encodedSize = env->GetArrayLength(opusData);
     jbyte* encodedBuffer = env->GetByteArrayElements(opusData, nullptr);
 
     int16_t pcmBuffer[960];  // Max frame size for Opus
-    int numSamples = decoder.decode(
+    int numSamples = decoder->decode(
         reinterpret_cast<const uint8_t*>(encodedBuffer), encodedSize,
         pcmBuffer, 960
     );
