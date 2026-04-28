@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
+    private var voiceTransport: L2capVoiceTransport? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
@@ -199,6 +200,75 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "deviceAddress and bytes are required", null)
                     }
                 }
+                "startVoiceServer" -> {
+                    Log.i(TAG, "Starting L2CAP voice server")
+                    val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                    if (bt == null) {
+                        result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
+                    } else {
+                        if (voiceTransport == null) {
+                            voiceTransport = L2capVoiceTransport(
+                                bluetoothAdapter = bt,
+                                onVoiceFrame = { /* mix-minus wired in issue #48 */ },
+                                onClientConnected = { addr ->
+                                    sendEventToFlutter(mapOf(
+                                        "type" to "voiceClientConnected",
+                                        "address" to addr,
+                                    ))
+                                },
+                                onError = { msg ->
+                                    sendEventToFlutter(mapOf("type" to "error", "message" to msg))
+                                },
+                            )
+                        }
+                        val psm = voiceTransport?.startServer()
+                        if (psm != null) result.success(psm)
+                        else result.error("L2CAP_FAILED", "Failed to open L2CAP server socket", null)
+                    }
+                }
+                "connectVoiceClient" -> {
+                    val mac = call.argument<String>("macAddress")
+                    val psm = call.argument<Int>("psm")
+                    if (mac == null || psm == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress and psm are required", null)
+                    } else {
+                        Log.i(TAG, "Connecting L2CAP voice client to $mac PSM 0x${psm.toString(16)}")
+                        val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                        if (bt == null) {
+                            result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
+                        } else {
+                            if (voiceTransport == null) {
+                                voiceTransport = L2capVoiceTransport(
+                                    bluetoothAdapter = bt,
+                                    onVoiceFrame = { /* playback wired in issue #48 */ },
+                                    onClientConnected = {},
+                                    onError = { msg ->
+                                        sendEventToFlutter(mapOf("type" to "error", "message" to msg))
+                                    },
+                                )
+                            }
+                            // Connect blocks (with retries) — run off the main thread.
+                            val transport = voiceTransport!!
+                            Thread({
+                                try {
+                                    val ok = transport.connectClient(mac, psm)
+                                    Handler(Looper.getMainLooper()).post { result.success(ok) }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "connectVoiceClient thread error: ${e.message}")
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.error("L2CAP_ERROR", e.message, null)
+                                    }
+                                }
+                            }, "L2capConnect").apply { isDaemon = true; start() }
+                        }
+                    }
+                }
+                "stopVoiceTransport" -> {
+                    Log.i(TAG, "Stopping L2CAP voice transport")
+                    voiceTransport?.stop()
+                    voiceTransport = null
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -272,6 +342,7 @@ class MainActivity : FlutterActivity() {
         nativeUnregisterCallbacks()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
+        voiceTransport?.stop()
         gattServerManager?.stop()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
