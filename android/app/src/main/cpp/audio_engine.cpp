@@ -222,8 +222,17 @@ public:
             // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
 
+            // Focus-pause short-circuit. requestPause() halts new callbacks
+            // but a callback already in flight when pause was issued still
+            // runs once. Drop its audio entirely instead of running VAD,
+            // mixer, and playback for a chunk that's already lost the
+            // audio path — saves CPU and prevents a mid-call blip.
+            if (g_focusPaused.load(std::memory_order_relaxed)) {
+                std::memset(inputData, 0, numFrames * sizeof(int16_t));
+                return oboe::DataCallbackResult::Continue;
+            }
+
             bool isMuted = g_muted.load(std::memory_order_relaxed);
-            bool isFocusPaused = g_focusPaused.load(std::memory_order_relaxed);
 
             // Voice activity detection (compute RMS before mute gate, so we
             // detect talking state even when muted for UI feedback)
@@ -249,14 +258,10 @@ public:
                 }
             }
 
-            // When muted or focus-paused, zero the mic frames so they don't
-            // reach the mixer or any future BLE transport. The streams stay
-            // warm so unmuting / focus-gain is instant — no codec reinit
-            // round-trip. Focus-pause should normally also halt the callback
-            // via requestPause(), but a callback already in flight at the
-            // moment pause is issued can still run once; this gate keeps a
-            // mid-call audio chunk from leaking out.
-            if (isMuted || isFocusPaused) {
+            // When muted, zero the mic frames so they don't reach the mixer
+            // or any future BLE transport. The streams stay warm so unmuting
+            // is instant — no codec reinit round-trip.
+            if (isMuted) {
                 std::memset(inputData, 0, numFrames * sizeof(int16_t));
             }
 
@@ -289,7 +294,17 @@ public:
     }
 };
 
-// Global audio engine instance
+// Global audio engine instance + mutex.
+//
+// nativeStop deletes the engine and nulls the pointer; nativePauseStreams /
+// nativeResumeStreams read the pointer and dispatch to it. Without
+// serialization a stop racing with pause/resume can either tear down the
+// engine mid-call (use-after-free) or null the pointer between the load and
+// the dereference. In practice the JNI calls usually serialize on the
+// service / main thread, but Android focus-change listeners can be
+// dispatched on other threads; the mutex makes the contract explicit so
+// future call sites can't introduce a UAF by accident.
+static std::mutex g_engineMutex;
 static AudioEngine* g_audioEngine = nullptr;
 
 extern "C" {
@@ -326,6 +341,7 @@ Java_com_elodin_walkie_1talkie_MainActivity_nativeUnregisterCallbacks(JNIEnv *en
 
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine == nullptr) {
         g_audioEngine = new AudioEngine();
     }
@@ -334,6 +350,7 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv *env, jobje
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine != nullptr) {
         g_audioEngine->stop();
         delete g_audioEngine;
@@ -352,6 +369,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePauseStreams(
         JNIEnv *env, jobject thiz) {
     g_focusPaused.store(true, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine != nullptr) {
         return g_audioEngine->pauseStreams() ? JNI_TRUE : JNI_FALSE;
     }
@@ -370,6 +388,7 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeResumeStreams(
     // ducking either) and avoids surprising a duck-then-pause sequence
     // by silently restoring volume on the wrong event.
     g_focusPaused.store(false, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine != nullptr) {
         return g_audioEngine->resumeStreams() ? JNI_TRUE : JNI_FALSE;
     }

@@ -76,8 +76,12 @@ class AudioEngineManager {
     }
 
     /**
-     * Resume the streams paused by [pauseStreams] and clear any active
-     * ducking. Called on AUDIOFOCUS_GAIN.
+     * Resume the streams paused by [pauseStreams]. Called on AUDIOFOCUS_GAIN.
+     *
+     * Note: does **not** restore the ducking volume. Pause and ducking are
+     * orthogonal at the native layer — callers that want to clear ducking
+     * (e.g. on focus gain after a transient duck) must explicitly call
+     * [setDuckingVolume] with [AudioFocusManager.FULL_VOLUME].
      *
      * @return true if resume succeeded for all live streams (or no engine
      *   was running); false if Oboe rejected a requestStart call.

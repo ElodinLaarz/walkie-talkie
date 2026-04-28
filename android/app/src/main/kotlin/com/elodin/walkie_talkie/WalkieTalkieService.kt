@@ -89,22 +89,32 @@ class WalkieTalkieService : Service() {
      * is documented in [AudioFocusManager]. Per #55 we deliberately don't
      * auto-leave the room on AUDIOFOCUS_LOSS — the user can return to a
      * paused room rather than losing their tune-in entirely.
+     *
+     * Pause / resume return values are non-fatal but worth surfacing in
+     * logcat: an Oboe failure here means the system audio path is in an
+     * unexpected state, and the next bug report should include it.
      */
     private fun handleAudioFocusChange(focusChange: Int) {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 audioEngineManager.setDuckingVolume(AudioFocusManager.FULL_VOLUME)
-                audioEngineManager.resumeStreams()
+                if (!audioEngineManager.resumeStreams()) {
+                    Log.w(TAG, "resumeStreams() reported failure on AUDIOFOCUS_GAIN")
+                }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                audioEngineManager.pauseStreams()
+                if (!audioEngineManager.pauseStreams()) {
+                    Log.w(TAG, "pauseStreams() reported failure on AUDIOFOCUS_LOSS_TRANSIENT")
+                }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 audioEngineManager.setDuckingVolume(AudioFocusManager.DUCK_VOLUME)
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 Log.w(TAG, "Long-lived audio focus loss — pausing; user must re-tune to recover")
-                audioEngineManager.pauseStreams()
+                if (!audioEngineManager.pauseStreams()) {
+                    Log.w(TAG, "pauseStreams() reported failure on AUDIOFOCUS_LOSS")
+                }
             }
             else -> {
                 Log.w(TAG, "Unhandled audio focus change: $focusChange")
