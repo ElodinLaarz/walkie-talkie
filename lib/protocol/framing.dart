@@ -7,9 +7,15 @@ import 'dart:typed_data';
 /// layer (see `docs/protocol.md` § GATT service) and the framing code below
 /// just sees byte buffers sized to that ceiling. Receivers SHOULD honour the
 /// `total_len` and `fragment_idx` header on the wire and not assume any
-/// particular fragment size, but every encoder in this codebase splits at
-/// [kMaxFragmentSize].
+/// particular fragment size, but encoders in this codebase default to
+/// splitting at [kMaxFragmentSize] when no negotiated MTU is supplied.
 const int kMaxFragmentSize = 247;
+
+/// BLE default ATT MTU floor (23 bytes — BLE 4.0 spec). Two devices that
+/// fail to negotiate a higher MTU still guarantee at least this much per
+/// write, so the encoder rejects anything smaller as a caller bug rather
+/// than silently producing fragments the link can't carry.
+const int kMinFragmentSize = 23;
 
 /// Fragment header in front of every chunk on the wire.
 ///
@@ -51,7 +57,27 @@ const int kFragmentFlagsV1 = 0x00;
 ///
 /// Each fragment is an independent BLE write — the receiver reassembles them
 /// using the `total_len` + `fragment_idx` header carried on every fragment.
-List<Uint8List> encodeFragments(String json) {
+///
+/// [maxFragmentSize] is the per-write byte ceiling (header + payload) and
+/// defaults to [kMaxFragmentSize]. Callers with access to a negotiated GATT
+/// MTU should pass it here so the encoder doesn't emit fragments the link
+/// will fragment again unpredictably. Must be in the closed range
+/// `[kMinFragmentSize, kMaxFragmentSize]`; values outside throw
+/// `ArgumentError`.
+List<Uint8List> encodeFragments(
+  String json, {
+  int maxFragmentSize = kMaxFragmentSize,
+}) {
+  if (maxFragmentSize < kMinFragmentSize ||
+      maxFragmentSize > kMaxFragmentSize) {
+    throw ArgumentError.value(
+      maxFragmentSize,
+      'maxFragmentSize',
+      'must be in [$kMinFragmentSize, $kMaxFragmentSize]',
+    );
+  }
+  final fragmentPayloadSize = maxFragmentSize - kFragmentHeaderSize;
+
   final bytes = utf8.encode(json);
   if (bytes.length > kMaxMessageSize) {
     throw FormatException(
@@ -71,9 +97,10 @@ List<Uint8List> encodeFragments(String json) {
   final totalLen = bytes.length;
   final fragmentCount = totalLen == 0
       ? 1
-      : (totalLen + kMaxFragmentPayloadSize - 1) ~/ kMaxFragmentPayloadSize;
-  // Unreachable with the v1 4 KiB message cap (max ~17 fragments) but
-  // guards against a future cap raise: silently masking `i` to 8 bits
+      : (totalLen + fragmentPayloadSize - 1) ~/ fragmentPayloadSize;
+  // With the smallest legal MTU (23 → 19-byte payload) and the v1 4 KiB
+  // message cap, the worst case is ~216 fragments — under the uint8
+  // `fragment_idx` ceiling. Recheck anyway: silently masking `i` to 8 bits
   // would produce duplicate fragment indices on the wire and a
   // reassembler that confidently stitches together garbage.
   if (fragmentCount > kMaxFragmentCount) {
@@ -85,10 +112,10 @@ List<Uint8List> encodeFragments(String json) {
 
   final fragments = <Uint8List>[];
   for (int i = 0; i < fragmentCount; i++) {
-    final start = i * kMaxFragmentPayloadSize;
+    final start = i * fragmentPayloadSize;
     final end =
-        (start + kMaxFragmentPayloadSize) < totalLen
-            ? start + kMaxFragmentPayloadSize
+        (start + fragmentPayloadSize) < totalLen
+            ? start + fragmentPayloadSize
             : totalLen;
     final payloadLen = end - start;
 
