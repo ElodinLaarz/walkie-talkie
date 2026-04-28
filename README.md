@@ -5,6 +5,12 @@ nearby's frequency, and you're on a shared voice channel with everyone else
 tuned to the same one. No internet, no accounts, no cloud — just Bluetooth LE
 between phones in the same room.
 
+> **Android-only by design.** iOS/desktop scaffolding has been removed from
+> this repo. The native voice plane (Oboe + L2CAP CoC) requires Android APIs
+> that have no equivalent on other platforms, and the owner has confirmed v1
+> will never ship elsewhere. See
+> [docs/protocol.md § Out of scope](docs/protocol.md#out-of-scope).
+
 ## Transport
 
 Voice and control both ride on **Bluetooth LE**, in a star topology with one
