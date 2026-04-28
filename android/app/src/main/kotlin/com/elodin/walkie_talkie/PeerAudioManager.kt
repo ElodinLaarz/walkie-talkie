@@ -49,8 +49,17 @@ class PeerAudioManager {
         nativeSetCallback(this)
     }
 
-    fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray) {
-        nativeOnVoiceFrameReceived(macAddress, opusData)
+    /**
+     * Hand a peer-arrived Opus frame to the native mixer along with its
+     * per-link [seq] from the VoiceFrame header. Native uses [seq] to detect
+     * a stuck or wildly-skipping producer (issue #49) and mute that peer's
+     * stream until a contiguous frame arrives.
+     *
+     * [seq] is the protocol's uint32; passed as a [Long] so the unsigned
+     * value survives the JNI hop without sign extension.
+     */
+    fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long) {
+        nativeOnVoiceFrameReceived(macAddress, opusData, seq)
     }
 
     fun clear() {
@@ -71,5 +80,5 @@ class PeerAudioManager {
     private external fun nativeStopMixerThread()
     private external fun nativeSetCallback(callback: Any)
     private external fun nativeClear()
-    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray)
+    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long)
 }

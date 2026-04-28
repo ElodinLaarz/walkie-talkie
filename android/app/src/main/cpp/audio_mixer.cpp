@@ -4,6 +4,7 @@
 
 #define LOG_TAG "AudioMixer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 // Constructor (if needed - add to header too)
 AudioMixer::AudioMixer() {
@@ -48,12 +49,65 @@ void AudioMixer::updateDeviceAudio(int deviceId, const int16_t* audioData, int n
 
     if (device) {
         // Lock-free write to ring buffer
-        size_t written = device->ringBuffer.write(audioData, numFrames);
-        if (written < numFrames) {
+        size_t written = device->ringBuffer.write(audioData, static_cast<size_t>(numFrames));
+        if (written < static_cast<size_t>(numFrames)) {
             // Buffer full or near-full (normal during startup or if mixer tick is slow)
             // Don't log on every occurrence to avoid spam
         }
     }
+}
+
+void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, int numFrames) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    if (!device) {
+        return;
+    }
+
+    const uint32_t prevSeq = device->lastSeq;
+
+    // Stuck-producer prune. `prevSeq == 0` means we have not seen any frame
+    // yet, so the first frame always passes regardless of value (the protocol
+    // says peers start at seq=1, but a fresh-session reset can land much later
+    // — see [docs/protocol.md] § Voice frame format).
+    if (prevSeq != 0 && seq > prevSeq + kPoisonThreshold) {
+        if (!device->poisoned.exchange(true, std::memory_order_relaxed)) {
+            LOGW("Device %d poisoned: seq jump %u -> %u (gap %u > %u)",
+                 deviceId, prevSeq, seq, seq - prevSeq, kPoisonThreshold);
+        }
+        // Update lastSeq so the *next* contiguous frame can recover. Drop the
+        // current frame's audio: we don't trust it, and the ring buffer's
+        // SPSC contract forbids producer-side `clear()` while the mixer-tick
+        // consumer is reading. Any in-flight buffered samples will drain
+        // naturally over the next mixer tick.
+        device->lastSeq = seq;
+        return;
+    }
+
+    if (device->poisoned.exchange(false, std::memory_order_relaxed)) {
+        LOGI("Device %d recovered at seq %u (prevSeq %u)", deviceId, seq, prevSeq);
+    }
+
+    device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
+    device->lastSeq = seq;
+}
+
+bool AudioMixer::isPoisoned(int deviceId) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    return device && device->poisoned.load(std::memory_order_relaxed);
 }
 
 void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames) {
