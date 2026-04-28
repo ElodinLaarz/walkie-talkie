@@ -264,18 +264,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (_weakSignalEventsController.isClosed) return;
     final fired = _weakSignalDetector.onReport(report);
     if (fired.isEmpty) return;
+    // Build the lookup once per report rather than scanning the roster
+    // per neighbor — a single weak report could trip several at once,
+    // and the per-call cost otherwise grows as the room fills up.
+    final namesByPeerId = <String, String>{
+      for (final p in current.roster) p.peerId: p.displayName,
+    };
     for (final neighborId in fired) {
       // Don't surface a toast for our own peerId — a guest's report
       // includes its observation of every neighbor it can sample, which
       // can include the host. The host toasting itself is noise.
       if (neighborId == current.hostPeerId) continue;
-      String? displayName;
-      for (final p in current.roster) {
-        if (p.peerId == neighborId) {
-          displayName = p.displayName;
-          break;
-        }
-      }
+      final displayName = namesByPeerId[neighborId];
       if (displayName == null) continue;
       _weakSignalEventsController.add(
         (peerId: neighborId, displayName: displayName),
