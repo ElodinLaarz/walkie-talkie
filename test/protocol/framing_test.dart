@@ -82,6 +82,69 @@ void main() {
       expect(() => encodeFragments(tooBig), throwsFormatException);
     });
 
+    test('a custom maxFragmentSize splits at that boundary and reassembles', () {
+      // 96-byte payload per fragment (header is 4 bytes). Naming this
+      // `maxFragmentSize` rather than `mtu` keeps the test honest: the
+      // encoder takes a per-fragment buffer ceiling, not an ATT MTU.
+      const maxFragmentSize = 100;
+      const payloadPerFragment = maxFragmentSize - kFragmentHeaderSize;
+      // 250 bytes → ceil(250/96) = 3 fragments: 96 + 96 + 58.
+      final json = 'a' * 250;
+      final fragments =
+          encodeFragments(json, maxFragmentSize: maxFragmentSize);
+      expect(fragments, hasLength(3));
+      expect(fragments[0].length, maxFragmentSize);
+      expect(fragments[1].length, maxFragmentSize);
+      expect(fragments[2].length, kFragmentHeaderSize + 58);
+      // total_len header is identical across fragments and matches the input.
+      for (var i = 0; i < fragments.length; i++) {
+        expect(fragments[i][0], kFragmentFlagsV1);
+        expect((fragments[i][1] << 8) | fragments[i][2], 250);
+        expect(fragments[i][3], i);
+      }
+      // The reassembler doesn't care about the encoder's MTU — it stitches
+      // fragments back together from the headers alone, so a sender can
+      // honour a small negotiated MTU without breaking the receiver.
+      final r = FragmentReassembler();
+      String? out;
+      for (final f in fragments) {
+        out = r.feed(f);
+      }
+      expect(out, json);
+      // Sanity: the constants we relied on for the math above.
+      expect(payloadPerFragment, 96);
+    });
+
+    test('maxFragmentSize below the BLE floor is rejected', () {
+      expect(
+        () => encodeFragments('hi', maxFragmentSize: kMinFragmentSize - 1),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('maxFragmentSize above the v1 ceiling is rejected', () {
+      expect(
+        () => encodeFragments('hi', maxFragmentSize: kMaxFragmentSize + 1),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('maxFragmentSize at the BLE floor still produces well-formed fragments',
+        () {
+      // 19-byte payload per fragment at the 23-byte floor; verify a small
+      // message still assembles correctly at the most pessimistic MTU.
+      final json = 'a' * 50;
+      final fragments = encodeFragments(json, maxFragmentSize: kMinFragmentSize);
+      // ceil(50 / 19) = 3 fragments.
+      expect(fragments, hasLength(3));
+      final r = FragmentReassembler();
+      String? out;
+      for (final f in fragments) {
+        out = r.feed(f);
+      }
+      expect(out, json);
+    });
+
     test('multibyte UTF-8 sequences reassemble correctly across fragment boundaries',
         () {
       // Build a message that puts a 2-byte UTF-8 sequence ('é' = 0xC3 0xA9)
