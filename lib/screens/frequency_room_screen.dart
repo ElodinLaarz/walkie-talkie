@@ -8,6 +8,7 @@ import '../bloc/frequency_session_cubit.dart';
 import '../bloc/frequency_session_state.dart';
 import '../data/frequency_mock_data.dart';
 import '../protocol/messages.dart';
+import '../protocol/peer.dart';
 import '../services/audio_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
@@ -52,6 +53,11 @@ class FrequencyRoomScreen extends StatefulWidget {
   /// pass an instance whose channel handler they've registered.
   final AudioService? audioService;
 
+  /// When true, demo timers fire fake BLE events for design previews.
+  /// Widget tests pass true to keep their assertions stable; production
+  /// wiring defaults to false so real BLE events drive the UI.
+  final bool debugDemoTimers;
+
   const FrequencyRoomScreen({
     super.key,
     required this.freq,
@@ -62,6 +68,7 @@ class FrequencyRoomScreen extends StatefulWidget {
     required this.myName,
     required this.onLeave,
     this.audioService,
+    this.debugDemoTimers = false,
   });
 
   @override
@@ -70,7 +77,7 @@ class FrequencyRoomScreen extends StatefulWidget {
 
 class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late Person _me;
-  late List<Person> _roster;
+  List<Person> _roster = []; // Only populated when debugDemoTimers is true
 
   bool _meMuted = false;
   bool _holdingPtt = false;
@@ -139,9 +146,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       hue: 145,
       btDevice: kPeople.first.btDevice,
     );
-    _roster = [_me, ...kPeople.skip(1).take(widget.groupSize - 1)];
     _meMuted = widget.pttMode;
-    _volumes = {for (final p in _roster) p.id: 0.7};
+
+    // Only populate mock roster when debugDemoTimers is true (for tests)
+    if (widget.debugDemoTimers) {
+      _roster = [_me, ...kPeople.skip(1).take(widget.groupSize - 1)];
+      _volumes = {for (final p in _roster) p.id: 0.7};
+    } else {
+      _volumes = {}; // Volumes populated dynamically as peers join
+    }
 
     _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
     _lib = kMedia[_source]!;
@@ -155,6 +168,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // The `mounted` check guards against the user leaving the room before
     // startVoice resolves — without it, the trailing calls would land after
     // dispose has fired stopVoice and tell a torn-down engine to change state.
+    final cubit = context.read<FrequencySessionCubit>();
     unawaited(() async {
       final started = await _audio.startVoice();
       if (!mounted || !started) return;
@@ -162,6 +176,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // Re-read mute state after await in case user toggled during startup
       final currentMuted = _meEffectivelyMuted;
       await _audio.setMuted(currentMuted);
+      // Broadcast initial mute state to peers via the BLE control plane
+      // (once wired). Until then, this is a no-op.
+      unawaited(cubit.broadcastMute(currentMuted));
 
       // Set initial audio output routing. If it fails (e.g., no Bluetooth
       // device when _output is bluetooth), keep the UI selection but log it.
@@ -193,43 +210,46 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     });
 
     _resolveMyPeerId();
-    _startTalkSimulation();
     _startProgressTick();
 
-    if (widget.isHost) {
-      _hostJoinDemoTimer = Timer(const Duration(milliseconds: 2800), () {
+    if (widget.debugDemoTimers) {
+      _startTalkSimulation();
+
+      if (widget.isHost) {
+        _hostJoinDemoTimer = Timer(const Duration(milliseconds: 2800), () {
+          if (!mounted) return;
+          final newcomer = kPeople.length > widget.groupSize
+              ? kPeople[widget.groupSize]
+              : kPeople.last;
+          FrequencyToastHost.of(context).push(FrequencyToastSpec(
+            tone: ToastTone.request,
+            person: newcomer,
+            title: '${newcomer.name} wants to tune in',
+            description: "They're right nearby",
+            autoDismiss: null, // sticky — host must choose
+            // Demo only: real accept/deny dispatch waits on the BT mesh +
+            // state container. The toast surface is the deliverable for now.
+            actions: [
+              ToastAction(label: 'Deny', onTap: () {}),
+              ToastAction(label: 'Let in', primary: true, onTap: () {}),
+            ],
+          ));
+        });
+      }
+
+      _weakSignalDemoTimer = Timer(const Duration(milliseconds: 7200), () {
         if (!mounted) return;
-        final newcomer = kPeople.length > widget.groupSize
-            ? kPeople[widget.groupSize]
-            : kPeople.last;
+        final p = _roster.last;
+        // Don't surface a weak-signal toast for someone who's already left.
+        if (p.id == 'me' || _removed.contains(p.id)) return;
         FrequencyToastHost.of(context).push(FrequencyToastSpec(
-          tone: ToastTone.request,
-          person: newcomer,
-          title: '${newcomer.name} wants to tune in',
-          description: "They're right nearby",
-          autoDismiss: null, // sticky — host must choose
-          // Demo only: real accept/deny dispatch waits on the BT mesh +
-          // state container. The toast surface is the deliverable for now.
-          actions: [
-            ToastAction(label: 'Deny', onTap: () {}),
-            ToastAction(label: 'Let in', primary: true, onTap: () {}),
-          ],
+          tone: ToastTone.warn,
+          title: "${p.name}'s signal is weak",
+          description: 'Ask them to move closer',
+          autoDismiss: const Duration(milliseconds: 3600),
         ));
       });
     }
-
-    _weakSignalDemoTimer = Timer(const Duration(milliseconds: 7200), () {
-      if (!mounted) return;
-      final p = _roster.last;
-      // Don't surface a weak-signal toast for someone who's already left.
-      if (p.id == 'me' || _removed.contains(p.id)) return;
-      FrequencyToastHost.of(context).push(FrequencyToastSpec(
-        tone: ToastTone.warn,
-        title: "${p.name}'s signal is weak",
-        description: 'Ask them to move closer',
-        autoDismiss: const Duration(milliseconds: 3600),
-      ));
-    });
   }
 
   @override
@@ -311,7 +331,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       });
       // Switching pttMode resets effective mute (open mic ⇒ unmuted,
       // PTT ⇒ muted-until-held), so the engine needs the new state.
-      unawaited(_audio.setMuted(_meEffectivelyMuted));
+      final effectiveMuted = _meEffectivelyMuted;
+      unawaited(_audio.setMuted(effectiveMuted));
+      unawaited(context.read<FrequencySessionCubit>().broadcastMute(effectiveMuted));
     }
   }
 
@@ -332,6 +354,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _setOpenMicMuted(bool muted) {
     setState(() => _meMuted = muted);
     unawaited(_audio.setMuted(muted));
+    unawaited(context.read<FrequencySessionCubit>().broadcastMute(muted));
   }
 
   /// PTT press/release. While held the mic is unmuted; on release we
@@ -339,7 +362,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// the user open-mic'd against their intent.
   void _setPttHolding(bool holding) {
     setState(() => _holdingPtt = holding);
-    unawaited(_audio.setMuted(!holding));
+    final muted = !holding;
+    unawaited(_audio.setMuted(muted));
+    unawaited(context.read<FrequencySessionCubit>().broadcastMute(muted));
   }
 
   void _onMediaCommand(MediaCommand cmd) {
@@ -481,11 +506,29 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     return _output == AudioOutput.bluetooth ? 'headphones' : _output.label;
   }
 
+  /// Maps a protocol-layer peer to the UI's presentation model.
+  /// Hue is deterministic from peerId so the same peer always gets
+  /// the same color across sessions.
+  Person _protocolPeerToPerson(ProtocolPeer peer) {
+    final displayName = peer.displayName.isEmpty ? 'Unknown' : peer.displayName;
+    final initials = (displayName.length >= 2
+            ? displayName.substring(0, 2)
+            : displayName)
+        .toUpperCase();
+    final hue = (peer.peerId.hashCode % 360).toDouble();
+    return Person(
+      id: peer.peerId,
+      name: displayName,
+      initials: initials,
+      hue: hue,
+      btDevice: peer.btDevice ?? 'Unknown device',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final source = _source;
-    final peers = _roster.skip(1).where((p) => !_removed.contains(p.id)).toList();
 
     return BlocListener<FrequencySessionCubit, FrequencySessionState>(
       listenWhen: (prev, next) {
@@ -533,42 +576,76 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                       onScrub: _scrub,
                       onOpenQueue: _showQueueSheet,
                     ),
-                    SectionLabel(
-                      text: 'On this frequency · ${peers.length + 1}',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(_output.icon, size: 11, color: c.ink3),
-                          const SizedBox(width: 4),
-                          Text(
-                            _outputName(),
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 11,
-                              color: c.ink3,
+                    BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
+                      buildWhen: (prev, next) {
+                        // Rebuild when roster changes or when entering/leaving room
+                        if (prev is SessionRoom && next is SessionRoom) {
+                          return prev.roster != next.roster;
+                        }
+                        return prev.runtimeType != next.runtimeType;
+                      },
+                      builder: (context, state) {
+                        // Compute peers list from cubit state, or fall back to mock for demo mode
+                        final List<Person> peers;
+                        if (widget.debugDemoTimers) {
+                          // Demo mode: use mock roster (skip self at index 0)
+                          peers = _roster.skip(1).where((p) => !_removed.contains(p.id)).toList();
+                        } else if (state is SessionRoom && state.roster.isNotEmpty) {
+                          // Production: map ProtocolPeer roster, excluding local peer
+                          peers = state.roster
+                              .where((p) => p.peerId != _myPeerId)
+                              .where((p) => !_removed.contains(p.peerId))
+                              .map(_protocolPeerToPerson)
+                              .toList();
+                        } else {
+                          // Empty roster: no peers yet
+                          peers = [];
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SectionLabel(
+                              text: 'On this frequency · ${peers.length + 1}',
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(_output.icon, size: 11, color: c.ink3),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _outputName(),
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 11,
+                                      color: c.ink3,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildMeRow(context),
-                    const SizedBox(height: 8),
-                    FreqCard(
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          for (int i = 0; i < peers.length; i++)
-                            _PeerRow(
-                              key: ValueKey(peers[i].id),
-                              person: peers[i],
-                              first: i == 0,
-                              talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
-                              muted: _peerMuted.contains(peers[i].id),
-                              volume: _volumes[peers[i].id]!,
-                              onTap: () => _showPeerDrawer(peers[i]),
-                            ),
-                        ],
-                      ),
+                            _buildMeRow(context),
+                            const SizedBox(height: 8),
+                            if (peers.isNotEmpty)
+                              FreqCard(
+                                clipBehavior: Clip.antiAlias,
+                                child: Column(
+                                  children: [
+                                    for (int i = 0; i < peers.length; i++)
+                                      _PeerRow(
+                                        key: ValueKey(peers[i].id),
+                                        person: peers[i],
+                                        first: i == 0,
+                                        talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
+                                        muted: _peerMuted.contains(peers[i].id),
+                                        volume: _volumes[peers[i].id] ?? 0.7,
+                                        onTap: () => _showPeerDrawer(peers[i]),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 16),
                     Center(

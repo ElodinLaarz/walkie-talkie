@@ -68,6 +68,8 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
         positionMs: positionMs,
       ));
     });
+
+    when(() => mockCubit.broadcastMute(any())).thenAnswer((_) async {});
   }
 
   return MaterialApp(
@@ -104,6 +106,7 @@ Widget _room({
       mediaKind: mediaKind,
       pttMode: pttMode,
       onLeave: () {},
+      debugDemoTimers: true,
     );
 
 void main() {

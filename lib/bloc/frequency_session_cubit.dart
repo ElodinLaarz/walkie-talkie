@@ -241,6 +241,28 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _mediaCommandsController.add(cmd);
   }
 
+  /// Broadcasts a mute-state change originated by the local peer.
+  ///
+  /// Builds a `MuteState` message with the local peerId and a fresh seq,
+  /// then sends it via the BLE control transport (once wired). Until the
+  /// transport lands, this is a no-op — the local `_audio.setMuted` call
+  /// in the room screen is the only side effect.
+  ///
+  /// The host will apply the mute state to its roster snapshot and echo
+  /// it to all peers (including the originator) so UI indicators reflect
+  /// the canonical view.
+  Future<void> broadcastMute(bool muted) async {
+    // TODO(transport): once BLE control transport lands, resolve peerId and send:
+    //   final peerId = await identityStore.getPeerId();
+    //   await transport.send(MuteState(peerId: peerId, seq: ++_seq,
+    //                         atMs: DateTime.now().millisecondsSinceEpoch, muted: muted));
+    // For now, this is a no-op — the local audio engine state is the only
+    // side effect. The host will apply + echo mute changes when the wire
+    // protocol is live.
+    // Increment sequence counter to keep it synchronized for when transport lands.
+    _seq++;
+  }
+
   @override
   Future<void> close() async {
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
