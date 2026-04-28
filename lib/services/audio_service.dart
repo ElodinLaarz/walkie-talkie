@@ -238,6 +238,52 @@ class AudioService {
         .map((e) => e['talking'] == true);
   }
 
+  /// Start LE advertising for the host.
+  ///
+  /// Broadcasts the walkie-talkie service UUID plus a 16-byte manufacturer
+  /// payload that encodes the protocol version, role, and low 8 bytes of
+  /// [sessionUuid] (see [docs/protocol.md] § "Bluetooth LE advertising").
+  /// Other phones running the discovery service pick this up and surface
+  /// the host as a tunable frequency.
+  ///
+  /// [displayName] is included in the advertisement (LE device-name field)
+  /// so the discovery row can render the host's name without an extra
+  /// GATT round-trip. [sessionUuid] is the canonical full UUID minted by
+  /// the host on session start; the advertiser truncates it to the low
+  /// 8 bytes per the wire spec.
+  ///
+  /// Returns true if advertising started successfully, false otherwise.
+  /// The native implementation lands in issue #41; until then this is a
+  /// no-op stub on the platform side.
+  Future<bool> startAdvertising({
+    required String sessionUuid,
+    required String displayName,
+  }) async {
+    try {
+      final result = await _methodChannel.invokeMethod('startAdvertising', {
+        'sessionUuid': sessionUuid,
+        'displayName': displayName,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('Error starting advertising: $e');
+      return false;
+    }
+  }
+
+  /// Stop LE advertising. Counterpart to [startAdvertising]; safe to call
+  /// when advertising isn't running (the native side resolves it as a
+  /// no-op rather than throwing).
+  Future<bool> stopAdvertising() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopAdvertising');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping advertising: $e');
+      return false;
+    }
+  }
+
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
