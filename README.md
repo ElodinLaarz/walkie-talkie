@@ -44,18 +44,29 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       room-level state (roster, mute, talking, media) and emits
       protocol-shaped messages.
 3.  **Bridge Layer (MethodChannels & EventChannels):**
-    * Communication pipe between Dart and Kotlin.
-    * Flutter sends commands: `startScan()`, `connectToHost(...)`,
-      `startVoice()`, `setMuted(bool)`.
-    * Native sends events: `onPeerDiscovered`, `onJoinAccepted`,
-      `talkingPeers`.
+    * Communication pipe between Dart and Kotlin
+      ([MainActivity.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt)).
+    * Today: `scanDevices` / `connectDevice` / `disconnectDevice` methods
+      and `deviceDiscovered` events drive the headset-routing manager.
+      [audio_service.dart](lib/services/audio_service.dart) is the Dart
+      side of that surface.
+    * Phase 2 (planned, see roadmap): the BLE control-plane bridge —
+      Frequency-shaped methods like `startAdvertising`, `connectToHost`,
+      and `setMuted`, plus events like `onPeerDiscovered` and
+      `onJoinAccepted`. Tracked under
+      [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
 4.  **Service Layer (Android Native — Kotlin):**
     * **Foreground Service**
       ([WalkieTalkieService.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/WalkieTalkieService.kt))
       keeps the mic + radio alive when the screen is off.
-    * **BLE Connection Manager** — LE advertise (host), scan (guest), GATT
-      server / client, L2CAP CoC server / client.
-    * **Audio Engine** — mic capture (Oboe), Opus encode/decode, mix-minus.
+    * **BT headset routing** today
+      ([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
+      — pairs the user's headset and routes phone audio to it.
+    * **BLE Connection Manager** (Phase 2) — LE advertise (host), scan
+      (guest), GATT server / client, L2CAP CoC server / client. Not yet
+      implemented; tracked in the Phase 2 issues below.
+    * **Audio Engine** (Phase 3) — mic capture (Oboe), Opus encode/decode,
+      mix-minus. Not yet implemented.
 5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
 
 -----
@@ -182,20 +193,28 @@ graph TD
 
 ### Android Native (Kotlin / C++)
 
-1.  **AndroidX Bluetooth APIs** — `BluetoothLeAdvertiser`, `BluetoothLeScanner`,
-    `BluetoothGattServer` / `BluetoothGatt`, and `BluetoothSocket` opened in
-    L2CAP CoC mode (`createInsecureL2capChannel` /
-    `listenUsingInsecureL2capChannel`, **API 29+ / Android 10+**).
-    The voice plane is L2CAP CoC + Opus, **not** LE Audio CIS / BIS — see the
-    transport note above.
-2.  **`libopus`** (C / NDK) — voice codec, narrowband / wideband, 20-ms
-    frames at 24 kbps. Per-peer encode on guests, decode + re-encode on the
-    host's mix-minus.
-3.  **`Oboe`** (C++) — low-latency mic capture and playback. Java-side
-    `AudioRecord` / `AudioTrack` introduce too much latency for a
-    walkie-talkie feel.
-4.  **`kotlinx.serialization`** — JSON for the GATT control plane (preferred
-    over Gson for compile-time safety on a Kotlin-first codebase).
+The libraries / APIs below are the planned native surface for Phases 2-3
+(see roadmap). Today's native code under `android/app/src/main/kotlin/`
+is the headset-routing manager
+([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
+plus the foreground service shell — none of the BLE control / L2CAP / Opus
+pieces are wired up yet.
+
+1.  **AndroidX Bluetooth APIs** *(Phase 2)* — `BluetoothLeAdvertiser`,
+    `BluetoothLeScanner`, `BluetoothGattServer` / `BluetoothGatt`, and
+    `BluetoothSocket` opened in L2CAP CoC mode
+    (`createInsecureL2capChannel` / `listenUsingInsecureL2capChannel`,
+    **API 29+ / Android 10+**). The voice plane is L2CAP CoC + Opus,
+    **not** LE Audio CIS / BIS — see the transport note above.
+2.  **`libopus`** (C / NDK) *(Phase 3)* — voice codec, narrowband /
+    wideband, 20-ms frames at 24 kbps. Per-peer encode on guests, decode +
+    re-encode on the host's mix-minus.
+3.  **`Oboe`** (C++) *(Phase 3)* — low-latency mic capture and playback.
+    Java-side `AudioRecord` / `AudioTrack` introduce too much latency for
+    a walkie-talkie feel.
+4.  **`kotlinx.serialization`** *(Phase 2)* — JSON for the GATT control
+    plane (preferred over Gson for compile-time safety on a Kotlin-first
+    codebase).
 
 -----
 
