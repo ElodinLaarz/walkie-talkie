@@ -26,15 +26,8 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         
         // Initialize audio routing manager
-        audioRoutingManager = AudioRoutingManager(this).apply {
-            startAutoDetect { outputType ->
-                // Notify Flutter when audio output changes
-                sendEventToFlutter(mapOf(
-                    "type" to "audioOutputChanged",
-                    "output" to outputType
-                ))
-            }
-        }
+        // Auto-detect will be started when voice capture begins (startVoice)
+        audioRoutingManager = AudioRoutingManager(this)
 
         // Initialize Bluetooth manager
         bluetoothManager = BluetoothLeAudioManager(this).apply {
@@ -138,12 +131,21 @@ class MainActivity : FlutterActivity() {
                 }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
-                    // Placeholder - will be implemented when native voice pipeline is ready
+                    // Start auto-detect for Bluetooth headset routing while voice is active
+                    audioRoutingManager?.startAutoDetect { outputType ->
+                        sendEventToFlutter(mapOf(
+                            "type" to "audioOutputChanged",
+                            "output" to outputType
+                        ))
+                    }
+                    // Placeholder - native voice pipeline will be implemented later
                     result.success(true)
                 }
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
-                    // Placeholder - will be implemented when native voice pipeline is ready
+                    // Stop auto-detect when voice stops
+                    audioRoutingManager?.stopAutoDetect()
+                    // Placeholder - native voice pipeline will be implemented later
                     result.success(true)
                 }
                 "setMuted" -> {

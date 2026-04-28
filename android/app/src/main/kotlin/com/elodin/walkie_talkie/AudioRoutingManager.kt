@@ -22,6 +22,8 @@ class AudioRoutingManager(private val ctx: Context) {
     private var deviceCallback: AudioDeviceCallback? = null
     private var onChangeListener: ((String) -> Unit)? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var savedMode: Int? = null
+    private var savedDevice: AudioDeviceInfo? = null
 
     /**
      * Set the audio output routing.
@@ -30,6 +32,12 @@ class AudioRoutingManager(private val ctx: Context) {
      */
     fun setOutput(output: String): Boolean {
         try {
+            // Save original state on first call so we can restore it later
+            if (savedMode == null) {
+                savedMode = audioManager.mode
+                savedDevice = audioManager.communicationDevice
+            }
+
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
             when (output) {
@@ -142,8 +150,10 @@ class AudioRoutingManager(private val ctx: Context) {
 
                 if (btDevice != null) {
                     Log.i(TAG, "Bluetooth device disconnected: ${btDevice.productName}")
-                    // Notify UI to decide fallback (default to speaker)
-                    onChange("speaker")
+                    // Route to speaker as fallback, then notify UI
+                    if (setOutput("speaker")) {
+                        onChange("speaker")
+                    }
                 }
             }
         }
@@ -186,9 +196,21 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Clean up resources.
+     * Clean up resources and restore previous audio mode/device.
      */
     fun cleanup() {
         stopAutoDetect()
+
+        // Restore original audio mode and device if we changed them
+        savedMode?.let { mode ->
+            audioManager.mode = mode
+            Log.i(TAG, "Restored audio mode to $mode")
+        }
+        savedDevice?.let { device ->
+            audioManager.setCommunicationDevice(device)
+            Log.i(TAG, "Restored communication device")
+        }
+        savedMode = null
+        savedDevice = null
     }
 }

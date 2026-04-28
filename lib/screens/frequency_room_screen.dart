@@ -148,22 +148,28 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
     _audio = widget.audioService ?? AudioService();
-    // Spin up the capture engine, then push the initial mute state. The
-    // sequence matters: pushing `setMuted` before `startVoice` finishes
-    // would race the encoder init on slower devices and the first toggle
-    // would silently no-op.
+    // Spin up the capture engine, then push the initial mute state and audio
+    // routing. The sequence matters: pushing `setMuted`/`setAudioOutput` before
+    // `startVoice` finishes would race the engine init on slower devices.
     //
     // The `mounted` check guards against the user leaving the room before
-    // startVoice resolves — without it, the trailing setMuted would land
-    // after dispose has fired stopVoice and tell a torn-down engine to
-    // mute itself.
-    final initialMuted = _meEffectivelyMuted;
-    unawaited(_audio.startVoice().then((_) {
-      if (!mounted) return;
-      _audio.setMuted(initialMuted);
-      // Set initial audio output routing
-      _audio.setAudioOutput(_output.name);
-    }));
+    // startVoice resolves — without it, the trailing calls would land after
+    // dispose has fired stopVoice and tell a torn-down engine to change state.
+    unawaited(() async {
+      final started = await _audio.startVoice();
+      if (!mounted || !started) return;
+
+      // Re-read mute state after await in case user toggled during startup
+      final currentMuted = _meEffectivelyMuted;
+      await _audio.setMuted(currentMuted);
+
+      // Set initial audio output routing. If it fails (e.g., no Bluetooth
+      // device when _output is bluetooth), keep the UI selection but log it.
+      final routed = await _audio.setAudioOutput(_output.name);
+      if (!routed) {
+        debugPrint('Failed to route to ${_output.name}, device may be unavailable');
+      }
+    }());
 
     // Listen for audio device changes from the native layer (e.g., AirPods
     // connecting/disconnecting). The native AudioRoutingManager auto-routes
