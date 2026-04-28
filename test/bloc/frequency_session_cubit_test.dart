@@ -998,6 +998,80 @@ void main() {
       await cubit.close();
     });
 
+    test(
+      'applyJoinAccepted mid-reconnect does not trigger spurious leaveRoom',
+      () async {
+        // Scenario: reconnect attempt is running; the native BLE stack
+        // re-establishes the link and the host sends JoinAccepted before
+        // attempt() returns. That causes attempt() to return false (cancel
+        // propagates). The cubit must NOT treat this as a failure.
+        final blocker = Completer<bool>();
+        blockFirst = blocker;
+
+        final cubit = _makeCubit(
+          audio: audio,
+          reconnectDelays: _testReconnectDelays,
+        );
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+        ));
+
+        final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+        await Future<void>.delayed(Duration.zero); // enter reconnecting
+
+        // Host JoinAccepted arrives — cancels the controller and sets online.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+        ));
+
+        // Let the blocked connectDevice resolve with false (the cancel signal
+        // will override it anyway, but the mock needs to settle).
+        blocker.complete(false);
+        await dropFuture;
+
+        // State must remain SessionRoom(online), not Discovery.
+        expect(cubit.state, isA<SessionRoom>());
+        expect(
+          (cubit.state as SessionRoom).connectionPhase,
+          ConnectionPhase.online,
+        );
+        await cubit.close();
+      },
+    );
+
+    test('leaveRoom() during reconnect cancels the controller', () async {
+      final blocker = Completer<bool>();
+      blockFirst = blocker;
+
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+      await Future<void>.delayed(Duration.zero); // enter reconnecting
+
+      // User manually leaves — must cancel the reconnect controller.
+      final leaveFuture = cubit.leaveRoom();
+      blocker.complete(false); // unblock so futures settle
+      await Future.wait([dropFuture, leaveFuture]);
+
+      // Should be in Discovery, not stuck in reconnecting.
+      expect(cubit.state, isA<SessionDiscovery>());
+      await cubit.close();
+    });
+
     test('notifyDrop drops to Discovery when all retries fail', () async {
       // connectQueue empty → mock always returns false.
       final cubit = _makeCubit(

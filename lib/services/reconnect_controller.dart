@@ -39,7 +39,9 @@ class ReconnectController {
       await Future.delayed(delay);
       if (_cancelled) return false;
       try {
-        if (await _audio.connectDevice(macAddress)) return true;
+        final connected = await _audio.connectDevice(macAddress);
+        if (_cancelled) return false;
+        if (connected) return true;
       } catch (_) {
         // Native errors are already logged inside AudioService; treat as a
         // failed attempt and continue to the next retry.

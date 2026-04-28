@@ -274,6 +274,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
+    // Stop any in-progress reconnect so BLE retries halt promptly when
+    // the user manually leaves rather than waiting for the next delay tick.
+    _reconnectController?.cancel();
+    _reconnectController = null;
     _seq = 0;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
@@ -357,13 +361,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final reconnected = await controller.attempt(macAddress: macAddress);
 
     if (isClosed) return;
+    // Guard: if the room state has already moved on (applyJoinAccepted fired
+    // and set connectionPhase back to online, or the user manually left), do
+    // not overwrite that state with a failure-path transition.
+    final postAttempt = state;
+    if (postAttempt is! SessionRoom ||
+        postAttempt.connectionPhase != ConnectionPhase.reconnecting) {
+      return;
+    }
     if (!reconnected) {
       // All retries exhausted — surface the lost phase briefly so the UI
       // can show a "Lost connection" indicator, then drop to Discovery.
-      final postAttempt = state;
-      if (postAttempt is SessionRoom) {
-        emit(postAttempt.copyWith(connectionPhase: ConnectionPhase.lost));
-      }
+      emit(postAttempt.copyWith(connectionPhase: ConnectionPhase.lost));
       await leaveRoom();
     }
     // On success: wait for the transport's JoinAccepted to call
