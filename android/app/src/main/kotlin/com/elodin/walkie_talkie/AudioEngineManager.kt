@@ -1,4 +1,4 @@
-﻿package com.elodin.walkie_talkie
+package com.elodin.walkie_talkie
 
 import android.util.Log
 
@@ -10,10 +10,16 @@ class AudioEngineManager {
 
     private var talkingCallback: ((Boolean) -> Unit)? = null
 
+    /**
+     * Start the audio engine.
+     * [onTalkingChanged] is registered as the VAD callback only on success —
+     * a failed start clears any previous callback so stale lambdas are not held.
+     */
     fun start(onTalkingChanged: ((Boolean) -> Unit)? = null): Boolean {
         Log.i(TAG, "Starting audio engine")
-        talkingCallback = onTalkingChanged
-        return nativeStart()
+        val started = nativeStart()
+        talkingCallback = if (started) onTalkingChanged else null
+        return started
     }
 
     fun stop() {

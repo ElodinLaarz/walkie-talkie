@@ -235,8 +235,8 @@ class AudioService {
   /// remote peers can update their talking ring indicator.
   Stream<bool> get localTalking {
     return audioEvents
-        .where((e) => e['type'] == 'localTalking')
-        .map((e) => e['talking'] == true);
+        .where((e) => e['type'] == 'localTalking' && e['talking'] is bool)
+        .map((e) => e['talking'] as bool);
   }
 
   /// Start the GATT server for the host.

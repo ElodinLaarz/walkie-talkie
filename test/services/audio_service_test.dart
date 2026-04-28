@@ -193,6 +193,25 @@ void main() {
   });
 
     group('localTalking', () {
+      late AudioService audioService;
+
+      setUp(() {
+        audioService = AudioService();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (MethodCall call) async => null,
+        );
+      });
+
+      tearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
+      });
+
       const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
 
       test('emits true when native fires localTalking=true', () async {

@@ -1,4 +1,4 @@
-﻿package com.elodin.walkie_talkie
+package com.elodin.walkie_talkie
 
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
@@ -90,13 +90,16 @@ class MainActivity : FlutterActivity() {
                 }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
-                    audioRoutingManager?.startAutoDetect { outputType ->
-                        sendEventToFlutter(mapOf("type" to "audioOutputChanged", "output" to outputType))
-                    }
                     val success = audioEngineManager?.start { talking ->
                         Log.d(TAG, "Local talking state: $talking")
                         sendEventToFlutter(mapOf("type" to "localTalking", "talking" to talking))
                     } ?: false
+                    // Only start audio routing auto-detect when the engine actually started.
+                    if (success) {
+                        audioRoutingManager?.startAutoDetect { outputType ->
+                            sendEventToFlutter(mapOf("type" to "audioOutputChanged", "output" to outputType))
+                        }
+                    }
                     result.success(success)
                 }
                 "stopVoice" -> {
@@ -107,7 +110,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "setMuted" -> {
                     val muted = call.argument<Boolean>("muted")
-                    if (muted != null) result.success(audioEngineManager?.setMuted(muted) ?: true)
+                    if (muted != null) result.success(audioEngineManager?.setMuted(muted) ?: false)
                     else result.error("INVALID_ARGUMENT", "muted is required", null)
                 }
                 "startGattServer" -> {

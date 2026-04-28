@@ -1,4 +1,4 @@
-﻿#include <jni.h>
+#include <jni.h>
 #include <android/log.h>
 #include <oboe/Oboe.h>
 #include <memory>
@@ -17,7 +17,7 @@ static std::atomic<bool> g_muted{false};
 
 // Voice-activity detection (VAD) globals.
 // g_jvm + g_callbackObj let the real-time audio thread call back into Kotlin
-// (via AttachCurrentThread) without going through a MethodChannel.
+// via AttachCurrentThread without going through a MethodChannel.
 static JavaVM* g_jvm = nullptr;
 static jobject g_callbackObj = nullptr;
 static jmethodID g_onTalkingChangedMethod = nullptr;
@@ -93,13 +93,20 @@ public:
 
     oboe::DataCallbackResult onAudioReady(
             oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override {
+        if (numFrames <= 0) return oboe::DataCallbackResult::Continue;
+
         if (audioStream->getDirection() == oboe::Direction::Input) {
             auto *inputData = static_cast<int16_t *>(audioData);
             if (g_muted.load(std::memory_order_relaxed)) {
                 std::memset(inputData, 0, numFrames * sizeof(int16_t));
             }
-            // VAD: RMS computation with hysteresis. Only when not muted.
-            if (!g_muted.load(std::memory_order_relaxed)) {
+
+            // VAD: RMS computation with hysteresis.
+            // Note: we intentionally run VAD on the (potentially zeroed) buffer even
+            // when muted. When muted, RMS == 0 < threshold, so g_belowFrames accumulates
+            // and the talking state clears after ~300 ms. Without this, muting while
+            // speaking would leave g_lastTalking stuck at true indefinitely.
+            {
                 int64_t sumSq = 0;
                 for (int32_t i = 0; i < numFrames; ++i) {
                     int64_t s = inputData[i];
@@ -107,8 +114,14 @@ public:
                 }
                 double rms = std::sqrt(static_cast<double>(sumSq) / static_cast<double>(numFrames));
                 bool above = (rms > kTalkingThreshold);
-                if (above) { g_aboveFrames += numFrames; g_belowFrames = 0; }
-                else        { g_belowFrames += numFrames; g_aboveFrames = 0; }
+                // Cap counters to prevent int32 overflow on very long sessions.
+                if (above) {
+                    g_aboveFrames = std::min(g_aboveFrames + numFrames, 2 * kOnHoldFrames);
+                    g_belowFrames = 0;
+                } else {
+                    g_belowFrames = std::min(g_belowFrames + numFrames, 2 * kOffHoldFrames);
+                    g_aboveFrames = 0;
+                }
                 bool nowTalking = g_lastTalking.load(std::memory_order_relaxed);
                 if (!nowTalking && g_aboveFrames >= kOnHoldFrames) {
                     g_aboveFrames = 0;
@@ -120,6 +133,7 @@ public:
                     emitLocalTalkingEvent(false);
                 }
             }
+
             if (g_audioMixer != nullptr) {
                 g_audioMixer->updateDeviceAudio(0, inputData, numFrames);
                 std::vector<int16_t> mixedOutput(numFrames);
@@ -136,8 +150,6 @@ static AudioEngine* g_audioEngine = nullptr;
 
 extern "C" {
 
-// nativeStart also registers this AudioEngineManager instance as the VAD callback
-// recipient so talking-state transitions reach Flutter via EventChannel.
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv *env, jobject thiz) {
     env->GetJavaVM(&g_jvm);
