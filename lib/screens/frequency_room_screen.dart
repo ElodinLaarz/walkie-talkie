@@ -159,7 +159,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // startVoice resolves — without it, the trailing calls would land after
     // dispose has fired stopVoice and tell a torn-down engine to change state.
     unawaited(() async {
-      await _audio.startService(freq: widget.freq);
+      final serviceStarted = await _audio.startService(freq: widget.freq);
+      if (!mounted || !serviceStarted) return;
       final started = await _audio.startVoice();
       if (!mounted || !started) return;
 
@@ -329,8 +330,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
-    unawaited(_audio.stopVoice());
-    unawaited(_audio.stopService());
+    unawaited(_audio.stopVoice().then((_) => _audio.stopService()));
     super.dispose();
   }
 
