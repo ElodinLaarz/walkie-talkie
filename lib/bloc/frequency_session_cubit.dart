@@ -294,6 +294,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // the host's problem to handle and broadcast — we'd just hear
       // about it via a `RosterUpdate`.
       if (peerId != current.hostPeerId) return;
+      // Drop the transport's idempotency state for the host before the
+      // reconnect attempt: the fresh `JoinAccepted` after reconnect
+      // restarts seq at 1 per protocol, and a stale watermark of, say, 7
+      // from this session would otherwise swallow the new session's seqs
+      // 1–7.
+      _transport?.forgetPeer(peerId);
+      _heartbeats.forgetPeer(peerId);
       final mac = current.macAddress;
       if (mac != null) {
         unawaited(notifyDrop(macAddress: mac));
@@ -485,6 +492,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // empty roster (and incidentally trigger a phantom RosterUpdate if
     // a stale watermark expires post-leave).
     _heartbeats.stop();
+    // Wipe transport-side idempotency state for *every* peer of the
+    // departing room. A re-join (same room or different) restarts the
+    // protocol's seq counters at 1; held-over watermarks from this room
+    // would otherwise swallow the next session's first messages.
+    _transport?.forgetAllPeers();
     _seq = 0;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;

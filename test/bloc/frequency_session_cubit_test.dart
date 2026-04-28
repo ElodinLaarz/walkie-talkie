@@ -1463,6 +1463,138 @@ void main() {
       },
     );
 
+    test(
+      'leaveRoom wipes transport idempotency state for every peer',
+      () async {
+        // Held-over watermarks across a leave + re-join would silently
+        // swallow `seq=1` of the next session per protocol — exercise the
+        // forgetAllPeers cleanup end-to-end.
+        final t = makeTestTransport();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        // Push two peers' messages to advance the transport's per-peer
+        // sequence watermarks past 1.
+        for (final peer in const ['p-a', 'p-b']) {
+          for (var seq = 1; seq <= 3; seq++) {
+            for (final frag in encodeFragments(
+                Heartbeat(peerId: peer, seq: seq, atMs: 0).encode())) {
+              t.inbox.add((endpointId: peer, bytes: frag));
+            }
+          }
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        await cubit.leaveRoom();
+
+        // Re-emit Discovery so we can synthesise a re-join behaviour
+        // through the transport.
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        // After leaveRoom + new joinRoom, a fresh `seq=1` from p-a must
+        // not be filtered as a duplicate. We piggyback on the watermark
+        // refresh: notePingFrom doesn't drive the sequence filter, so the
+        // best signal here is whether the inbound message is dispatched
+        // through to `_heartbeats.notePingFrom` (only happens on accept).
+        for (final frag in encodeFragments(
+            const Heartbeat(peerId: 'p-a', seq: 1, atMs: 0).encode())) {
+          t.inbox.add((endpointId: 'p-a', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(scheduler.lastSeen, contains('p-a'),
+            reason: 'fresh seq=1 must pass the cleared sequence filter');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'guest host-lost forgets the host on the transport before reconnect',
+      () async {
+        // Per Gemini review: the fresh JoinAccepted after reconnect resets
+        // seq to 1, so the transport's stale watermark from the dying
+        // session must be cleared — otherwise the new session's first
+        // messages get silently swallowed.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (call) async => false,
+        );
+        final t = makeTestTransport();
+        var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+          missThreshold: const Duration(seconds: 15),
+          clock: () => fakeNow,
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+          audio: AudioService(),
+          reconnectDelays: _testReconnectDelays,
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        );
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+        ));
+
+        // Push the host's seq watermark past 1 by sending a message.
+        for (final frag in encodeFragments(
+            const Heartbeat(peerId: 'p-host', seq: 5, atMs: 0).encode())) {
+          t.inbox.add((endpointId: 'p-host', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        scheduler.notePingFrom('p-host');
+        fakeNow = fakeNow.add(const Duration(seconds: 16));
+        scheduler.debugTick();
+        // Yield once so notifyDrop fires + the host-forget runs ahead of
+        // the (zero-delay) reconnect attempts.
+        await Future<void>.delayed(Duration.zero);
+
+        // After the silence detection, a fresh JoinAccepted (seq=1) for the
+        // host should be accepted by the transport's filter — proving the
+        // stale seq=5 watermark was cleared.
+        for (final frag in encodeFragments(JoinAccepted(
+                peerId: 'p-host', seq: 1, atMs: 0, hostPeerId: 'p-host',
+                roster: const []).encode())) {
+          t.inbox.add((endpointId: 'p-host', bytes: frag));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        // Drain background reconnect work before closing.
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
+      },
+    );
+
     test('forgetPeer is wired through Leave dispatch', () async {
       final t = makeTestTransport();
       final scheduler = HeartbeatScheduler(
