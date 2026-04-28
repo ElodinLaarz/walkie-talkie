@@ -17,6 +17,17 @@
 // in the class body) can reference it without a forward declaration.
 static std::atomic<bool> g_muted{false};
 
+// Audio-focus pause flag. When true, mic frames are zeroed before reaching
+// the mixer / transport, mirroring the mute path. Streams themselves are
+// also requestPause()'d (see pauseStreams()) — the flag is a belt-and-braces
+// guard for the brief window where a callback is already in flight when
+// pause is issued.
+static std::atomic<bool> g_focusPaused{false};
+
+// Output volume multiplier driven by AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK.
+// 1.0 = full volume; 0.3 ≈ -10 dB which is what most media apps duck to.
+static std::atomic<float> g_duckingVolume{1.0f};
+
 // Global JNI references for voice activity callbacks
 static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
@@ -157,6 +168,50 @@ public:
         LOGI("Audio engine stopped");
     }
 
+    // Pause both streams without tearing them down. Used for transient
+    // audio focus losses (incoming calls) so a phone call doesn't fight
+    // the Oboe streams for the audio path. Counterpart to resumeStreams().
+    bool pauseStreams() {
+        bool ok = true;
+        if (recordingStream) {
+            oboe::Result r = recordingStream->requestPause();
+            if (r != oboe::Result::OK) {
+                LOGE("Failed to pause recording stream: %s", oboe::convertToText(r));
+                ok = false;
+            }
+        }
+        if (playbackStream) {
+            oboe::Result r = playbackStream->requestPause();
+            if (r != oboe::Result::OK) {
+                LOGE("Failed to pause playback stream: %s", oboe::convertToText(r));
+                ok = false;
+            }
+        }
+        LOGI("Audio streams paused (ok=%d)", ok ? 1 : 0);
+        return ok;
+    }
+
+    // Resume both streams after a transient pause.
+    bool resumeStreams() {
+        bool ok = true;
+        if (recordingStream) {
+            oboe::Result r = recordingStream->requestStart();
+            if (r != oboe::Result::OK) {
+                LOGE("Failed to resume recording stream: %s", oboe::convertToText(r));
+                ok = false;
+            }
+        }
+        if (playbackStream) {
+            oboe::Result r = playbackStream->requestStart();
+            if (r != oboe::Result::OK) {
+                LOGE("Failed to resume playback stream: %s", oboe::convertToText(r));
+                ok = false;
+            }
+        }
+        LOGI("Audio streams resumed (ok=%d)", ok ? 1 : 0);
+        return ok;
+    }
+
     // Oboe callback for audio data
     oboe::DataCallbackResult onAudioReady(
             oboe::AudioStream *audioStream,
@@ -168,6 +223,7 @@ public:
             auto *inputData = static_cast<int16_t *>(audioData);
 
             bool isMuted = g_muted.load(std::memory_order_relaxed);
+            bool isFocusPaused = g_focusPaused.load(std::memory_order_relaxed);
 
             // Voice activity detection (compute RMS before mute gate, so we
             // detect talking state even when muted for UI feedback)
@@ -193,10 +249,14 @@ public:
                 }
             }
 
-            // When muted, zero the mic frames so they don't reach the mixer
-            // or any future BLE transport. The streams stay warm so unmuting
-            // is instant — no codec reinit round-trip.
-            if (isMuted) {
+            // When muted or focus-paused, zero the mic frames so they don't
+            // reach the mixer or any future BLE transport. The streams stay
+            // warm so unmuting / focus-gain is instant — no codec reinit
+            // round-trip. Focus-pause should normally also halt the callback
+            // via requestPause(), but a callback already in flight at the
+            // moment pause is issued can still run once; this gate keeps a
+            // mid-call audio chunk from leaking out.
+            if (isMuted || isFocusPaused) {
                 std::memset(inputData, 0, numFrames * sizeof(int16_t));
             }
 
@@ -208,6 +268,16 @@ public:
                 // For demonstration: mix for device 0 (hearing others) and play it back
                 std::vector<int16_t> mixedOutput(numFrames);
                 g_audioMixer->getMixedAudioForDevice(0, mixedOutput.data(), numFrames);
+
+                // Apply ducking volume for AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK.
+                // Skip the multiply when at full volume to keep the hot path
+                // branch-free for the common case.
+                float duckVol = g_duckingVolume.load(std::memory_order_relaxed);
+                if (duckVol < 1.0f) {
+                    for (int32_t i = 0; i < numFrames; ++i) {
+                        mixedOutput[i] = static_cast<int16_t>(mixedOutput[i] * duckVol);
+                    }
+                }
 
                 if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
                     playbackStream->write(mixedOutput.data(), numFrames, 0);
@@ -276,6 +346,37 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetMuted(
         JNIEnv *env, jobject thiz, jboolean muted) {
     g_muted.store(muted, std::memory_order_relaxed);
     return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePauseStreams(
+        JNIEnv *env, jobject thiz) {
+    g_focusPaused.store(true, std::memory_order_relaxed);
+    if (g_audioEngine != nullptr) {
+        return g_audioEngine->pauseStreams() ? JNI_TRUE : JNI_FALSE;
+    }
+    // No engine running — flag stored, nothing else to pause. Treat as
+    // success so callers that always pause on focus loss don't see a
+    // spurious failure when voice hasn't been started yet.
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeResumeStreams(
+        JNIEnv *env, jobject thiz) {
+    g_focusPaused.store(false, std::memory_order_relaxed);
+    g_duckingVolume.store(1.0f, std::memory_order_relaxed);
+    if (g_audioEngine != nullptr) {
+        return g_audioEngine->resumeStreams() ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetDuckingVolume(
+        JNIEnv *env, jobject thiz, jfloat volume) {
+    float clamped = volume < 0.0f ? 0.0f : (volume > 1.0f ? 1.0f : volume);
+    g_duckingVolume.store(clamped, std::memory_order_relaxed);
 }
 
 // These methods can now be used for manual injection if needed,

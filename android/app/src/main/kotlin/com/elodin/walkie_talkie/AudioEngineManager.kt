@@ -60,10 +60,51 @@ class AudioEngineManager {
         return nativeSetMuted(muted)
     }
 
+    /**
+     * Pause both Oboe streams without tearing them down. Used on
+     * AUDIOFOCUS_LOSS_TRANSIENT (e.g. an incoming call) so the OS can
+     * reclaim the audio path without the engine fighting it. Counterpart
+     * to [resumeStreams]; safe to call when the engine isn't started
+     * (resolves to a no-op flag flip).
+     *
+     * @return true if pause succeeded for all live streams (or no engine
+     *   was running); false if Oboe rejected a requestPause call.
+     */
+    fun pauseStreams(): Boolean {
+        Log.i(TAG, "Pausing audio streams (audio focus loss)")
+        return nativePauseStreams()
+    }
+
+    /**
+     * Resume the streams paused by [pauseStreams] and clear any active
+     * ducking. Called on AUDIOFOCUS_GAIN.
+     *
+     * @return true if resume succeeded for all live streams (or no engine
+     *   was running); false if Oboe rejected a requestStart call.
+     */
+    fun resumeStreams(): Boolean {
+        Log.i(TAG, "Resuming audio streams (audio focus gain)")
+        return nativeResumeStreams()
+    }
+
+    /**
+     * Apply an output volume multiplier in [0.0, 1.0]. Driven by
+     * AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK so a media app's nav prompt
+     * doesn't drown out walkie audio. Values outside the range are
+     * clamped on the native side.
+     */
+    fun setDuckingVolume(volume: Float) {
+        Log.i(TAG, "Setting ducking volume: $volume")
+        nativeSetDuckingVolume(volume)
+    }
+
     // Native methods
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeGetAudioData(numFrames: Int): ShortArray?
     private external fun nativePlayAudioData(audioData: ShortArray)
     private external fun nativeSetMuted(muted: Boolean): Boolean
+    private external fun nativePauseStreams(): Boolean
+    private external fun nativeResumeStreams(): Boolean
+    private external fun nativeSetDuckingVolume(volume: Float)
 }
