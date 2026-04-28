@@ -11,6 +11,8 @@ import '../services/heartbeat_scheduler.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/reconnect_controller.dart';
+import '../services/signal_reporter.dart';
+import '../services/weak_signal_detector.dart';
 import 'frequency_session_state.dart';
 
 /// Owns session-level Frequency state and the side-effects that mutate it:
@@ -76,6 +78,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// guest: notify a host drop via [notifyDrop]).
   final HeartbeatScheduler _heartbeats;
 
+  /// Drives the protocol's `signal_report` plane. Started on room entry
+  /// **on the guest side only** (the host receives reports rather than
+  /// sending them) and stopped on leave / close.
+  final SignalReporter _signalReporter;
+
+  /// Host-side gate: keeps per-neighbor consecutive-weak counters and
+  /// rate-limits toasts for the same neighbor. Lives for the cubit
+  /// lifetime; cleared on `leaveRoom` and on per-peer drop / removal.
+  final WeakSignalDetector _weakSignalDetector;
+
   /// Re-entrancy guard for [_sendHeartbeat]. The scheduler tick is
   /// `unawaited`-launched, so a slow GATT write could otherwise overlap
   /// the next tick and let two `send()` calls interleave on the same
@@ -83,6 +95,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// (and the seq counter stays put — the dropped tick effectively
   /// merges with the in-flight one).
   bool _heartbeatSendInFlight = false;
+
+  /// Re-entrancy guard for [_sendSignalReport]. Same rationale as
+  /// [_heartbeatSendInFlight]: the reporter tick is `unawaited`-launched
+  /// and `getCurrentRssi` plus `transport.send` can stretch across the
+  /// next 10 s tick on a slow link.
+  bool _signalReportSendInFlight = false;
 
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   StreamSubscription<bool>? _localTalkingSubscription;
@@ -97,6 +115,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// idempotent ops a duplicate apply is a no-op.
   Stream<MediaCommand> get mediaCommands => _mediaCommandsController.stream;
 
+  final _weakSignalEventsController =
+      StreamController<({String peerId, String displayName})>.broadcast();
+
+  /// Host-only stream of "neighbor X is weak" events that have already
+  /// passed the consecutive-reports threshold and the per-peer rate-limit.
+  /// The room screen subscribes and renders a toast.
+  ///
+  /// `displayName` is resolved against the current roster; when the
+  /// neighbor isn't in the roster (e.g. a stale report after `RemovePeer`)
+  /// the event is dropped before it reaches the stream rather than
+  /// surfacing a generic-sounding toast.
+  Stream<({String peerId, String displayName})> get weakSignalEvents =>
+      _weakSignalEventsController.stream;
+
   int _seq = 0;
   String? _localPeerId;
 
@@ -107,10 +139,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     AudioService? audio,
     List<Duration>? reconnectDelays,
     HeartbeatScheduler? heartbeats,
+    SignalReporter? signalReporter,
+    WeakSignalDetector? weakSignalDetector,
   })  : _transport = transport,
         _audio = audio,
         _reconnectDelays = reconnectDelays,
         _heartbeats = heartbeats ?? HeartbeatScheduler(),
+        _signalReporter = signalReporter ?? SignalReporter(),
+        _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -181,6 +217,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           emit(current.copyWith(roster: updated));
           _transport?.forgetPeer(m.peerId);
           _heartbeats.forgetPeer(m.peerId);
+          _weakSignalDetector.forgetPeer(m.peerId);
         }
       case RemovePeer m:
         // Host-broadcasted peer removal. Drop the named peer from the roster
@@ -192,18 +229,123 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         emit(current.copyWith(roster: updated));
         _transport?.forgetPeer(m.target);
         _heartbeats.forgetPeer(m.target);
+        _weakSignalDetector.forgetPeer(m.target);
       case Heartbeat():
         // Already noted above; no further dispatch — the heartbeat plane
         // is purely a liveness signal, not a state-changing event.
         break;
-      // These message types are handled by future issues (signal reports,
-      // voice-activity detection). Silently drop for now.
+      case SignalReport m:
+        _onSignalReport(m);
+      // These message types are handled by future issues
+      // (voice-activity detection, join request flow). Silently drop.
       case TalkingState():
       case MuteState():
       case JoinRequest():
       case JoinDenied():
-      case SignalReport():
         break;
+    }
+  }
+
+  /// Host-only ingress for `SignalReport`. Guests currently send
+  /// reports but never consume them — only the host owns the toast
+  /// surface for "X's signal is weak."
+  ///
+  /// Reports are passed to [_weakSignalDetector] which keeps the
+  /// per-neighbor consecutive-weak counter and the per-neighbor toast
+  /// rate-limit. Each tripped neighbor is resolved against the current
+  /// roster for a display name; if the neighbor isn't in the roster
+  /// (e.g. a stale report after a `RemovePeer`) the event is dropped
+  /// before it reaches [weakSignalEvents]. This keeps the room screen
+  /// from rendering toasts for ghosts.
+  void _onSignalReport(SignalReport report) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom || !current.roomIsHost) return;
+    if (_weakSignalEventsController.isClosed) return;
+    final fired = _weakSignalDetector.onReport(report);
+    if (fired.isEmpty) return;
+    for (final neighborId in fired) {
+      // Don't surface a toast for our own peerId — a guest's report
+      // includes its observation of every neighbor it can sample, which
+      // can include the host. The host toasting itself is noise.
+      if (neighborId == current.hostPeerId) continue;
+      String? displayName;
+      for (final p in current.roster) {
+        if (p.peerId == neighborId) {
+          displayName = p.displayName;
+          break;
+        }
+      }
+      if (displayName == null) continue;
+      _weakSignalEventsController.add(
+        (peerId: neighborId, displayName: displayName),
+      );
+    }
+  }
+
+  /// Tick callback wired into [SignalReporter.start] on the guest side.
+  /// Samples local RSSI via the audio service, builds a [SignalReport],
+  /// and writes it to the transport. No-op when no neighbors have an
+  /// RSSI to report (e.g. before the GATT client has a connection),
+  /// which keeps the wire quiet during link bring-up.
+  ///
+  /// The seq counter advances even when the report is suppressed (no
+  /// neighbors / no transport / send failure) so it stays monotonic
+  /// once the next valid report goes out — same defensive pattern as
+  /// [_sendHeartbeat].
+  Future<void> _sendSignalReport() async {
+    final t = _transport;
+    final audio = _audio;
+    if (t == null || audio == null) {
+      _seq++;
+      return;
+    }
+    if (_signalReportSendInFlight) return;
+    _signalReportSendInFlight = true;
+    try {
+      final List<({String peerId, int rssi})> samples;
+      try {
+        samples = await audio.getCurrentRssi();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to sample RSSI: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      // Empty sample list — nothing to report. Do *not* advance the seq
+      // counter: an empty report is a non-event, and a future report
+      // with samples should pick up where we left off rather than
+      // skipping numbers (which the host's SequenceFilter tolerates but
+      // is wasteful on the wire).
+      if (samples.isEmpty) return;
+      final String peerId;
+      try {
+        peerId = await identityStore.getPeerId();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to resolve peer id for signal report: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      final msg = SignalReport(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+        neighbors: [
+          for (final s in samples)
+            NeighborSignal(peerId: s.peerId, rssi: s.rssi),
+        ],
+      );
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        debugPrint('SignalReport send failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      _signalReportSendInFlight = false;
     }
   }
 
@@ -289,6 +431,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       if (updated.length == current.roster.length) return;
       emit(current.copyWith(roster: updated));
       _transport?.forgetPeer(peerId);
+      _weakSignalDetector.forgetPeer(peerId);
       final t = _transport;
       if (t == null) return;
       // Best-effort RosterUpdate to remaining guests. We need a peerId
@@ -477,6 +620,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         onPeerLost: _onHeartbeatPeerLost,
       );
     }
+    // Begin the signal-report plane on the guest side. The host receives
+    // reports from guests and turns them into weak-signal toasts; it
+    // doesn't send reports to itself. Audio is required to sample RSSI;
+    // skipped when audio or transport is absent, same rationale as the
+    // heartbeat skip above.
+    if (!isHost && _transport != null && _audio != null) {
+      _signalReporter.start(
+        onTick: () => unawaited(_sendSignalReport()),
+      );
+    }
   }
 
   /// Drops back to Discovery and forgets the room. No-op if not in a
@@ -497,6 +650,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // empty roster (and incidentally trigger a phantom RosterUpdate if
     // a stale watermark expires post-leave).
     _heartbeats.stop();
+    // Cancel the signal reporter so a guest leaving doesn't keep pinging
+    // RSSI samples at the (now disconnected) GATT link.
+    _signalReporter.stop();
+    // Wipe per-neighbor weak-signal state so a fresh room starts with a
+    // clean detector — no stale rate-limit cooldowns, no inherited
+    // consecutive-weak counters from the previous session.
+    _weakSignalDetector.clear();
     // Wipe transport-side idempotency state for *every* peer of the
     // departing room. A re-join (same room or different) restarts the
     // protocol's seq counters at 1; held-over watermarks from this room
@@ -724,6 +884,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Stop the heartbeat timer before super.close() so a tick suspended
     // mid-microtask can't try to emit() against a closing cubit.
     _heartbeats.stop();
+    // Same rationale: stop the signal reporter before super.close() so a
+    // tick mid-await can't reach _onSignalReport or transport.send on a
+    // disposed cubit.
+    _signalReporter.stop();
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
     // suspended `await` in `sendMediaCommand` resumes after it sees
     // `isClosed == true` and bails before touching the controller. If
@@ -735,5 +899,6 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     await _transportSubscription?.cancel();
     await _localTalkingSubscription?.cancel();
     await _mediaCommandsController.close();
+    await _weakSignalEventsController.close();
   }
 }

@@ -48,6 +48,11 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
     
     final controller = StreamController<MediaCommand>.broadcast();
     when(() => mockCubit.mediaCommands).thenAnswer((_) => controller.stream);
+
+    final weakSignalController =
+        StreamController<({String peerId, String displayName})>.broadcast();
+    when(() => mockCubit.weakSignalEvents)
+        .thenAnswer((_) => weakSignalController.stream);
     
     when(() => mockCubit.sendMediaCommand(
           op: any(named: 'op'),

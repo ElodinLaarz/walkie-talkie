@@ -92,6 +92,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
   StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
+  StreamSubscription<({String peerId, String displayName})>?
+      _weakSignalSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -218,6 +220,16 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
     _resolveMyPeerId();
     _startProgressTick();
+
+    // Subscribe to host-side weak-signal events from the cubit. Only the
+    // host emits; on guests the stream is silent so the subscription is
+    // a no-op. The cubit owns the threshold + rate-limit; the screen
+    // just renders. Subscribing here (not in didChangeDependencies)
+    // keeps the lifecycle symmetric with the other initState wiring.
+    _weakSignalSub = context
+        .read<FrequencySessionCubit>()
+        .weakSignalEvents
+        .listen(_onWeakSignal);
 
     if (widget.debugDemoTimers) {
       _startTalkSimulation();
@@ -352,8 +364,23 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
+    _weakSignalSub?.cancel();
     unawaited(_audio.stopVoice().then((_) => _audio.stopService()));
     super.dispose();
+  }
+
+  /// Render a real "X's signal is weak" toast in response to the
+  /// cubit's host-side detector tripping. Mirrors the demo timer's
+  /// copy + tone (kept gated under [debugDemoTimers]) so design and
+  /// production match without duplicating the spec.
+  void _onWeakSignal(({String peerId, String displayName}) e) {
+    if (!mounted) return;
+    FrequencyToastHost.of(context).push(FrequencyToastSpec(
+      tone: ToastTone.warn,
+      title: "${e.displayName}'s signal is weak",
+      description: 'Ask them to move closer',
+      autoDismiss: const Duration(milliseconds: 3600),
+    ));
   }
 
   /// Open-mic mute toggle. Updates the local UI state and pushes the new
