@@ -10,8 +10,12 @@ class AudioService {
   static const EventChannel _eventChannel = EventChannel(
     'com.elodin.walkie_talkie/audio_events',
   );
+  static const EventChannel _controlBytesEventChannel = EventChannel(
+    'com.elodin.walkie_talkie/control_bytes',
+  );
 
   Stream<Map<String, dynamic>>? _eventStream;
+  Stream<Map<String, dynamic>>? _controlBytesStream;
 
   /// Start the foreground service
   Future<bool> startService() async {
@@ -214,5 +218,76 @@ class AudioService {
           }
           return <String>{};
         });
+  }
+
+  /// Start the GATT server for the host.
+  ///
+  /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
+  /// the walkie-talkie service UUID. Guests write JoinRequest / MediaCommand /
+  /// Leave messages to REQUEST; the host emits JoinAccepted / RosterUpdate /
+  /// Heartbeat messages via RESPONSE notifications.
+  ///
+  /// Returns true if the GATT server started successfully, false otherwise.
+  Future<bool> startGattServer() async {
+    try {
+      final result = await _methodChannel.invokeMethod('startGattServer');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error starting GATT server: $e');
+      return false;
+    }
+  }
+
+  /// Stop the GATT server.
+  Future<bool> stopGattServer() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopGattServer');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping GATT server: $e');
+      return false;
+    }
+  }
+
+  /// Send a notification to a connected GATT client.
+  ///
+  /// Writes bytes to the RESPONSE characteristic for the specified device.
+  /// Used by the host to send JoinAccepted, RosterUpdate, Heartbeat, etc.
+  /// to guests.
+  ///
+  /// Returns true if the notification was queued successfully, false otherwise.
+  Future<bool> writeNotification(String deviceAddress, List<int> bytes) async {
+    try {
+      final result = await _methodChannel.invokeMethod('writeNotification', {
+        'deviceAddress': deviceAddress,
+        'bytes': bytes,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('Error writing notification to $deviceAddress: $e');
+      return false;
+    }
+  }
+
+  /// Stream of control bytes received from GATT clients.
+  ///
+  /// Each event contains:
+  /// - 'endpointId': The MAC address of the device that sent the bytes
+  /// - 'bytes': The raw bytes written to the REQUEST characteristic
+  ///
+  /// The BleControlTransport layer deserializes these bytes into
+  /// FrequencyMessage objects (JoinRequest, MediaCommand, Leave, etc.).
+  Stream<Map<String, dynamic>> get controlBytes {
+    _controlBytesStream ??= _controlBytesEventChannel
+        .receiveBroadcastStream()
+        .map((event) {
+          if (event == null) return <String, dynamic>{};
+          return Map<String, dynamic>.from(event as Map);
+        })
+        .handleError((error) {
+          debugPrint('Control bytes event stream error: $error');
+          return <String, dynamic>{};
+        });
+    return _controlBytesStream!;
   }
 }
