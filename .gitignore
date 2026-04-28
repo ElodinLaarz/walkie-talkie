@@ -49,6 +49,7 @@ app.*.symbols
 **/android/local.properties
 **/android/generated/
 **/android/key.properties
+**/android/keystore.jks
 
 # iOS/XCode related
 **/ios/**/*.mode1v3
