@@ -6,6 +6,7 @@
 #include <mutex>
 #include <atomic>
 #include <cstring>
+#include <cmath>
 #include "audio_mixer.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
@@ -15,6 +16,11 @@
 // Global mute flag — declared before AudioEngine so onAudioReady (inline
 // in the class body) can reference it without a forward declaration.
 static std::atomic<bool> g_muted{false};
+
+// Global JNI references for voice activity callbacks
+static std::mutex g_jniMutex;
+static JavaVM* g_jvm = nullptr;
+static jobject g_mainActivity = nullptr;
 
 class AudioEngine : public oboe::AudioStreamDataCallback {
 private:
@@ -26,6 +32,66 @@ private:
     static constexpr int32_t kSampleRate = 48000;  // LE Audio standard
     static constexpr int32_t kChannelCount = 1;    // Mono for voice
     static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;  // 16-bit PCM
+
+    // Voice activity detection
+    static constexpr double kTalkingThreshold = 0.01;  // -40 dBFS ≈ 0.01 RMS
+    static constexpr int32_t kOnHysteresisMs = 100;    // 100ms above threshold to flip on
+    static constexpr int32_t kOffHysteresisMs = 300;   // 300ms below threshold to flip off
+    bool lastTalking = false;
+    int32_t aboveThresholdFrames = 0;
+    int32_t belowThresholdFrames = 0;
+    const int32_t onHysteresisFrames = (kSampleRate * kOnHysteresisMs) / 1000;
+    const int32_t offHysteresisFrames = (kSampleRate * kOffHysteresisMs) / 1000;
+
+    // Compute RMS (Root Mean Square) of audio samples
+    double computeRms(const int16_t* samples, int32_t numFrames) {
+        if (numFrames == 0) return 0.0;
+
+        double sum = 0.0;
+        for (int32_t i = 0; i < numFrames; ++i) {
+            double normalized = samples[i] / 32768.0;  // Normalize to [-1, 1]
+            sum += normalized * normalized;
+        }
+        return std::sqrt(sum / numFrames);
+    }
+
+    // Emit talking event to Flutter via JNI
+    void emitTalkingEvent(bool talking) {
+        // Snapshot JNI globals under lock to avoid use-after-free
+        JavaVM* jvm = nullptr;
+        jobject activity = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_jniMutex);
+            if (g_jvm == nullptr || g_mainActivity == nullptr) return;
+            jvm = g_jvm;
+            activity = g_mainActivity;
+        }
+
+        JNIEnv* env = nullptr;
+        bool needDetach = false;
+
+        // Get JNI environment
+        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                return;  // Skip logging in audio callback to avoid glitches
+            }
+            needDetach = true;
+        }
+
+        // Call MainActivity.sendLocalTalkingEvent(boolean)
+        jclass activityClass = env->GetObjectClass(activity);
+        if (activityClass != nullptr) {
+            jmethodID method = env->GetMethodID(activityClass, "sendLocalTalkingEvent", "(Z)V");
+            if (method != nullptr) {
+                env->CallVoidMethod(activity, method, talking);
+            }
+            env->DeleteLocalRef(activityClass);
+        }
+
+        if (needDetach) {
+            jvm->DetachCurrentThread();
+        }
+    }
 
 public:
     AudioEngine() {}
@@ -101,10 +167,36 @@ public:
             // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
 
+            bool isMuted = g_muted.load(std::memory_order_relaxed);
+
+            // Voice activity detection (compute RMS before mute gate, so we
+            // detect talking state even when muted for UI feedback)
+            double rms = computeRms(inputData, numFrames);
+            bool nowAboveThreshold = rms > kTalkingThreshold;
+
+            // Hysteresis: require sustained signal to flip talking state
+            if (nowAboveThreshold) {
+                aboveThresholdFrames += numFrames;
+                belowThresholdFrames = 0;
+                // Flip to talking if we've been above threshold for long enough
+                if (!lastTalking && aboveThresholdFrames >= onHysteresisFrames) {
+                    lastTalking = true;
+                    emitTalkingEvent(true);
+                }
+            } else {
+                belowThresholdFrames += numFrames;
+                aboveThresholdFrames = 0;
+                // Flip to not talking if we've been below threshold for long enough
+                if (lastTalking && belowThresholdFrames >= offHysteresisFrames) {
+                    lastTalking = false;
+                    emitTalkingEvent(false);
+                }
+            }
+
             // When muted, zero the mic frames so they don't reach the mixer
             // or any future BLE transport. The streams stay warm so unmuting
             // is instant — no codec reinit round-trip.
-            if (g_muted.load(std::memory_order_relaxed)) {
+            if (isMuted) {
                 std::memset(inputData, 0, numFrames * sizeof(int16_t));
             }
 
@@ -131,6 +223,36 @@ public:
 static AudioEngine* g_audioEngine = nullptr;
 
 extern "C" {
+
+JNIEXPORT void JNICALL
+Java_com_elodin_walkie_1talkie_MainActivity_nativeRegisterForCallbacks(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_jniMutex);
+
+    // Store JavaVM for thread attachment
+    if (g_jvm == nullptr) {
+        env->GetJavaVM(&g_jvm);
+    }
+
+    // Store global reference to MainActivity for callbacks
+    if (g_mainActivity != nullptr) {
+        env->DeleteGlobalRef(g_mainActivity);
+    }
+    g_mainActivity = env->NewGlobalRef(thiz);
+    LOGI("MainActivity registered for voice activity callbacks");
+}
+
+JNIEXPORT void JNICALL
+Java_com_elodin_walkie_1talkie_MainActivity_nativeUnregisterCallbacks(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_jniMutex);
+
+    // Only unregister if this is the same activity instance
+    if (g_mainActivity != nullptr && env->IsSameObject(thiz, g_mainActivity)) {
+        env->DeleteGlobalRef(g_mainActivity);
+        g_mainActivity = nullptr;
+        g_jvm = nullptr;
+        LOGI("MainActivity unregistered from voice activity callbacks");
+    }
+}
 
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv *env, jobject thiz) {

@@ -224,6 +224,20 @@ class AudioService {
         });
   }
 
+  /// Stream of local voice activity detection events.
+  ///
+  /// Emits true when the native audio engine detects voice activity above the
+  /// threshold (RMS > -40 dBFS), false when activity drops below threshold.
+  /// Includes hysteresis (100ms to flip on, 300ms to flip off) to avoid
+  /// flickering at the threshold boundary.
+  ///
+  /// Filters audioEvents for 'localTalking' events from the native layer.
+  Stream<bool> get localTalking {
+    return audioEvents
+        .where((e) => e['type'] == 'localTalking')
+        .map((e) => e['talking'] == true);
+  }
+
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
