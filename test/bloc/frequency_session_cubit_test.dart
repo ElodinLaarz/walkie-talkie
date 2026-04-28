@@ -1352,11 +1352,13 @@ void main() {
         final t = makeTestTransport();
         // notifyDrop needs an AudioService; keep it on a non-existent MAC
         // and let the (zero-delay) attempts fail.
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-          const MethodChannel('com.elodin.walkie_talkie/audio'),
-          (call) async => false,
-        );
+            .setMockMethodCallHandler(channel, (call) async => false);
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
 
         var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
         final scheduler = HeartbeatScheduler(
@@ -1407,11 +1409,6 @@ void main() {
         await cubit.close();
         await t.inbox.close();
         t.transport.dispose();
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-          const MethodChannel('com.elodin.walkie_talkie/audio'),
-          null,
-        );
       },
     );
 
@@ -1526,11 +1523,13 @@ void main() {
         // seq to 1, so the transport's stale watermark from the dying
         // session must be cleared — otherwise the new session's first
         // messages get silently swallowed.
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-          const MethodChannel('com.elodin.walkie_talkie/audio'),
-          (call) async => false,
-        );
+            .setMockMethodCallHandler(channel, (call) async => false);
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
         final t = makeTestTransport();
         var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
         final scheduler = HeartbeatScheduler(
@@ -1587,11 +1586,6 @@ void main() {
         await cubit.close();
         await t.inbox.close();
         t.transport.dispose();
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-          const MethodChannel('com.elodin.walkie_talkie/audio'),
-          null,
-        );
       },
     );
 

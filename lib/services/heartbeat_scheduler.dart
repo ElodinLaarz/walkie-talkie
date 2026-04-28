@@ -49,11 +49,26 @@ class HeartbeatScheduler {
     this.pingInterval = defaultPingInterval,
     this.missThreshold = defaultMissThreshold,
     DateTime Function()? clock,
-  })  : assert(pingInterval > Duration.zero,
-            'pingInterval must be positive — Timer.periodic(0) busy-loops'),
-        assert(missThreshold > Duration.zero,
-            'missThreshold must be positive — otherwise every peer is "lost"'),
-        _now = clock ?? DateTime.now;
+  }) : _now = clock ?? DateTime.now {
+    // Runtime checks (not `assert`s): the constraints have to hold in
+    // release builds too. A zero `pingInterval` makes `Timer.periodic`
+    // busy-loop; a non-positive `missThreshold` declares every peer
+    // "lost" on the first tick.
+    if (pingInterval <= Duration.zero) {
+      throw ArgumentError.value(
+        pingInterval,
+        'pingInterval',
+        'Must be positive — Timer.periodic(0) busy-loops.',
+      );
+    }
+    if (missThreshold <= Duration.zero) {
+      throw ArgumentError.value(
+        missThreshold,
+        'missThreshold',
+        'Must be positive — otherwise every peer is "lost" on first tick.',
+      );
+    }
+  }
 
   /// Whether the periodic timer is currently active.
   bool get isRunning => _timer != null;

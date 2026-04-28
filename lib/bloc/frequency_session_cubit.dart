@@ -223,31 +223,36 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
     // Coalesce overlapping ticks: a slow link must not fan out into
     // concurrent transport writes that interleave fragments on the wire.
+    // The flag is set *synchronously* before the first `await` below — if
+    // it's set after the await on getPeerId, two ticks could both pass
+    // this check, both await the peerId, and then both reach the send.
     if (_heartbeatSendInFlight) return;
-    final String peerId;
-    try {
-      peerId = await identityStore.getPeerId();
-    } catch (error, stackTrace) {
-      debugPrint('Failed to resolve peer id for heartbeat: $error');
-      debugPrintStack(stackTrace: stackTrace);
-      _seq++;
-      return;
-    }
-    if (isClosed) return;
-    final msg = Heartbeat(
-      peerId: peerId,
-      seq: ++_seq,
-      atMs: DateTime.now().millisecondsSinceEpoch,
-    );
     _heartbeatSendInFlight = true;
     try {
-      await t.send(msg);
-    } catch (error, stackTrace) {
-      // Transport-layer failures are already logged inside
-      // BleControlTransport; swallow here so a single bad tick doesn't
-      // poison the timer.
-      debugPrint('Heartbeat send failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      final String peerId;
+      try {
+        peerId = await identityStore.getPeerId();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to resolve peer id for heartbeat: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      final msg = Heartbeat(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        // Transport-layer failures are already logged inside
+        // BleControlTransport; swallow here so a single bad tick doesn't
+        // poison the timer.
+        debugPrint('Heartbeat send failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     } finally {
       _heartbeatSendInFlight = false;
     }

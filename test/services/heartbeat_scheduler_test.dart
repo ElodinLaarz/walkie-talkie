@@ -15,16 +15,17 @@ void main() {
     });
 
     test('rejects a non-positive pingInterval', () {
+      // Runtime check (not assert) so the contract holds in release builds.
       expect(
         () => HeartbeatScheduler(pingInterval: Duration.zero),
-        throwsA(isA<AssertionError>()),
+        throwsA(isA<ArgumentError>()),
       );
     });
 
     test('rejects a non-positive missThreshold', () {
       expect(
         () => HeartbeatScheduler(missThreshold: Duration.zero),
-        throwsA(isA<AssertionError>()),
+        throwsA(isA<ArgumentError>()),
       );
     });
   });
