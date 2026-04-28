@@ -26,6 +26,7 @@ void main() {
                 case 'startVoice':
                 case 'stopVoice':
                 case 'setMuted':
+                case 'setAudioOutput':
                   return true;
                 case 'stopScan':
                   return null;

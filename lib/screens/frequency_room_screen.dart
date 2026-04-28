@@ -78,13 +78,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   final Set<String> _peerMuted = {};
   final Set<String> _removed = {};
 
-  Set<String> _talkingPeerIds = {};
+  String? _talkingId;
   Timer? _talkTicker;
   Timer? _progressTimer;
   Timer? _hostJoinDemoTimer;
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
-  StreamSubscription<Set<String>>? _talkingPeersSub;
+  StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -148,26 +148,49 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
     _audio = widget.audioService ?? AudioService();
-    // Spin up the capture engine, then push the initial mute state. The
-    // sequence matters: pushing `setMuted` before `startVoice` finishes
-    // would race the encoder init on slower devices and the first toggle
-    // would silently no-op.
+    // Spin up the capture engine, then push the initial mute state and audio
+    // routing. The sequence matters: pushing `setMuted`/`setAudioOutput` before
+    // `startVoice` finishes would race the engine init on slower devices.
     //
     // The `mounted` check guards against the user leaving the room before
-    // startVoice resolves — without it, the trailing setMuted would land
-    // after dispose has fired stopVoice and tell a torn-down engine to
-    // mute itself.
+    // startVoice resolves — without it, the trailing calls would land after
+    // dispose has fired stopVoice and tell a torn-down engine to change state.
     unawaited(() async {
       final started = await _audio.startVoice();
       if (!mounted || !started) return;
-      // Read _meEffectivelyMuted after the await so any toggle the user made
-      // during the async call is reflected rather than a stale snapshot.
-      await _audio.setMuted(_meEffectivelyMuted);
+
+      // Re-read mute state after await in case user toggled during startup
+      final currentMuted = _meEffectivelyMuted;
+      await _audio.setMuted(currentMuted);
+
+      // Set initial audio output routing. If it fails (e.g., no Bluetooth
+      // device when _output is bluetooth), keep the UI selection but log it.
+      final routed = await _audio.setAudioOutput(_output.name);
+      if (!routed) {
+        debugPrint('Failed to route to ${_output.name}, device may be unavailable');
+      }
     }());
 
-    // Subscribe to native talking-state events so the VU rings for remote
-    // peers reflect reality once BLE audio transport lands.
-    _talkingPeersSub = _audio.talkingPeers.listen(_onNativeTalkingPeers);
+    // Listen for audio device changes from the native layer (e.g., AirPods
+    // connecting/disconnecting). The native AudioRoutingManager auto-routes
+    // when a Bluetooth device appears and notifies us here so the UI can
+    // reflect the change.
+    _audioEventsSub = _audio.audioEvents.listen((event) {
+      if (!mounted) return;
+      final type = event['type'] as String?;
+      if (type == 'audioOutputChanged') {
+        final outputStr = event['output'] as String?;
+        if (outputStr != null) {
+          final newOutput = AudioOutput.values.firstWhere(
+            (e) => e.name == outputStr,
+            orElse: () => _output,
+          );
+          if (newOutput != _output) {
+            setState(() => _output = newOutput);
+          }
+        }
+      }
+    });
 
     _resolveMyPeerId();
     _startTalkSimulation();
@@ -299,26 +322,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _hostJoinDemoTimer?.cancel();
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
-    _talkingPeersSub?.cancel();
+    _audioEventsSub?.cancel();
     unawaited(_audio.stopVoice());
     super.dispose();
-  }
-
-  /// Called when the native layer reports a change in which peers are
-  /// transmitting audio. The `'local'` sentinel represents this device's
-  /// mic — already reflected in [_meEffectivelyMuted], so it's excluded
-  /// here. Non-local IDs drive the talking VU rings for remote peers.
-  ///
-  /// Once real native events arrive, the demo simulation is stopped so it
-  /// can't clobber the authoritative state.
-  void _onNativeTalkingPeers(Set<String> peers) {
-    if (!mounted) return;
-    // Native has taken over — cancel the placeholder simulation.
-    _talkTicker?.cancel();
-    _talkTicker = null;
-    setState(() {
-      _talkingPeerIds = peers.where((id) => id != 'local').toSet();
-    });
   }
 
   /// Open-mic mute toggle. Updates the local UI state and pushes the new
@@ -415,10 +421,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           .map((p) => p.id)
           .toList();
       setState(() {
-        if (active.isEmpty || Random().nextDouble() < 0.3) {
-          _talkingPeerIds = {};
+        if (active.isEmpty) {
+          _talkingId = null;
+        } else if (Random().nextDouble() < 0.3) {
+          _talkingId = null;
         } else {
-          _talkingPeerIds = {active[Random().nextInt(active.length)]};
+          _talkingId = active[Random().nextInt(active.length)];
         }
       });
     });
@@ -554,7 +562,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                               key: ValueKey(peers[i].id),
                               person: peers[i],
                               first: i == 0,
-                              talking: _talkingPeerIds.contains(peers[i].id) && !_peerMuted.contains(peers[i].id),
+                              talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
                               muted: _peerMuted.contains(peers[i].id),
                               volume: _volumes[peers[i].id]!,
                               onTap: () => _showPeerDrawer(peers[i]),
@@ -649,7 +657,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         children: [
           FreqAvatar(
             person: _me,
-            talking: !_meEffectivelyMuted,
+            talking: !_meEffectivelyMuted && _holdingPtt,
             muted: _meEffectivelyMuted,
           ),
           const SizedBox(width: 12),
@@ -801,7 +809,21 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       ),
       builder: (_) => _OutputSheet(current: _output, btName: _me.btDevice),
     );
-    if (picked != null && mounted) setState(() => _output = picked);
+    if (picked != null && mounted) {
+      // Apply the audio routing change at the native layer
+      final outputStr = picked.name; // "bluetooth", "earpiece", or "speaker"
+      final success = await _audio.setAudioOutput(outputStr);
+
+      if (success) {
+        setState(() => _output = picked);
+      } else {
+        // If routing failed (e.g., no Bluetooth device available), keep
+        // the current selection and optionally show a toast. For now, we
+        // silently keep the previous output rather than updating the UI
+        // to a non-functional state.
+        debugPrint('Failed to route audio to $outputStr, keeping current output');
+      }
+    }
   }
 }
 
