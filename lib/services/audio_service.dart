@@ -287,6 +287,55 @@ class AudioService {
     }
   }
 
+  /// Start an L2CAP CoC server socket for the voice plane.
+  ///
+  /// Returns the dynamically assigned PSM (odd, in [0x0080, 0x00FF]) on
+  /// success, or null if the native layer could not open the socket (e.g.
+  /// Bluetooth is off or the OEM rejects the call). The returned PSM is
+  /// the value that should be published in the [JoinAccepted.voicePsm]
+  /// field so guests can dial the voice channel.
+  Future<int?> startVoiceServer() async {
+    try {
+      final result = await _methodChannel.invokeMethod<int>('startVoiceServer');
+      return result;
+    } catch (e) {
+      debugPrint('Error starting voice server: $e');
+      return null;
+    }
+  }
+
+  /// Connect the voice plane as a guest to [macAddress] on [psm].
+  ///
+  /// Runs on a background thread with exponential backoff (up to ~8 s total).
+  /// Returns true if the L2CAP channel was established, false if all retries
+  /// exhausted or the native layer is unavailable. A false result should be
+  /// treated as non-fatal — the control plane stays up and the user can see a
+  /// degraded-voice toast; see the known risks in issue #46.
+  Future<bool> connectVoiceClient(String macAddress, int psm) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'connectVoiceClient',
+        <String, dynamic>{'macAddress': macAddress, 'psm': psm},
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('Error connecting voice client: $e');
+      return false;
+    }
+  }
+
+  /// Tear down the L2CAP voice transport (both server and client).
+  /// Safe to call when the transport is not running.
+  Future<bool> stopVoiceTransport() async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>('stopVoiceTransport');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping voice transport: $e');
+      return false;
+    }
+  }
+
   /// Stream of control-plane byte fragments from the native GATT layer.
   ///
   /// On the host side, each event carries bytes written to the REQUEST

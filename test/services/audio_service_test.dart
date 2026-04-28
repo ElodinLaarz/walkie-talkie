@@ -27,7 +27,11 @@ void main() {
                 case 'stopVoice':
                 case 'setMuted':
                 case 'setAudioOutput':
+                case 'connectVoiceClient':
+                case 'stopVoiceTransport':
                   return true;
+                case 'startVoiceServer':
+                  return 0x81;
                 case 'stopScan':
                   return null;
                 case 'getConnectedDevices':
@@ -190,5 +194,141 @@ void main() {
 
       expect(received, isEmpty);
     });
+
+    group('localTalking', () {
+      late AudioService localTalkingAudio;
+
+      setUp(() {
+        localTalkingAudio = AudioService();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (MethodCall call) async => null,
+        );
+      });
+
+      tearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
+      });
+
+      test('emits true when native fires localTalking=true', () async {
+        const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = localTalkingAudio.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope({'type': 'localTalking', 'talking': true}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, [true]);
+      });
+
+      test('emits false when native fires localTalking=false', () async {
+        const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = localTalkingAudio.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope({'type': 'localTalking', 'talking': false}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, [false]);
+      });
+
+      test('ignores unrelated native events', () async {
+        const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = localTalkingAudio.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope({'type': 'talkingPeers', 'peers': <String>[]}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, isEmpty);
+      });
+    });
+
+    group('L2CAP voice transport', () {
+    test('startVoiceServer returns PSM from native layer', () async {
+      log.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        (MethodCall call) async {
+          log.add(call);
+          if (call.method == 'startVoiceServer') return 0x81;
+          return null;
+        },
+      );
+
+      final psm = await audioService.startVoiceServer();
+      expect(psm, 0x81);
+      expect(log, [isMethodCall('startVoiceServer', arguments: null)]);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        null,
+      );
+    });
+
+    test('startVoiceServer returns null on native error', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        (MethodCall call) async => throw PlatformException(code: 'ERR'),
+      );
+
+      final psm = await audioService.startVoiceServer();
+      expect(psm, isNull);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        null,
+      );
+    });
+
+    test('connectVoiceClient passes mac and psm to native layer', () async {
+      log.clear();
+      final result = await audioService.connectVoiceClient('AA:BB:CC:DD:EE:FF', 0x83);
+      expect(result, true);
+      expect(log, [
+        isMethodCall(
+          'connectVoiceClient',
+          arguments: <String, dynamic>{'macAddress': 'AA:BB:CC:DD:EE:FF', 'psm': 0x83},
+        ),
+      ]);
+    });
+
+    test('stopVoiceTransport calls correct method', () async {
+      log.clear();
+      final result = await audioService.stopVoiceTransport();
+      expect(result, true);
+      expect(log, [isMethodCall('stopVoiceTransport', arguments: null)]);
+    });
+  });
   });
 }
