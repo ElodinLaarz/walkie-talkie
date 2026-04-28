@@ -12,15 +12,20 @@
 
 // Per-device audio buffer with lock-free ring buffer for real-time safety.
 //
-// `lastSeq` and `poisoned` track the per-peer voice-frame stream so a stuck
-// or wildly-skipping producer cannot poison the mix. Both fields are touched
-// from the L2CAP receive thread (single producer per device); mixer tick reads
-// `poisoned` only for telemetry/diagnostics, hence atomic on `poisoned` but a
-// plain `uint32_t` on `lastSeq`.
+// `hasSeenSeq` / `lastSeq` / `poisoned` track the per-peer voice-frame stream
+// so a stuck or wildly-skipping producer cannot poison the mix. The seq
+// fields are touched from the L2CAP receive thread (single producer per
+// device); mixer tick reads `poisoned` only for telemetry/diagnostics, hence
+// atomic on `poisoned` but plain on `lastSeq` / `hasSeenSeq`.
+//
+// `hasSeenSeq` is a separate flag rather than `lastSeq != 0` because seq is
+// uint32 and wraps: after a legitimate wrap to seq=0, that 0 is a valid
+// watermark that must still gate subsequent delta checks.
 struct DeviceAudioBuffer {
     AudioRingBuffer ringBuffer;
     std::atomic<bool> poisoned{false};   // true while producer is being skipped
-    uint32_t lastSeq{0};                 // 0 = no frames seen yet
+    bool hasSeenSeq{false};              // false until the first frame arrives
+    uint32_t lastSeq{0};                 // last accepted (or poison-advanced) seq
 };
 
 class AudioMixer {
@@ -37,10 +42,13 @@ private:
     static constexpr int kMaxFrames = 1024;  // Max frames for tempMixBuffer
 
 public:
-    // Stuck-producer prune threshold. A frame whose seq exceeds the previously
-    // accepted seq by more than this many positions is dropped and the peer is
-    // marked poisoned until a contiguous seq arrives. Matches the protocol
-    // spec ("after 16 missed sequence numbers ... stops mixing that peer").
+    // Stuck-producer prune threshold. A frame whose forward delta from the
+    // last accepted seq exceeds this value is dropped and the peer is marked
+    // poisoned. Recovery happens on the next frame whose forward delta from
+    // the (poison-advanced) watermark falls in (0, kPoisonThreshold] — see
+    // the [onVoiceFrame] contract below for the full state machine. Matches
+    // the protocol spec ("after 16 missed sequence numbers ... stops mixing
+    // that peer's stream until the next valid frame arrives").
     static constexpr uint32_t kPoisonThreshold = 16;
 
     AudioMixer();

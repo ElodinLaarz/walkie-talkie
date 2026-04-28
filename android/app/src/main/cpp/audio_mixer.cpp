@@ -72,11 +72,13 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
 
     const uint32_t prevSeq = device->lastSeq;
 
-    // First frame from this peer (`prevSeq == 0` since seq starts at 1 per
-    // the protocol) always passes regardless of value: a fresh-session reset
-    // can land at any high seq, and the GATT join handshake bounds when the
-    // first frame is allowed to arrive.
-    if (prevSeq != 0) {
+    // First frame from this peer always passes regardless of value: a
+    // fresh-session reset can land at any high seq, and the GATT join
+    // handshake bounds when the first frame is allowed to arrive. We use a
+    // dedicated `hasSeenSeq` flag rather than `prevSeq != 0` because seq is
+    // uint32 and a legitimate wrap to 0 must not look like "unseen" to the
+    // next frame.
+    if (device->hasSeenSeq) {
         // Wrap-safe forward delta: cast the unsigned subtraction to int32_t.
         // - diff > 0 and small  → in-order, normal flow
         // - diff > kPoisonThreshold → big forward jump, poison
@@ -105,6 +107,7 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
             // `clear()` while the mixer-tick consumer is reading. Any
             // in-flight buffered samples drain naturally over the next tick.
             device->lastSeq = seq;
+            // hasSeenSeq is already true here (we're inside the `if`).
             return;
         }
     }
@@ -115,6 +118,7 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
 
     device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
     device->lastSeq = seq;
+    device->hasSeenSeq = true;
 }
 
 bool AudioMixer::isPoisoned(int deviceId) {

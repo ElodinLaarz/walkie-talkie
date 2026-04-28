@@ -27,7 +27,8 @@ private:
     struct DeviceState {
         std::vector<int16_t> buffer;
         bool poisoned = false;
-        uint32_t lastSeq = 0;  // 0 = no frames seen yet
+        bool hasSeenSeq = false;  // separate flag — wrap to seq=0 is legitimate
+        uint32_t lastSeq = 0;
     };
 
     std::mutex mixerMutex;
@@ -88,7 +89,7 @@ public:
         DeviceState& s = it->second;
 
         const uint32_t prevSeq = s.lastSeq;
-        if (prevSeq != 0) {
+        if (s.hasSeenSeq) {
             const int32_t diff = static_cast<int32_t>(seq - prevSeq);
 
             if (diff <= 0) {
@@ -114,6 +115,7 @@ public:
         }
         s.buffer.assign(pcm, pcm + numFrames);
         s.lastSeq = seq;
+        s.hasSeenSeq = true;
     }
 
     bool isPoisoned(int deviceId) {
@@ -446,12 +448,19 @@ void testSeqWraparoundIsWrapSafe() {
     mixer.onVoiceFrame(1, 0x0u, audio, kFrames);
     assert(!mixer.isPoisoned(1));
 
-    // Continue past the wrap: 0x0 → 0x5 is +5, normal.
-    mixer.onVoiceFrame(1, 0x5u, audio, kFrames);
+    // Regression test for the "lastSeq == 0 means unseen" bug CodeRabbit
+    // caught on round 2: after legitimately accepting seq=0 (the wrap), the
+    // next frame MUST still go through the delta check. With the old sentinel
+    // a +0x20 jump would silently bypass poison detection.
+    mixer.onVoiceFrame(1, 0x20u, audio, kFrames);  // 0 → 32, gap 32 > 16
+    assert(mixer.isPoisoned(1));
+
+    // Recovery within threshold of the new (post-poison) baseline of 0x20.
+    mixer.onVoiceFrame(1, 0x21u, audio, kFrames);
     assert(!mixer.isPoisoned(1));
 
-    // Now a real big forward jump near the boundary should still poison.
-    mixer.onVoiceFrame(1, 0x100u, audio, kFrames);  // +0xFB = 251
+    // And a real big forward jump still poisons.
+    mixer.onVoiceFrame(1, 0x200u, audio, kFrames);  // +0x1DF = 479
     assert(mixer.isPoisoned(1));
 
     std::cout << "Test Seq Wraparound Is Wrap-Safe: PASSED" << std::endl;

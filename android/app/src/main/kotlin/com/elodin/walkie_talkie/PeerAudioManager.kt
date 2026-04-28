@@ -61,9 +61,15 @@ class PeerAudioManager {
      * here so a malformed VoiceFrame parse can't sneak a sign-extended
      * negative through to native, where it would silently truncate to a
      * different valid uint32 and either spuriously poison or recover the peer.
+     * Out-of-range values are dropped (logged + return) rather than thrown:
+     * this is an over-the-wire input boundary, and one bad packet must not
+     * crash the foreground service.
      */
     fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long) {
-        require(seq in 0..0xFFFF_FFFFL) { "seq must fit in uint32, got $seq" }
+        if (seq !in 0..0xFFFF_FFFFL) {
+            Log.w(TAG, "Dropping voice frame from $macAddress: seq=$seq is not a valid uint32")
+            return
+        }
         nativeOnVoiceFrameReceived(macAddress, opusData, seq)
     }
 
