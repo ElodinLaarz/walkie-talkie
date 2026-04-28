@@ -130,6 +130,15 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           emit(current.copyWith(roster: updated));
           _transport?.forgetPeer(m.peerId);
         }
+      case RemovePeer m:
+        // Host-broadcasted peer removal. Drop the named peer from the roster
+        // and clean up transport state, regardless of local role.
+        final current = state;
+        if (isClosed || current is! SessionRoom) return;
+        final updated =
+            current.roster.where((p) => p.peerId != m.target).toList();
+        emit(current.copyWith(roster: updated));
+        _transport?.forgetPeer(m.target);
       // These message types are handled by future issues (heartbeats,
       // signal reports, voice-activity detection). Silently drop for now.
       case TalkingState():
@@ -137,7 +146,6 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       case Heartbeat():
       case JoinRequest():
       case JoinDenied():
-      case RemovePeer():
       case SignalReport():
         break;
     }

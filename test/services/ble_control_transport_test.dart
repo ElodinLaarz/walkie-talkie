@@ -253,6 +253,40 @@ void main() {
         expect(emitted, hasLength(6));
         await sub.cancel();
       });
+
+      test('cleans up the reassembler via endpointId mapping on reconnect',
+          () async {
+        final emitted = <FrequencyMessage>[];
+        final sub = transport.incoming.listen(emitted.add);
+
+        // Feed a fragment that does NOT complete a message — leaves state in
+        // the reassembler for 'ep-1'.
+        final partialFragments = encodeFragments(_joinRequest().encode());
+        // Only inject the first fragment so reassembler has pending state.
+        controlBytesController
+            .add((endpointId: 'ep-1', bytes: partialFragments.first));
+        await Future<void>.delayed(Duration.zero);
+
+        // First we need a complete message to build the peerId→endpointId map.
+        _injectMessage(controlBytesController, _heartbeat(seq: 1));
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted, hasLength(1));
+
+        // After forgetPeer, the reassembler for 'ep-1' is cleared. A new
+        // fragment starting from idx=0 must be accepted (not treated as a
+        // continuation of the earlier partial message).
+        transport.forgetPeer('peer-a');
+
+        _injectMessage(
+          controlBytesController,
+          _heartbeat(peerId: 'peer-a', seq: 1),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        // seq=1 from 'peer-a' is accepted again after forgetPeer.
+        expect(emitted, hasLength(2));
+        await sub.cancel();
+      });
     });
   });
 }

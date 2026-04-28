@@ -26,6 +26,10 @@ class BleControlTransport {
   final Future<void> Function(Uint8List bytes) _writeBytes;
   final SequenceFilter _filter = SequenceFilter();
   final Map<String, FragmentReassembler> _reassemblers = {};
+  // Tracks peerId → endpointId so forgetPeer can clean up the right reassembler.
+  // A peer's endpointId (BT MAC) differs from its peerId (application UUID);
+  // this mapping is built lazily as messages arrive.
+  final Map<String, String> _endpointByPeer = {};
   final StreamController<FrequencyMessage> _incoming =
       StreamController<FrequencyMessage>.broadcast();
 
@@ -68,9 +72,17 @@ class BleControlTransport {
   /// dirty-disconnect detection (heartbeat timeout) so a reconnecting peer's
   /// fresh `seq=1` is not swallowed by a stale watermark from the previous
   /// session.
+  ///
+  /// The reassembler is keyed by the peer's Bluetooth endpoint id (e.g. MAC),
+  /// not the application-level [peerId]. The endpoint id is recorded when the
+  /// first message from this peer arrives; if no message has been seen yet the
+  /// reassembler cleanup is a no-op (there's nothing to clean up).
   void forgetPeer(String peerId) {
     _filter.forget(peerId);
-    _reassemblers.remove(peerId);
+    final endpointId = _endpointByPeer.remove(peerId);
+    if (endpointId != null) {
+      _reassemblers.remove(endpointId);
+    }
   }
 
   /// Cancel the native-bytes subscription and close [incoming].
@@ -91,6 +103,8 @@ class BleControlTransport {
       final json = r.feed(event.bytes);
       if (json == null) return;
       final msg = FrequencyMessage.decode(json);
+      // Record the mapping so forgetPeer can clean up the correct reassembler.
+      _endpointByPeer[msg.peerId] = event.endpointId;
       if (!_filter.accept(peerId: msg.peerId, seq: msg.seq)) return;
       if (!_incoming.isClosed) _incoming.add(msg);
     } on FragmentError catch (e) {
