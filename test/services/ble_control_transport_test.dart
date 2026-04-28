@@ -50,9 +50,9 @@ void main() {
       );
     });
 
-    tearDown(() {
+    tearDown(() async {
       transport.dispose();
-      controlBytesController.close();
+      await controlBytesController.close();
     });
 
     group('send', () {
