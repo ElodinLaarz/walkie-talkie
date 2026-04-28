@@ -148,14 +148,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
     _audio = widget.audioService ?? AudioService();
-    // Spin up the capture engine, then push the initial mute state and audio
-    // routing. The sequence matters: pushing `setMuted`/`setAudioOutput` before
-    // `startVoice` finishes would race the engine init on slower devices.
+    // Start the foreground service first so the OS elevates process priority
+    // before AudioRecord opens — avoids the mic being killed when the screen
+    // turns off during the capture-engine init window. Then spin up voice and
+    // push the initial mute state + audio routing. The sequence matters:
+    // pushing `setMuted`/`setAudioOutput` before `startVoice` finishes would
+    // race the engine init on slower devices.
     //
     // The `mounted` check guards against the user leaving the room before
     // startVoice resolves — without it, the trailing calls would land after
     // dispose has fired stopVoice and tell a torn-down engine to change state.
     unawaited(() async {
+      await _audio.startService(freq: widget.freq);
       final started = await _audio.startVoice();
       if (!mounted || !started) return;
 
@@ -189,6 +193,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             setState(() => _output = newOutput);
           }
         }
+      } else if (type == 'leaveRoom') {
+        widget.onLeave();
       }
     });
 
@@ -324,6 +330,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
     unawaited(_audio.stopVoice());
+    unawaited(_audio.stopService());
     super.dispose();
   }
 

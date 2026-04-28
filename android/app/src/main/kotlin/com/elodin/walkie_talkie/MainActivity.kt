@@ -1,6 +1,10 @@
 package com.elodin.walkie_talkie
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,12 +19,21 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
     }
-    
+
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
     private var eventSink: EventChannel.EventSink? = null
+
+    private val leaveReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == WalkieTalkieService.ACTION_LEAVE) {
+                Log.i(TAG, "Leave action received from notification")
+                sendEventToFlutter(mapOf("type" to "leaveRoom"))
+            }
+        }
+    }
     
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -71,8 +84,11 @@ class MainActivity : FlutterActivity() {
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startService" -> {
-                    Log.i(TAG, "Starting WalkieTalkieService")
-                    val intent = Intent(this, WalkieTalkieService::class.java)
+                    val freq = call.argument<String>("freq")
+                    Log.i(TAG, "Starting WalkieTalkieService, freq=$freq")
+                    val intent = Intent(this, WalkieTalkieService::class.java).apply {
+                        if (freq != null) putExtra(WalkieTalkieService.EXTRA_FREQ, freq)
+                    }
                     startForegroundService(intent)
                     result.success(true)
                 }
@@ -185,6 +201,25 @@ class MainActivity : FlutterActivity() {
         }
     }
     
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter(WalkieTalkieService.ACTION_LEAVE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(leaveReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(leaveReceiver, filter)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            unregisterReceiver(leaveReceiver)
+        } catch (_: IllegalArgumentException) {
+            // receiver was never registered — safe to ignore
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         audioRoutingManager?.cleanup()
