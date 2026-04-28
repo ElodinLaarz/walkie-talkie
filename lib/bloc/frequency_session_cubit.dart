@@ -9,6 +9,7 @@ import '../services/audio_service.dart';
 import '../services/ble_control_transport.dart';
 import '../services/heartbeat_scheduler.dart';
 import '../services/identity_store.dart';
+import '../services/permission_watcher.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/reconnect_controller.dart';
 import '../services/signal_reporter.dart';
@@ -68,6 +69,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// [ConnectionPhase] was last emitted.
   final AudioService? _audio;
 
+  /// Optional permission watcher. When provided, the cubit subscribes during
+  /// [bootstrap] and transitions to [SessionPermissionDenied] whenever the
+  /// watcher reports a non-empty missing-permissions list — covering the
+  /// case where the user revokes mic / Bluetooth from system Settings while
+  /// the app is running. Null in tests / loopback builds that don't exercise
+  /// the permission surface.
+  final PermissionWatcher? _permissionWatcher;
+
   /// Delay schedule injected into [ReconnectController]. Defaults to the
   /// production schedule; tests pass short delays to avoid slow test runs.
   final List<Duration>? _reconnectDelays;
@@ -104,6 +113,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   StreamSubscription<bool>? _localTalkingSubscription;
+  StreamSubscription<List<AppPermission>>? _permissionSubscription;
   ReconnectController? _reconnectController;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
@@ -137,12 +147,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     required this.recentFrequenciesStore,
     BleControlTransport? transport,
     AudioService? audio,
+    PermissionWatcher? permissionWatcher,
     List<Duration>? reconnectDelays,
     HeartbeatScheduler? heartbeats,
     SignalReporter? signalReporter,
     WeakSignalDetector? weakSignalDetector,
   })  : _transport = transport,
         _audio = audio,
+        _permissionWatcher = permissionWatcher,
         _reconnectDelays = reconnectDelays,
         _heartbeats = heartbeats ?? HeartbeatScheduler(),
         _signalReporter = signalReporter ?? SignalReporter(),
@@ -160,6 +172,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> bootstrap() async {
     _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
     _localTalkingSubscription = _audio?.localTalking.listen(_onLocalTalking);
+    // Subscribe to runtime permission changes so a mid-session revoke
+    // (user toggling mic / Bluetooth in system Settings) tears down voice +
+    // BLE cleanly and the UI shows an explanatory screen instead of
+    // crashing on the next AudioRecord / GATT call. The watcher emits an
+    // initial snapshot on subscription, so a fresh launch with already-
+    // revoked perms is handled too.
+    _permissionSubscription =
+        _permissionWatcher?.watch().listen(_onPermissionsChanged);
 
     // Cache peerId to avoid async resolution in hot path (voice activity)
     try {
@@ -563,6 +583,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         emit(room.copyWith(myName: name));
       case SessionBooting():
       case SessionOnboarding():
+      case SessionPermissionDenied():
         break;
     }
   }
@@ -676,6 +697,126 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       myName: current.myName,
       recentHostedFrequencies: recent,
     ));
+  }
+
+  /// Reacts to a [PermissionWatcher] emission. Three cases:
+  ///
+  ///   * **Missing → empty**: the user re-granted everything (typically by
+  ///     coming back from Settings). If we're sitting in
+  ///     [SessionPermissionDenied], transition back to [SessionDiscovery]
+  ///     (or [SessionOnboarding] for a fresh install). Otherwise leave the
+  ///     state alone — the user might be mid-onboarding and the watcher's
+  ///     resume sample is just confirming what onboarding already knows.
+  ///
+  ///   * **Empty → missing**: the user revoked while the app was running.
+  ///     Tear down voice + BLE so the next OS callback can't fault on a
+  ///     missing permission, then emit [SessionPermissionDenied] carrying
+  ///     the displayName so recovery can route back to Discovery without
+  ///     re-reading the identity store.
+  ///
+  ///   * **Missing → different missing**: e.g. the user re-granted mic but
+  ///     left bluetooth off. Just refresh the missing list so the screen
+  ///     shows the current state.
+  ///
+  /// Onboarding is left untouched — that screen owns its own permission
+  /// flow and would fight a state transition mid-grant. Once onboarding
+  /// completes the cubit lands on Discovery, where the watcher's next
+  /// emission can take over.
+  void _onPermissionsChanged(List<AppPermission> missing) {
+    if (isClosed) return;
+    final current = state;
+    if (missing.isEmpty) {
+      // Recovered — only meaningful when we're already showing the denied
+      // screen. From any other stage, an "all granted" event is a no-op.
+      if (current is SessionPermissionDenied) {
+        unawaited(_recoverFromPermissionDenied(current));
+      }
+      return;
+    }
+    // Onboarding owns its own permission flow; don't yank the user out
+    // mid-grant. Booting is a transient pre-bootstrap blip — let bootstrap
+    // finish and the next watcher tick will catch it.
+    if (current is SessionOnboarding || current is SessionBooting) {
+      return;
+    }
+    // Already showing the denied screen — just refresh the missing list
+    // (e.g. mic was re-granted but bluetooth still off).
+    if (current is SessionPermissionDenied) {
+      emit(SessionPermissionDenied(
+        missing: missing,
+        myName: current.myName,
+      ));
+      return;
+    }
+    // Discovery or Room — tear down audio/BLE and surface the denied screen.
+    final myName = switch (current) {
+      SessionDiscovery(:final myName) => myName,
+      SessionRoom(:final myName) => myName,
+      _ => null,
+    };
+    unawaited(_teardownForPermissionRevoke());
+    if (isClosed) return;
+    emit(SessionPermissionDenied(missing: missing, myName: myName));
+  }
+
+  /// Stop voice + BLE side-effects on revoke without going through
+  /// [leaveRoom] (which would emit an intermediate [SessionDiscovery]).
+  /// Mirrors [leaveRoom]'s cleanup minus the state transition; see that
+  /// method for the per-step rationale.
+  Future<void> _teardownForPermissionRevoke() async {
+    _reconnectController?.cancel();
+    _reconnectController = null;
+    _heartbeats.stop();
+    _signalReporter.stop();
+    _weakSignalDetector.clear();
+    _transport?.forgetAllPeers();
+    _seq = 0;
+    // Best-effort native teardown — failures are already logged inside
+    // AudioService and must not block the state transition.
+    final audio = _audio;
+    if (audio != null) {
+      try {
+        await audio.stopVoice();
+      } catch (error, stackTrace) {
+        debugPrint('stopVoice during permission revoke failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      try {
+        await audio.stopService();
+      } catch (error, stackTrace) {
+        debugPrint('stopService during permission revoke failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+  }
+
+  /// Transition out of [SessionPermissionDenied] now that the watcher has
+  /// reported all permissions granted. Routes to [SessionDiscovery] when
+  /// a display name is on hand (the typical case — the user had already
+  /// onboarded), or to [SessionOnboarding] otherwise.
+  Future<void> _recoverFromPermissionDenied(
+    SessionPermissionDenied current,
+  ) async {
+    final myName = current.myName;
+    if (myName == null) {
+      if (isClosed) return;
+      emit(const SessionOnboarding());
+      return;
+    }
+    final recent = await _loadRecentFrequencies();
+    if (isClosed) return;
+    emit(SessionDiscovery(
+      myName: myName,
+      recentHostedFrequencies: recent,
+    ));
+  }
+
+  /// Asks the [PermissionWatcher] to re-sample now. Wired to the "Retry"
+  /// button on the permission-denied screen so the user doesn't have to
+  /// wait up to one poll interval after re-granting in Settings. No-op when
+  /// no watcher was injected (loopback / test builds).
+  Future<void> recheckPermissions() async {
+    await _permissionWatcher?.checkNow();
   }
 
   Future<List<String>> _loadRecentFrequencies() async {
@@ -905,6 +1046,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     await super.close();
     await _transportSubscription?.cancel();
     await _localTalkingSubscription?.cancel();
+    // Drop the permission subscription before closing the broadcast
+    // controllers so a final watcher tick can't try to emit() against the
+    // closing cubit. The watcher itself is owned by the caller (not the
+    // cubit) — the same instance survives across re-bootstraps in tests,
+    // so we don't dispose it here.
+    await _permissionSubscription?.cancel();
     await _mediaCommandsController.close();
     await _weakSignalEventsController.close();
   }

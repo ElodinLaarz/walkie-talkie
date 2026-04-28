@@ -3,6 +3,7 @@ import 'package:walkie_talkie/main.dart';
 import 'package:walkie_talkie/protocol/discovery.dart';
 import 'package:walkie_talkie/services/bluetooth_discovery_service.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/permission_watcher.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 
 class _FakeIdentityStore implements IdentityStore {
@@ -67,12 +68,29 @@ class _FakeDiscoveryService implements DiscoveryService {
   Future<void> dispose() async {}
 }
 
+/// No-op watcher for widget tests. The production [DefaultPermissionWatcher]
+/// starts a [Timer.periodic] when the cubit subscribes, which trips Flutter's
+/// "A Timer is still pending after the widget tree was disposed" assertion
+/// at the end of the test. The fake's stream is empty, so the cubit's
+/// permission listener never fires and no transitions race the test.
+class _FakePermissionWatcher implements PermissionWatcher {
+  @override
+  Stream<List<AppPermission>> watch() => const Stream.empty();
+
+  @override
+  Future<List<AppPermission>> checkNow() async => const [];
+
+  @override
+  Future<void> dispose() async {}
+}
+
 void main() {
   testWidgets('first launch routes through onboarding', (tester) async {
     await tester.pumpWidget(WalkieTalkieApp(
       identityStore: _FakeIdentityStore(),
       recentFrequenciesStore: _FakeRecentFrequenciesStore(),
       discoveryService: _FakeDiscoveryService(),
+      permissionWatcher: _FakePermissionWatcher(),
     ));
     // Boot splash → microtask flush → onboarding welcome.
     await tester.pump();
@@ -90,6 +108,7 @@ void main() {
           identityStore: _FakeIdentityStore(initial: 'Maya'),
           recentFrequenciesStore: _FakeRecentFrequenciesStore(),
           discoveryService: _FakeDiscoveryService(),
+          permissionWatcher: _FakePermissionWatcher(),
         ),
       );
       // Two frames: boot splash, then Discovery after the bootstrap setState.
@@ -113,6 +132,7 @@ void main() {
           recentFrequenciesStore:
               _FakeRecentFrequenciesStore(initial: const ['100.1', '92.4']),
           discoveryService: _FakeDiscoveryService(),
+          permissionWatcher: _FakePermissionWatcher(),
         ),
       );
       // bootstrap awaits two reads (display name, recent frequencies); pump

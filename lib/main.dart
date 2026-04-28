@@ -10,11 +10,14 @@ import 'bloc/frequency_session_state.dart';
 import 'data/frequency_mock_data.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
+import 'screens/frequency_permission_denied_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/audio_service.dart';
 import 'services/ble_control_transport.dart';
 import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
+import 'services/onboarding_permission_gateway.dart';
+import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
@@ -39,12 +42,18 @@ class WalkieTalkieApp extends StatelessWidget {
   /// the native MethodChannel/EventChannel.
   final AudioService? audioService;
 
+  /// Override for tests; defaults to [DefaultPermissionWatcher] which polls
+  /// permissions on app resume + every 5 s. Tests inject a fake to drive
+  /// the revocation flow without permission_handler's platform channel.
+  final PermissionWatcher? permissionWatcher;
+
   const WalkieTalkieApp({
     super.key,
     this.identityStore,
     this.recentFrequenciesStore,
     this.discoveryService,
     this.audioService,
+    this.permissionWatcher,
   });
 
   @override
@@ -72,6 +81,13 @@ class WalkieTalkieApp extends StatelessWidget {
           create: (context) =>
               BleControlTransport(context.read<AudioService>()),
         ),
+        RepositoryProvider<PermissionWatcher>(
+          // The watcher lives for the lifetime of the app — same scope as
+          // [DiscoveryService] and [AudioService] above. It uses
+          // [WidgetsBindingObserver]; the framework releases the observer
+          // alongside the binding at app exit.
+          create: (_) => permissionWatcher ?? DefaultPermissionWatcher(),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -82,6 +98,7 @@ class WalkieTalkieApp extends StatelessWidget {
                   context.read<RecentFrequenciesStore>(),
               transport: context.read<BleControlTransport>(),
               audio: context.read<AudioService>(),
+              permissionWatcher: context.read<PermissionWatcher>(),
             )..bootstrap(),
           ),
           BlocProvider(
@@ -175,6 +192,13 @@ class FrequencyApp extends StatelessWidget {
           onLeave: () {
             unawaited(cubit.leaveRoom());
           },
+        ),
+      SessionPermissionDenied(:final missing) =>
+        FrequencyPermissionDeniedScreen(
+          missing: missing,
+          onOpenSettings: const DefaultOnboardingPermissionGateway()
+              .openAppSettings,
+          onRetry: cubit.recheckPermissions,
         ),
     };
   }

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
+import '../services/permission_watcher.dart';
 
 /// Sentinel marking an argument-not-supplied position in `copyWith`. A
 /// caller passing `null` explicitly is distinguishable from omitting
@@ -52,6 +53,40 @@ final class SessionDiscovery extends FrequencySessionState {
 
   @override
   List<Object?> get props => [myName, recentHostedFrequencies];
+}
+
+/// User revoked one or more required runtime permissions while the app was
+/// running. The cubit transitions here from any other stage when
+/// [PermissionWatcher] reports a non-empty missing list, so the UI can
+/// render an explanatory screen with a "Re-grant in Settings" affordance.
+///
+/// [missing] is the ordered list of permissions the user has revoked
+/// (microphone before bluetooth, mirroring the watcher's emission). The
+/// list is unmodifiable so subscribers can compare with `==` for change
+/// detection. The cubit clears this state by emitting [SessionDiscovery]
+/// (or [SessionOnboarding] for a fresh install) once the watcher reports
+/// an empty list — recovering room state mid-session is intentionally not
+/// attempted (see issue #57's acceptance criteria: re-grant returns the
+/// user to Discovery, not the previous room).
+final class SessionPermissionDenied extends FrequencySessionState {
+  /// Ordered, deduped list of currently-missing permissions.
+  final List<AppPermission> missing;
+
+  /// Persisted display name, threaded through so the recovery transition
+  /// back to [SessionDiscovery] doesn't have to round-trip through the
+  /// identity store. Null when the app hadn't completed onboarding before
+  /// the revocation (revoking during the onboarding permission step is
+  /// handled by the onboarding screen itself, not by this state — but
+  /// the field is nullable as a defensive measure).
+  final String? myName;
+
+  SessionPermissionDenied({
+    required List<AppPermission> missing,
+    this.myName,
+  }) : missing = List<AppPermission>.unmodifiable(missing);
+
+  @override
+  List<Object?> get props => [missing, myName];
 }
 
 /// Tracks whether the guest's BLE link to the host is healthy.

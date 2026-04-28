@@ -12,6 +12,7 @@ import 'package:walkie_talkie/services/audio_service.dart';
 import 'package:walkie_talkie/services/ble_control_transport.dart';
 import 'package:walkie_talkie/services/heartbeat_scheduler.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/permission_watcher.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/services/signal_reporter.dart';
 import 'package:walkie_talkie/services/weak_signal_detector.dart';
@@ -99,6 +100,7 @@ FrequencySessionCubit _makeCubit({
   IdentityStore? identityStore,
   RecentFrequenciesStore? recentFrequenciesStore,
   AudioService? audio,
+  PermissionWatcher? permissionWatcher,
   List<Duration>? reconnectDelays,
   HeartbeatScheduler? heartbeats,
   BleControlTransport? transport,
@@ -110,12 +112,42 @@ FrequencySessionCubit _makeCubit({
       recentFrequenciesStore:
           recentFrequenciesStore ?? _FakeRecentFrequenciesStore(),
       audio: audio,
+      permissionWatcher: permissionWatcher,
       reconnectDelays: reconnectDelays,
       heartbeats: heartbeats,
       transport: transport,
       signalReporter: signalReporter,
       weakSignalDetector: weakSignalDetector,
     );
+
+/// Drives the cubit's permission-revoked branch under test. The default
+/// [DefaultPermissionWatcher] would talk to permission_handler over a
+/// MethodChannel; this fake just exposes a controller so tests can push
+/// arbitrary [AppPermission] lists in deterministic order.
+class _FakePermissionWatcher implements PermissionWatcher {
+  final StreamController<List<AppPermission>> controller =
+      StreamController<List<AppPermission>>.broadcast();
+  int checkNowCalls = 0;
+  bool disposed = false;
+
+  /// Push a missing list onto the watch stream.
+  void push(List<AppPermission> missing) => controller.add(missing);
+
+  @override
+  Stream<List<AppPermission>> watch() => controller.stream;
+
+  @override
+  Future<List<AppPermission>> checkNow() async {
+    checkNowCalls++;
+    return const [];
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+    await controller.close();
+  }
+}
 
 void main() {
   group('FrequencySessionCubit', () {
@@ -2089,6 +2121,218 @@ void main() {
       await t.inbox.close();
       t.transport.dispose();
     });
+  });
+
+  // ── Permission revocation (#57) ─────────────────────────────────────────
+
+  group('Permission revocation', () {
+    test(
+      'revoke from Discovery transitions to SessionPermissionDenied',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          permissionWatcher: watcher,
+        );
+        await cubit.bootstrap(); // subscribe to watcher
+        expect(cubit.state, isA<SessionDiscovery>());
+
+        watcher.push([AppPermission.microphone]);
+        await Future<void>.delayed(Duration.zero);
+
+        final s = cubit.state;
+        expect(s, isA<SessionPermissionDenied>());
+        expect((s as SessionPermissionDenied).missing,
+            [AppPermission.microphone]);
+        expect(s.myName, 'Maya');
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'revoke from Room tears down BLE state and surfaces denied screen',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final t = (() {
+          final outbox = <Uint8List>[];
+          final inbox = StreamController<
+              ({String endpointId, Uint8List bytes})>.broadcast();
+          final transport = BleControlTransport.forTest(
+            controlBytes: inbox.stream,
+            writeBytes: (bytes) async {
+              outbox.add(bytes);
+            },
+          );
+          return (transport: transport, outbox: outbox, inbox: inbox);
+        })();
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          heartbeats: scheduler,
+          transport: t.transport,
+          permissionWatcher: watcher,
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        expect(scheduler.isRunning, isTrue);
+
+        watcher.push([
+          AppPermission.microphone,
+          AppPermission.bluetooth,
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        // Heartbeat scheduler must have been stopped (mirrors leaveRoom
+        // cleanup) so the cubit isn't pinging an absent transport.
+        expect(scheduler.isRunning, isFalse);
+        final s = cubit.state;
+        expect(s, isA<SessionPermissionDenied>());
+        expect((s as SessionPermissionDenied).missing, [
+          AppPermission.microphone,
+          AppPermission.bluetooth,
+        ]);
+        expect(s.myName, 'Maya');
+
+        await cubit.close();
+        await watcher.dispose();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'revoke from Onboarding is ignored (onboarding owns its own flow)',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(permissionWatcher: watcher);
+        await cubit.bootstrap();
+        expect(cubit.state, isA<SessionOnboarding>());
+
+        watcher.push([AppPermission.microphone]);
+        await Future<void>.delayed(Duration.zero);
+
+        // Onboarding owns its own permission flow — the cubit must not
+        // yank the user out mid-grant.
+        expect(cubit.state, isA<SessionOnboarding>());
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'recover from denied returns to Discovery with the persisted name',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final recent = _FakeRecentFrequenciesStore(initial: const ['100.1']);
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+          permissionWatcher: watcher,
+        );
+        await cubit.bootstrap();
+        watcher.push([AppPermission.microphone]);
+        await Future<void>.delayed(Duration.zero);
+        expect(cubit.state, isA<SessionPermissionDenied>());
+
+        // User re-grants in Settings; watcher emits empty.
+        watcher.push(const []);
+        await Future<void>.delayed(Duration.zero);
+
+        final s = cubit.state;
+        expect(s, isA<SessionDiscovery>());
+        expect((s as SessionDiscovery).myName, 'Maya');
+        expect(s.recentHostedFrequencies, ['100.1']);
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'recover with no display name routes back to Onboarding',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(permissionWatcher: watcher);
+
+        // Synthesize a denied state with no captured name (the watcher fires
+        // before bootstrap reads the store on a fresh install with revoked
+        // perms — defensive path).
+        cubit.emit(SessionPermissionDenied(
+          missing: const [AppPermission.microphone],
+        ));
+        await cubit.bootstrap();
+        // Bootstrap may have routed to Onboarding already; re-seed denied.
+        cubit.emit(SessionPermissionDenied(
+          missing: const [AppPermission.microphone],
+        ));
+
+        watcher.push(const []);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, isA<SessionOnboarding>());
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'changing missing list while denied refreshes the screen',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          permissionWatcher: watcher,
+        );
+        await cubit.bootstrap();
+
+        watcher.push([AppPermission.microphone, AppPermission.bluetooth]);
+        await Future<void>.delayed(Duration.zero);
+        expect((cubit.state as SessionPermissionDenied).missing,
+            [AppPermission.microphone, AppPermission.bluetooth]);
+
+        // User re-grants mic but bluetooth still off.
+        watcher.push([AppPermission.bluetooth]);
+        await Future<void>.delayed(Duration.zero);
+        expect(cubit.state, isA<SessionPermissionDenied>());
+        expect((cubit.state as SessionPermissionDenied).missing,
+            [AppPermission.bluetooth]);
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'recheckPermissions delegates to the watcher',
+      () async {
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(permissionWatcher: watcher);
+        await cubit.bootstrap();
+
+        await cubit.recheckPermissions();
+        expect(watcher.checkNowCalls, 1);
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'recheckPermissions is a no-op when no watcher is wired',
+      () async {
+        final cubit = _makeCubit();
+        await cubit.bootstrap();
+        await expectLater(cubit.recheckPermissions(), completes);
+        await cubit.close();
+      },
+    );
   });
 
   group('FrequencySessionState', () {
