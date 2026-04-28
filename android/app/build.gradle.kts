@@ -52,11 +52,11 @@ android {
             val keyPropsFile = rootProject.file("key.properties")
             if (keyPropsFile.exists()) {
                 val keyProps = java.util.Properties()
-                keyProps.load(java.io.FileInputStream(keyPropsFile))
-                keyAlias = keyProps["keyAlias"] as String?
-                keyPassword = keyProps["keyPassword"] as String?
-                storeFile = keyProps["storeFile"]?.let { file(it as String) }
-                storePassword = keyProps["storePassword"] as String?
+                keyPropsFile.inputStream().use { keyProps.load(it) }
+                keyAlias = keyProps.getProperty("keyAlias")
+                keyPassword = keyProps.getProperty("keyPassword")
+                storeFile = keyProps.getProperty("storeFile")?.let { rootProject.file(it) }
+                storePassword = keyProps.getProperty("storePassword")
             }
         }
     }
