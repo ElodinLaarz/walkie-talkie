@@ -368,6 +368,37 @@ void main() {
           null,
         );
       });
+
+      test('preserves valid entries when one element is not a Map',
+          () async {
+        // A non-Map element (a malformed native packet) used to throw
+        // inside the .map() block and the outer catch would discard the
+        // entire batch. Now we type-check + drop just the bad entry, so
+        // valid samples in the same batch survive.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (MethodCall call) async {
+            if (call.method != 'getCurrentRssi') return null;
+            return [
+              {'peerId': 'good', 'rssi': -70},
+              'not-a-map', // bare string would have crashed the cast
+              42, // bare int, same
+              {'peerId': 'also-good', 'rssi': -75},
+            ];
+          },
+        );
+
+        final result = await audioService.getCurrentRssi();
+        expect(result, hasLength(2));
+        expect(result.map((r) => r.peerId), ['good', 'also-good']);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
+      });
     });
 
     group('L2CAP voice transport', () {

@@ -289,10 +289,17 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// RSSI to report (e.g. before the GATT client has a connection),
   /// which keeps the wire quiet during link bring-up.
   ///
-  /// The seq counter advances even when the report is suppressed (no
-  /// neighbors / no transport / send failure) so it stays monotonic
-  /// once the next valid report goes out — same defensive pattern as
-  /// [_sendHeartbeat].
+  /// **Seq accounting.** Two distinct skip cases, with different rules:
+  ///   * Transport / audio absent, RSSI sample throws, peerId resolve
+  ///     fails — the seq counter still advances. These are failure
+  ///     paths where another producer may have already used a seq, so
+  ///     the next valid report needs the next number to stay monotonic.
+  ///     Same defensive pattern as [_sendHeartbeat].
+  ///   * Empty sample list — the seq counter does **not** advance. An
+  ///     empty report is a non-event (nothing to send), so the next
+  ///     report with samples picks up where we left off instead of
+  ///     skipping wire-level numbers the host's SequenceFilter would
+  ///     have to tolerate gaps in.
   Future<void> _sendSignalReport() async {
     final t = _transport;
     final audio = _audio;

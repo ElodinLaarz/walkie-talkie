@@ -271,8 +271,9 @@ class AudioService {
   /// back to the application `peerId` will land alongside the GATT-client
   /// issue (#43) which records that mapping during the handshake. Until
   /// then, the host side treats the value as opaque — its detection logic
-  /// keys on whatever string arrives and the toast-name lookup falls back
-  /// to a generic label when the MAC isn't in the roster.
+  /// keys on whatever string arrives. Reports for `peerId`s the host
+  /// can't resolve against its current roster are dropped before
+  /// surfacing a toast (see `_onSignalReport` in `FrequencySessionCubit`).
   Future<List<({String peerId, int rssi})>> getCurrentRssi() async {
     try {
       final result =
@@ -280,9 +281,13 @@ class AudioService {
       if (result == null) return const [];
       return result
           .map((entry) {
-            final m = entry as Map<dynamic, dynamic>;
-            final peerId = m['peerId'];
-            final rssi = m['rssi'];
+            // Type-check before casting — a non-Map element from the
+            // platform side would otherwise throw, and the outer
+            // try/catch would discard the *entire* batch (including
+            // valid samples). Drop just the bad entry instead.
+            if (entry is! Map) return null;
+            final peerId = entry['peerId'];
+            final rssi = entry['rssi'];
             if (peerId is! String || rssi is! int) return null;
             return (peerId: peerId, rssi: rssi);
           })
