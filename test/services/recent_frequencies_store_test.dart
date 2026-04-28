@@ -97,6 +97,22 @@ void main() {
       expect(await store.getRecent(), isEmpty);
     });
 
+    test('concurrent record calls do not lose entries', () async {
+      // Without serialization, the read-modify-write inside `record`
+      // races: two callers can both read the same pre-write state and
+      // last-write-wins one of them out of the list. Fire several in
+      // parallel — every freq should survive.
+      final store = HiveRecentFrequenciesStore();
+      await Future.wait([
+        store.record('92.4'),
+        store.record('100.1'),
+        store.record('88.7'),
+        store.record('104.3'),
+      ]);
+      final recent = await store.getRecent();
+      expect(recent.toSet(), {'92.4', '100.1', '88.7', '104.3'});
+    });
+
     test('getRecent returns an unmodifiable list', () async {
       // Callers shouldn't be able to mutate the returned list and have
       // their changes observed by anyone else (or, worse, accidentally
