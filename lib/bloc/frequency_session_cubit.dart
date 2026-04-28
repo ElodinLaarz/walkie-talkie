@@ -364,7 +364,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       if (postAttempt is SessionRoom) {
         emit(postAttempt.copyWith(connectionPhase: ConnectionPhase.lost));
       }
-      unawaited(leaveRoom());
+      await leaveRoom();
     }
     // On success: wait for the transport's JoinAccepted to call
     // applyJoinAccepted, which cancels the controller and resets to online.
