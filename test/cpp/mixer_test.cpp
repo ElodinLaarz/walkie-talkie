@@ -72,9 +72,12 @@ public:
     }
 
     // Feed a peer-arrived voice frame with its over-the-wire seq. Mirrors the
-    // production stuck-producer prune: a frame whose seq exceeds the previously
-    // accepted seq by more than [kPoisonThreshold] is dropped and the peer is
-    // marked poisoned; the next contiguous frame recovers.
+    // production stuck-producer prune: a frame whose forward delta from the
+    // last accepted seq exceeds [kPoisonThreshold] is dropped and the peer is
+    // marked poisoned; the next valid frame within the threshold recovers.
+    // Out-of-order / duplicate frames (delta <= 0) are silently dropped without
+    // affecting the watermark or the poison flag. Wrap-safe via signed int32
+    // delta (matches production audio_mixer.cpp).
     void onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, int numFrames) {
         std::lock_guard<std::mutex> lock(mixerMutex);
 
@@ -85,14 +88,24 @@ public:
         DeviceState& s = it->second;
 
         const uint32_t prevSeq = s.lastSeq;
-        if (prevSeq != 0 && seq > prevSeq + kPoisonThreshold) {
-            s.poisoned = true;
-            // Update lastSeq so the next contiguous frame can recover. Drop the
-            // current frame's audio (do not write to s.buffer) — production
-            // also avoids clearing the in-flight ring buffer here (SPSC contract).
-            s.lastSeq = seq;
-            LOGI("Device %d poisoned: seq jump %u -> %u", deviceId, prevSeq, seq);
-            return;
+        if (prevSeq != 0) {
+            const int32_t diff = static_cast<int32_t>(seq - prevSeq);
+
+            if (diff <= 0) {
+                // Out-of-order or duplicate — silently drop.
+                return;
+            }
+
+            if (diff > static_cast<int32_t>(kPoisonThreshold)) {
+                s.poisoned = true;
+                // Advance lastSeq so the next within-threshold frame recovers.
+                // Drop the current frame's audio (do not write to s.buffer) —
+                // production also avoids clearing the in-flight ring buffer
+                // here (SPSC contract).
+                s.lastSeq = seq;
+                LOGI("Device %d poisoned: seq jump %u -> %u (gap %d)", deviceId, prevSeq, seq, diff);
+                return;
+            }
         }
 
         if (s.poisoned) {
@@ -342,6 +355,108 @@ void testFirstFrameAlwaysPasses() {
     std::cout << "Test First Frame Always Passes: PASSED" << std::endl;
 }
 
+// Out-of-order or duplicate frames (delta <= 0 against the watermark) must
+// be silently dropped: don't poison, don't update lastSeq, don't write audio.
+// Without this rule a late-arriving older frame would lower the watermark
+// and the *next* in-order frame would look like a giant jump and falsely
+// poison the peer.
+void testOutOfOrderDoesNotPoisonOrAdvance() {
+    AudioMixer mixer;
+    mixer.addDevice(1);
+
+    const int kFrames = 4;
+    int16_t audio[kFrames] = {500, 500, 500, 500};
+
+    mixer.onVoiceFrame(1, 1, audio, kFrames);
+    mixer.onVoiceFrame(1, 5, audio, kFrames);  // watermark = 5
+
+    // Late arrival of an older seq must not poison.
+    mixer.onVoiceFrame(1, 3, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // Exact duplicate of the watermark must not poison either.
+    mixer.onVoiceFrame(1, 5, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // The watermark must still be 5: a small forward jump (5 → 10) stays
+    // within threshold. If the OOO frame had lowered it to 3, then 3 → 10
+    // would still be within threshold — so prove the invariant a different
+    // way: 5 → 22 is exactly 17 ahead and MUST poison; if the OOO frame
+    // had lowered the watermark to 3, then 3 → 22 = 19 also poisons, so
+    // that's not discriminating. Use the duplicate path instead: jump from
+    // 5 by exactly kPoisonThreshold (= 16) → 21, which must NOT poison.
+    mixer.onVoiceFrame(1, 5 + AudioMixer::kPoisonThreshold, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    std::cout << "Test Out-of-Order Does Not Poison Or Advance: PASSED" << std::endl;
+}
+
+// Recovery rule per [docs/protocol.md] § Voice frame format: "stops mixing
+// that peer's stream until the next valid frame arrives." A valid frame is
+// any frame within kPoisonThreshold of the (advanced-on-poison) watermark —
+// it does NOT have to be strictly seq+1. A non-contiguous-but-within-threshold
+// frame after poisoning recovers the peer, and a frame that is *itself* a
+// big-jump keeps it poisoned. This test pins both behaviors.
+void testRecoveryAcceptsAnyWithinThresholdFrame() {
+    AudioMixer mixer;
+    mixer.addDevice(1);
+
+    const int kFrames = 4;
+    int16_t audio[kFrames] = {100, 100, 100, 100};
+
+    mixer.onVoiceFrame(1, 1, audio, kFrames);
+    mixer.onVoiceFrame(1, 2, audio, kFrames);
+
+    // Big jump: poison. Watermark advances to 20.
+    mixer.onVoiceFrame(1, 20, audio, kFrames);
+    assert(mixer.isPoisoned(1));
+
+    // Another big jump while poisoned (20 → 40, gap 20 > 16) must keep the
+    // peer poisoned and advance the watermark to 40.
+    mixer.onVoiceFrame(1, 40, audio, kFrames);
+    assert(mixer.isPoisoned(1));
+
+    // Non-contiguous-but-within-threshold frame (40 → 50, gap 10 ≤ 16) must
+    // recover. (The protocol's "next valid frame" rule, not "next contiguous".)
+    mixer.onVoiceFrame(1, 50, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    std::cout << "Test Recovery Accepts Any Within-Threshold Frame: PASSED" << std::endl;
+}
+
+// uint32 wraparound. Comparison MUST be wrap-safe: a small forward jump
+// across the rollover is normal flow, not a 4-billion-frame gap. Mirrors
+// the same fix in production audio_mixer.cpp.
+void testSeqWraparoundIsWrapSafe() {
+    AudioMixer mixer;
+    mixer.addDevice(1);
+
+    const int kFrames = 4;
+    int16_t audio[kFrames] = {100, 100, 100, 100};
+
+    // Seed near rollover.
+    mixer.onVoiceFrame(1, 0xFFFFFFF0u, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // Tiny forward jump straight across uint32 max: gap of 1, must NOT poison.
+    mixer.onVoiceFrame(1, 0xFFFFFFF1u, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // Wrap forward: 0xFFFFFFF1 → 0x0 is exactly +15 modular, within threshold.
+    mixer.onVoiceFrame(1, 0x0u, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // Continue past the wrap: 0x0 → 0x5 is +5, normal.
+    mixer.onVoiceFrame(1, 0x5u, audio, kFrames);
+    assert(!mixer.isPoisoned(1));
+
+    // Now a real big forward jump near the boundary should still poison.
+    mixer.onVoiceFrame(1, 0x100u, audio, kFrames);  // +0xFB = 251
+    assert(mixer.isPoisoned(1));
+
+    std::cout << "Test Seq Wraparound Is Wrap-Safe: PASSED" << std::endl;
+}
+
 int main() {
     try {
         testMixMinus();
@@ -351,6 +466,9 @@ int main() {
         testPoisonThresholdBoundary();
         testPoisonIsPerPeer();
         testFirstFrameAlwaysPasses();
+        testOutOfOrderDoesNotPoisonOrAdvance();
+        testRecoveryAcceptsAnyWithinThresholdFrame();
+        testSeqWraparoundIsWrapSafe();
         std::cout << "All C++ Mixer tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed with exception: " << e.what() << std::endl;

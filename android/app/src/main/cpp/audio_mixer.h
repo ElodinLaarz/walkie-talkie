@@ -57,9 +57,20 @@ public:
     void updateDeviceAudio(int deviceId, const int16_t* audioData, int numFrames);
 
     // Feed a peer-arrived voice frame (with its over-the-wire seq) into the
-    // mixer. Implements the stuck-producer prune: if [seq] exceeds the last
-    // accepted seq by more than [kPoisonThreshold], the frame is dropped and
-    // the peer is marked poisoned; the next contiguous frame recovers.
+    // mixer. Implements the stuck-producer prune from
+    // [docs/protocol.md] § Voice frame format:
+    //
+    //  - Forward delta > [kPoisonThreshold]: poison the peer, drop the frame,
+    //    advance the watermark to [seq] so the next within-threshold frame
+    //    recovers.
+    //  - Forward delta in (0, kPoisonThreshold]: accept, mix, clear poison
+    //    if it was set.
+    //  - Delta <= 0 (out-of-order or duplicate): silently drop without
+    //    touching the watermark or the poison flag.
+    //
+    // Comparison uses a wrap-safe int32 delta so the rule holds across the
+    // uint32 [seq] rollover at 2^32.
+    //
     // Lock-free for the audio path; the registry mutex is taken only briefly
     // to look up the device.
     void onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, int numFrames);

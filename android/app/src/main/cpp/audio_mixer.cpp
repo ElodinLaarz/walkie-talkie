@@ -72,22 +72,41 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
 
     const uint32_t prevSeq = device->lastSeq;
 
-    // Stuck-producer prune. `prevSeq == 0` means we have not seen any frame
-    // yet, so the first frame always passes regardless of value (the protocol
-    // says peers start at seq=1, but a fresh-session reset can land much later
-    // — see [docs/protocol.md] § Voice frame format).
-    if (prevSeq != 0 && seq > prevSeq + kPoisonThreshold) {
-        if (!device->poisoned.exchange(true, std::memory_order_relaxed)) {
-            LOGW("Device %d poisoned: seq jump %u -> %u (gap %u > %u)",
-                 deviceId, prevSeq, seq, seq - prevSeq, kPoisonThreshold);
+    // First frame from this peer (`prevSeq == 0` since seq starts at 1 per
+    // the protocol) always passes regardless of value: a fresh-session reset
+    // can land at any high seq, and the GATT join handshake bounds when the
+    // first frame is allowed to arrive.
+    if (prevSeq != 0) {
+        // Wrap-safe forward delta: cast the unsigned subtraction to int32_t.
+        // - diff > 0 and small  → in-order, normal flow
+        // - diff > kPoisonThreshold → big forward jump, poison
+        // - diff <= 0 → out-of-order or duplicate (older seq, or same seq)
+        //
+        // Using signed int32 here is what makes the comparison wrap-safe:
+        // near uint32 rollover the unsigned `prevSeq + 16` would overflow,
+        // but `static_cast<int32_t>(seq - prevSeq)` is the modular distance
+        // interpreted as signed, which is correct for any pair within ±2^31.
+        const int32_t diff = static_cast<int32_t>(seq - prevSeq);
+
+        if (diff <= 0) {
+            // Out-of-order or duplicate. Don't poison, don't write, don't
+            // touch lastSeq — the existing watermark stays authoritative.
+            return;
         }
-        // Update lastSeq so the *next* contiguous frame can recover. Drop the
-        // current frame's audio: we don't trust it, and the ring buffer's
-        // SPSC contract forbids producer-side `clear()` while the mixer-tick
-        // consumer is reading. Any in-flight buffered samples will drain
-        // naturally over the next mixer tick.
-        device->lastSeq = seq;
-        return;
+
+        if (diff > static_cast<int32_t>(kPoisonThreshold)) {
+            if (!device->poisoned.exchange(true, std::memory_order_relaxed)) {
+                LOGW("Device %d poisoned: seq jump %u -> %u (gap %d > %u)",
+                     deviceId, prevSeq, seq, diff, kPoisonThreshold);
+            }
+            // Advance lastSeq so the next valid frame within the threshold
+            // recovers. Drop the current frame's audio: we don't trust it,
+            // and the ring buffer's SPSC contract forbids producer-side
+            // `clear()` while the mixer-tick consumer is reading. Any
+            // in-flight buffered samples drain naturally over the next tick.
+            device->lastSeq = seq;
+            return;
+        }
     }
 
     if (device->poisoned.exchange(false, std::memory_order_relaxed)) {
