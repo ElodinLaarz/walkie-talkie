@@ -592,7 +592,22 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              _buildChrome(context),
+              BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
+                buildWhen: (prev, next) {
+                  // Rebuild chrome when connectionPhase changes or state type changes
+                  if (prev is SessionRoom && next is SessionRoom) {
+                    return prev.connectionPhase != next.connectionPhase;
+                  }
+                  // Also rebuild when transitioning to/from SessionRoom (initial build)
+                  return true;
+                },
+                builder: (context, state) {
+                  final phase = state is SessionRoom
+                      ? state.connectionPhase
+                      : ConnectionPhase.online;
+                  return _buildChrome(context, phase);
+                },
+              ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
@@ -700,8 +715,47 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     );
   }
 
-  Widget _buildChrome(BuildContext context) {
+  Widget _buildChrome(BuildContext context, ConnectionPhase phase) {
     final c = FrequencyTheme.of(context).colors;
+
+    // Choose pill color and text based on connection phase
+    final Color pillBg;
+    final Color pillText;
+    final String statusText;
+    final Widget statusIcon;
+
+    switch (phase) {
+      case ConnectionPhase.reconnecting:
+        pillBg = c.warnSoft;
+        pillText = c.warn;
+        statusText = 'Reconnecting…';
+        // Spinning progress indicator for reconnecting - size matches PulseDot
+        statusIcon = SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(pillText),
+          ),
+        );
+      case ConnectionPhase.lost:
+        // Use danger color with reduced opacity for dark mode compatibility
+        pillBg = c.danger.withValues(alpha: 0.15);
+        pillText = c.danger;
+        statusText = 'Lost connection';
+        statusIcon = Icon(Icons.error_outline, size: 12, color: pillText);
+      case ConnectionPhase.online:
+        pillBg = c.accentSoft;
+        pillText = c.accentInk;
+        statusText = 'On air';
+        // Wrap PulseDot in SizedBox for consistent icon sizing
+        statusIcon = const SizedBox(
+          width: 12,
+          height: 12,
+          child: Center(child: PulseDot(size: 6)),
+        );
+    }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
       decoration: BoxDecoration(
@@ -713,24 +767,32 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
             decoration: BoxDecoration(
-              color: c.accentSoft,
+              color: pillBg,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const PulseDot(size: 6),
+                statusIcon,
                 const SizedBox(width: 6),
                 Text(
-                  'On air · ',
+                  statusText,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 11,
-                    color: c.accentInk,
+                    color: pillText,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                Text(widget.freq, style: kMonoStyle.copyWith(fontSize: 11, color: c.accentInk)),
+                if (phase == ConnectionPhase.online) ...[
+                  Text(' · ', style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: pillText,
+                    fontWeight: FontWeight.w500,
+                  )),
+                  Text(widget.freq, style: kMonoStyle.copyWith(fontSize: 11, color: pillText)),
+                ],
               ],
             ),
           ),

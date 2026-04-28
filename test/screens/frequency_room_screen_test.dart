@@ -161,7 +161,7 @@ void main() {
       await tester.pump();
 
       // On-air pill in the chrome carries the frequency.
-      expect(find.text('On air · '), findsOneWidget);
+      expect(find.text('On air'), findsOneWidget);
       expect(find.text('104.3'), findsOneWidget);
 
       // Me-row shows the configured name without the muted suffix.
