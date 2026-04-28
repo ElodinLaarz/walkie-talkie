@@ -5,40 +5,82 @@
 #define LOG_TAG "AudioMixer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
+// Constructor (if needed - add to header too)
+AudioMixer::AudioMixer() {
+    // Pre-allocate buffers
+    deviceSnapshotBuffer.reserve(kMaxDevices);
+    tempMixBuffer.resize(kMaxFrames);
+}
+
 // Implementation of AudioMixer methods
 bool AudioMixer::addDevice(int deviceId) {
-    std::lock_guard<std::mutex> lock(mixerMutex);
-    if (deviceBuffers.size() >= kMaxDevices) {
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    if (devices.size() >= kMaxDevices) {
         LOGI("Maximum devices reached (%d)", kMaxDevices);
         return false;
     }
-    deviceBuffers[deviceId] = std::vector<int16_t>();
+    if (devices.find(deviceId) != devices.end()) {
+        LOGI("Device %d already exists", deviceId);
+        return false;
+    }
+    devices[deviceId] = std::make_shared<DeviceAudioBuffer>();
     LOGI("Device %d added to mixer", deviceId);
     return true;
 }
 
 void AudioMixer::removeDevice(int deviceId) {
-    std::lock_guard<std::mutex> lock(mixerMutex);
-    deviceBuffers.erase(deviceId);
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    devices.erase(deviceId);
     LOGI("Device %d removed from mixer", deviceId);
 }
 
 void AudioMixer::updateDeviceAudio(int deviceId, const int16_t* audioData, int numFrames) {
-    std::lock_guard<std::mutex> lock(mixerMutex);
-    auto it = deviceBuffers.find(deviceId);
-    if (it != deviceBuffers.end()) {
-        it->second.assign(audioData, audioData + numFrames);
+    // Get shared_ptr to device (keeps it alive even if removed concurrently)
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;  // Copy shared_ptr (atomic ref count increment)
+        }
+    }
+    // Mutex released - now lock-free
+
+    if (device) {
+        // Lock-free write to ring buffer
+        size_t written = device->ringBuffer.write(audioData, numFrames);
+        if (written < numFrames) {
+            // Buffer full or near-full (normal during startup or if mixer tick is slow)
+            // Don't log on every occurrence to avoid spam
+        }
     }
 }
 
 void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames) {
-    std::lock_guard<std::mutex> lock(mixerMutex);
     std::memset(outputBuffer, 0, numFrames * sizeof(int16_t));
-    for (const auto& [id, buffer] : deviceBuffers) {
-        if (id != deviceId && !buffer.empty()) {
-            int framesToMix = std::min(numFrames, static_cast<int>(buffer.size()));
-            for (int i = 0; i < framesToMix; i++) {
-                int32_t mixed = outputBuffer[i] + buffer[i];
+
+    // Get device list snapshot using pre-allocated buffer
+    deviceSnapshotBuffer.clear();
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        for (const auto& [id, buffer] : devices) {
+            if (id != deviceId && buffer) {
+                deviceSnapshotBuffer.push_back({id, buffer});  // Copy shared_ptr
+            }
+        }
+    }
+
+    // Mix all other devices using pre-allocated temp buffer
+    for (const auto& [id, device] : deviceSnapshotBuffer) {
+        if (!device) continue;
+
+        // Use read() to consume the data from the ring buffer
+        size_t samplesRead = device->ringBuffer.read(tempMixBuffer.data(), std::min(numFrames, kMaxFrames));
+        if (samplesRead > 0) {
+            // Mix this device's audio into the output
+            for (size_t i = 0; i < samplesRead; i++) {
+                int32_t mixed = static_cast<int32_t>(outputBuffer[i]) + static_cast<int32_t>(tempMixBuffer[i]);
+                // Clamp to int16_t range
                 outputBuffer[i] = static_cast<int16_t>(
                     std::max<int32_t>(-32768, std::min<int32_t>(32767, mixed))
                 );
@@ -48,9 +90,18 @@ void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int
 }
 
 void AudioMixer::clear() {
-    std::lock_guard<std::mutex> lock(mixerMutex);
-    deviceBuffers.clear();
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    devices.clear();
     LOGI("Mixer cleared");
+}
+
+std::vector<int> AudioMixer::getActiveDevices() {
+    std::vector<int> activeDevices;
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    for (const auto& [id, _] : devices) {
+        activeDevices.push_back(id);
+    }
+    return activeDevices;
 }
 
 // Global mixer instance
