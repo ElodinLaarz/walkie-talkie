@@ -5,9 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
 import 'package:walkie_talkie/bloc/frequency_session_state.dart';
+import 'package:walkie_talkie/protocol/framing.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/services/audio_service.dart';
+import 'package:walkie_talkie/services/ble_control_transport.dart';
+import 'package:walkie_talkie/services/heartbeat_scheduler.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 
@@ -95,6 +98,8 @@ FrequencySessionCubit _makeCubit({
   RecentFrequenciesStore? recentFrequenciesStore,
   AudioService? audio,
   List<Duration>? reconnectDelays,
+  HeartbeatScheduler? heartbeats,
+  BleControlTransport? transport,
 }) =>
     FrequencySessionCubit(
       identityStore: identityStore ?? _FakeStore(),
@@ -102,6 +107,8 @@ FrequencySessionCubit _makeCubit({
           recentFrequenciesStore ?? _FakeRecentFrequenciesStore(),
       audio: audio,
       reconnectDelays: reconnectDelays,
+      heartbeats: heartbeats,
+      transport: transport,
     );
 
 void main() {
@@ -1111,6 +1118,354 @@ void main() {
       await cubit.close();
       blocker.complete(false);
       await expectLater(dropFuture, completes);
+    });
+  });
+
+  // ── Heartbeats / dirty-disconnect ──────────────────────────────────────
+
+  group('Heartbeats', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    /// Builds a transport whose `send` writes to [outbox] without touching
+    /// MethodChannels. The incoming stream is exposed via [inbox] so tests
+    /// can deliver synthesised wire messages.
+    ({BleControlTransport transport, List<Uint8List> outbox, StreamController<({String endpointId, Uint8List bytes})> inbox})
+        makeTestTransport() {
+      final outbox = <Uint8List>[];
+      final inbox = StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+      final transport = BleControlTransport.forTest(
+        controlBytes: inbox.stream,
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      return (transport: transport, outbox: outbox, inbox: inbox);
+    }
+
+    test(
+      'joinRoom starts the heartbeat scheduler when a transport is wired; '
+      'leaveRoom stops it',
+      () async {
+        final t = makeTestTransport();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+          missThreshold: const Duration(seconds: 60),
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        expect(scheduler.isRunning, isFalse);
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        expect(scheduler.isRunning, isTrue);
+
+        await cubit.leaveRoom();
+        expect(scheduler.isRunning, isFalse);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'joinRoom without a transport does NOT start the heartbeat scheduler',
+      () async {
+        // The wire-less loopback mode is the path widget tests use, and
+        // a periodic timer outliving the test triggers Flutter's
+        // "Timer is still pending" assertion. Heartbeats are useless
+        // without a transport (no wire to ping) so we leave the scheduler
+        // dormant.
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final cubit = _makeCubit(heartbeats: scheduler);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        expect(scheduler.isRunning, isFalse);
+        await cubit.close();
+      },
+    );
+
+    test('cubit.close() stops the heartbeat scheduler', () async {
+      final t = makeTestTransport();
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(hours: 1),
+      );
+      final cubit = _makeCubit(
+        heartbeats: scheduler,
+        transport: t.transport,
+      );
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      expect(scheduler.isRunning, isTrue);
+
+      await cubit.close();
+      expect(scheduler.isRunning, isFalse);
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test(
+      'incoming Heartbeat refreshes the watermark for the sender',
+      () async {
+        final t = makeTestTransport();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        await cubit.bootstrap(); // wires the transport.incoming subscription
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        // Inject a Heartbeat from a guest peer — frame it through
+        // encodeFragments so the inbox receives the same shape it would
+        // see from the native GATT layer.
+        final pingJson = const Heartbeat(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+        ).encode();
+        for (final frag in encodeFragments(pingJson)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(scheduler.lastSeen, contains('p-guest'));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host: peer-lost drops the peer from the roster and broadcasts RosterUpdate',
+      () async {
+        final t = makeTestTransport();
+        // Use a deterministic clock so debugTick() can drive the silence test.
+        var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+          missThreshold: const Duration(seconds: 15),
+          clock: () => fakeNow,
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        // Seed the host's roster (would normally come from JoinAccepted /
+        // RosterUpdate flow). This is the snapshot the lost-peer handler
+        // edits down.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-stale', displayName: 'Stale'),
+            ProtocolPeer(peerId: 'p-fresh', displayName: 'Fresh'),
+          ],
+        ));
+
+        // p-stale pinged at t=0; p-fresh pings at t=14. Tick at t=20 → only
+        // p-stale should be declared lost (20s > 15s threshold).
+        scheduler.notePingFrom('p-stale');
+        fakeNow = fakeNow.add(const Duration(seconds: 14));
+        scheduler.notePingFrom('p-fresh');
+        fakeNow = fakeNow.add(const Duration(seconds: 6));
+        scheduler.debugTick();
+        await Future<void>.delayed(Duration.zero); // settle the broadcast
+
+        final room = cubit.state as SessionRoom;
+        expect(
+          room.roster.map((p) => p.peerId),
+          unorderedEquals(['p-host', 'p-fresh']),
+          reason: 'p-stale crossed the silence threshold',
+        );
+
+        // The cubit should have written a RosterUpdate to the wire so the
+        // remaining guests learn of the drop. We don't pin the exact framing
+        // here (other tests cover encodeFragments) — just check that *some*
+        // outbound bytes contain "roster_update".
+        final wire = t.outbox.map((b) => String.fromCharCodes(b)).join();
+        expect(wire, contains('roster_update'));
+        expect(wire, contains('p-fresh'));
+        expect(wire, isNot(contains('p-stale')));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'guest: host-lost transitions the room to reconnecting via notifyDrop',
+      () async {
+        final t = makeTestTransport();
+        // notifyDrop needs an AudioService; keep it on a non-existent MAC
+        // and let the (zero-delay) attempts fail.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (call) async => false,
+        );
+
+        var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+          missThreshold: const Duration(seconds: 15),
+          clock: () => fakeNow,
+        );
+        final audio = AudioService();
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+          audio: audio,
+          reconnectDelays: _testReconnectDelays,
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        );
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+        ));
+
+        scheduler.notePingFrom('p-host');
+        fakeNow = fakeNow.add(const Duration(seconds: 20));
+        scheduler.debugTick();
+        // Yield once so notifyDrop emits ConnectionPhase.reconnecting before
+        // the (zero-delay) attempts exhaust.
+        await Future<void>.delayed(Duration.zero);
+
+        // notifyDrop has been entered: state must be SessionRoom with
+        // reconnecting phase, OR the loop has already exhausted to Discovery.
+        final s = cubit.state;
+        if (s is SessionRoom) {
+          expect(s.connectionPhase, isNot(ConnectionPhase.online));
+        } else {
+          expect(s, isA<SessionDiscovery>());
+        }
+
+        // Drain any pending reconnect work before closing so background
+        // futures don't outlive the test.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
+      },
+    );
+
+    test(
+      'guest: a non-host peer-lost is ignored',
+      () async {
+        final t = makeTestTransport();
+        var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+          missThreshold: const Duration(seconds: 15),
+          clock: () => fakeNow,
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        );
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-other', displayName: 'Other'),
+          ],
+        ));
+
+        // A non-host peer goes silent. The guest doesn't know about other
+        // guests (star topology — that's the host's bookkeeping), so it
+        // must NOT call notifyDrop / leaveRoom on a stale watermark.
+        scheduler.notePingFrom('p-other');
+        fakeNow = fakeNow.add(const Duration(seconds: 30));
+        scheduler.debugTick();
+
+        final s = cubit.state;
+        expect(s, isA<SessionRoom>());
+        expect((s as SessionRoom).connectionPhase, ConnectionPhase.online);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('forgetPeer is wired through Leave dispatch', () async {
+      final t = makeTestTransport();
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(hours: 1),
+      );
+      final cubit = _makeCubit(
+        heartbeats: scheduler,
+        transport: t.transport,
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [
+          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+        ],
+      ));
+
+      // Synthesise a Leave from p-guest delivered through the transport.
+      scheduler.notePingFrom('p-guest');
+      expect(scheduler.lastSeen, contains('p-guest'));
+
+      final leaveJson = const Leave(peerId: 'p-guest', seq: 1, atMs: 0).encode();
+      for (final frag in encodeFragments(leaveJson)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Note: the dispatch first calls notePingFrom(p-guest) (any inbound
+      // activity refreshes the watermark) and then forgetPeer(p-guest). The
+      // net effect on the table is "removed".
+      expect(scheduler.lastSeen, isNot(contains('p-guest')));
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
     });
   });
 

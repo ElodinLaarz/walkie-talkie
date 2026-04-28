@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../protocol/messages.dart';
+import '../protocol/peer.dart';
 import '../services/audio_service.dart';
 import '../services/ble_control_transport.dart';
+import '../services/heartbeat_scheduler.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/reconnect_controller.dart';
@@ -68,6 +70,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// production schedule; tests pass short delays to avoid slow test runs.
   final List<Duration>? _reconnectDelays;
 
+  /// Drives the protocol's `ping` plane. Started on room entry, stopped
+  /// on leave / close. The cubit owns the role-specific reaction to a
+  /// lost peer (host: drop from roster + broadcast `RosterUpdate`;
+  /// guest: notify a host drop via [notifyDrop]).
+  final HeartbeatScheduler _heartbeats;
+
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   ReconnectController? _reconnectController;
 
@@ -88,9 +96,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     BleControlTransport? transport,
     AudioService? audio,
     List<Duration>? reconnectDelays,
+    HeartbeatScheduler? heartbeats,
   })  : _transport = transport,
         _audio = audio,
         _reconnectDelays = reconnectDelays,
+        _heartbeats = heartbeats ?? HeartbeatScheduler(),
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -124,6 +134,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   }
 
   void _onTransportMessage(FrequencyMessage msg) {
+    // Any inbound activity from a peer counts as a sign-of-life — refresh
+    // the heartbeat watermark before dispatching, so a peer that's actively
+    // sending control messages won't be declared lost just because a
+    // dedicated `ping` was delayed.
+    _heartbeats.notePingFrom(msg.peerId);
     switch (msg) {
       case JoinAccepted m:
         applyJoinAccepted(m);
@@ -145,6 +160,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
               current.roster.where((p) => p.peerId != m.peerId).toList();
           emit(current.copyWith(roster: updated));
           _transport?.forgetPeer(m.peerId);
+          _heartbeats.forgetPeer(m.peerId);
         }
       case RemovePeer m:
         // Host-broadcasted peer removal. Drop the named peer from the roster
@@ -155,16 +171,119 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
             current.roster.where((p) => p.peerId != m.target).toList();
         emit(current.copyWith(roster: updated));
         _transport?.forgetPeer(m.target);
-      // These message types are handled by future issues (heartbeats,
-      // signal reports, voice-activity detection). Silently drop for now.
+        _heartbeats.forgetPeer(m.target);
+      case Heartbeat():
+        // Already noted above; no further dispatch — the heartbeat plane
+        // is purely a liveness signal, not a state-changing event.
+        break;
+      // These message types are handled by future issues (signal reports,
+      // voice-activity detection). Silently drop for now.
       case TalkingState():
       case MuteState():
-      case Heartbeat():
       case JoinRequest():
       case JoinDenied():
       case SignalReport():
         break;
     }
+  }
+
+  /// Tick callback wired into [HeartbeatScheduler.start] on room entry.
+  /// Builds + sends a single `Heartbeat` over the transport. The native
+  /// layer decides whether `send` broadcasts to all subscribed centrals
+  /// (host) or unicasts to the connected host (guest).
+  ///
+  /// The seq counter advances even when the transport is null so it
+  /// stays monotonic once the BLE link comes up — same defensive pattern
+  /// as [broadcastMute].
+  Future<void> _sendHeartbeat() async {
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve peer id for heartbeat: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _seq++;
+      return;
+    }
+    if (isClosed) return;
+    final msg = Heartbeat(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    unawaited(t.send(msg));
+  }
+
+  /// Fired by [HeartbeatScheduler] when [missThreshold] elapses without
+  /// a `notePingFrom` for [peerId]. Role-specific behaviour:
+  ///
+  ///   * **Host** — drop the peer from the local roster, clean up
+  ///     transport state, and broadcast a `RosterUpdate` to the
+  ///     remaining guests. Mirrors the protocol's host-as-authority
+  ///     dirty-disconnect contract.
+  ///   * **Guest** — only react if the lost peer is the host. Routes
+  ///     into [notifyDrop] (which starts the reconnect loop) when a
+  ///     MAC is on the room state, or to [leaveRoom] as a fallback
+  ///     when there's nothing to dial.
+  ///
+  /// No-op outside `SessionRoom` (e.g. a late tick after the user has
+  /// already left), or after the cubit is closed.
+  void _onHeartbeatPeerLost(String peerId) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom) return;
+    if (current.roomIsHost) {
+      // Don't react to a "lost" event for the local host's own peerId
+      // (defensive — shouldn't happen, but a stale watermark from a
+      // prior session shouldn't trigger a self-delete).
+      final updated =
+          current.roster.where((p) => p.peerId != peerId).toList();
+      if (updated.length == current.roster.length) return;
+      emit(current.copyWith(roster: updated));
+      _transport?.forgetPeer(peerId);
+      final t = _transport;
+      if (t == null) return;
+      // Best-effort RosterUpdate to remaining guests. We need a peerId
+      // for the envelope; resolve lazily and fire-and-forget.
+      unawaited(_broadcastRosterUpdate(updated));
+    } else {
+      // Guest: only the host's silence matters. A guest going quiet is
+      // the host's problem to handle and broadcast — we'd just hear
+      // about it via a `RosterUpdate`.
+      if (peerId != current.hostPeerId) return;
+      final mac = current.macAddress;
+      if (mac != null) {
+        unawaited(notifyDrop(macAddress: mac));
+      } else {
+        unawaited(leaveRoom());
+      }
+    }
+  }
+
+  Future<void> _broadcastRosterUpdate(List<ProtocolPeer> roster) async {
+    final t = _transport;
+    if (t == null) return;
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve peer id for roster update: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return;
+    }
+    if (isClosed) return;
+    final msg = RosterUpdate(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      roster: roster,
+    );
+    unawaited(t.send(msg));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -262,6 +381,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       macAddress: isHost ? null : macAddress,
       sessionUuidLow8: isHost ? null : sessionUuidLow8,
     ));
+    // Begin the heartbeat plane for the lifetime of the room. Pings the
+    // wire every interval and watches inbound activity for silent peers
+    // (host) / a silent host (guest). Calling start() is idempotent —
+    // re-entry into a fresh room will reset its watermarks.
+    //
+    // Skipped when no transport is wired: there's no wire to ping and no
+    // peers to detect silence on. Avoids leaking a long-running periodic
+    // timer in widget tests that exercise the cubit in loopback mode.
+    if (_transport != null) {
+      _heartbeats.start(
+        onTick: () => unawaited(_sendHeartbeat()),
+        onPeerLost: _onHeartbeatPeerLost,
+      );
+    }
   }
 
   /// Drops back to Discovery and forgets the room. No-op if not in a
@@ -278,6 +411,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // the user manually leaves rather than waiting for the next delay tick.
     _reconnectController?.cancel();
     _reconnectController = null;
+    // Cancel the heartbeat timer so it doesn't keep ticking against an
+    // empty roster (and incidentally trigger a phantom RosterUpdate if
+    // a stale watermark expires post-leave).
+    _heartbeats.stop();
     _seq = 0;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
@@ -497,6 +634,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Cancel an in-progress reconnect before closing so the attempt loop
     // won't call emit() or leaveRoom() after the cubit is disposed.
     _reconnectController?.cancel();
+    // Stop the heartbeat timer before super.close() so a tick suspended
+    // mid-microtask can't try to emit() against a closing cubit.
+    _heartbeats.stop();
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
     // suspended `await` in `sendMediaCommand` resumes after it sees
     // `isClosed == true` and bails before touching the controller. If
