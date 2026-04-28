@@ -701,26 +701,31 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         pillBg = c.warnSoft;
         pillText = c.warn;
         statusText = 'Reconnecting…';
-        // Spinning progress indicator for reconnecting
+        // Spinning progress indicator for reconnecting - size matches PulseDot
         statusIcon = SizedBox(
-          width: 10,
-          height: 10,
+          width: 12,
+          height: 12,
           child: CircularProgressIndicator(
             strokeWidth: 2,
             valueColor: AlwaysStoppedAnimation(pillText),
           ),
         );
       case ConnectionPhase.lost:
-        pillBg = const Color(0xFFFFE5E5); // Light red background
+        // Use danger color with reduced opacity for dark mode compatibility
+        pillBg = c.danger.withValues(alpha: 0.15);
         pillText = c.danger;
         statusText = 'Lost connection';
         statusIcon = Icon(Icons.error_outline, size: 12, color: pillText);
       case ConnectionPhase.online:
-      default:
         pillBg = c.accentSoft;
         pillText = c.accentInk;
         statusText = 'On air';
-        statusIcon = const PulseDot(size: 6);
+        // Wrap PulseDot in SizedBox for consistent icon sizing
+        statusIcon = const SizedBox(
+          width: 12,
+          height: 12,
+          child: Center(child: PulseDot(size: 6)),
+        );
     }
 
     return Container(
