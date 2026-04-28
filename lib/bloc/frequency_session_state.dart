@@ -86,6 +86,19 @@ final class SessionRoom extends FrequencySessionState {
   /// rationale.
   final MediaState? mediaState;
 
+  /// BT MAC of the host this guest is connected to, carried through from
+  /// Discovery. Null on the host side (the local user *is* the host, so
+  /// there's no remote to dial) and on Recent / cosmetic-only entries before
+  /// BLE is wired. The GATT-client transport reads this to dial the host.
+  final String? macAddress;
+
+  /// Low 8 bytes of the host's session UUID, in hex (16 chars). Carried
+  /// alongside [macAddress] so the BLE control plane can correlate the room
+  /// with the advertised session — multiple hosts on different sessions can
+  /// share a MAC if the same physical device hops sessions, so MAC alone
+  /// isn't a stable session key. Null in the same cases as [macAddress].
+  final String? sessionUuidLow8;
+
   const SessionRoom({
     required this.myName,
     required this.roomFreq,
@@ -93,6 +106,8 @@ final class SessionRoom extends FrequencySessionState {
     this.hostPeerId,
     this.roster = const [],
     this.mediaState,
+    this.macAddress,
+    this.sessionUuidLow8,
   });
 
   /// `??` would conflate "argument omitted" with "argument explicitly set
@@ -116,6 +131,8 @@ final class SessionRoom extends FrequencySessionState {
     Object? hostPeerId = _unset,
     List<ProtocolPeer>? roster,
     Object? mediaState = _unset,
+    Object? macAddress = _unset,
+    Object? sessionUuidLow8 = _unset,
   }) =>
       SessionRoom(
         myName: myName ?? this.myName,
@@ -130,9 +147,23 @@ final class SessionRoom extends FrequencySessionState {
         mediaState: identical(mediaState, _unset)
             ? this.mediaState
             : mediaState as MediaState?,
+        macAddress: identical(macAddress, _unset)
+            ? this.macAddress
+            : macAddress as String?,
+        sessionUuidLow8: identical(sessionUuidLow8, _unset)
+            ? this.sessionUuidLow8
+            : sessionUuidLow8 as String?,
       );
 
   @override
-  List<Object?> get props =>
-      [myName, roomFreq, roomIsHost, hostPeerId, roster, mediaState];
+  List<Object?> get props => [
+        myName,
+        roomFreq,
+        roomIsHost,
+        hostPeerId,
+        roster,
+        mediaState,
+        macAddress,
+        sessionUuidLow8,
+      ];
 }

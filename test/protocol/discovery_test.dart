@@ -12,11 +12,12 @@ void main() {
         0x00, 0x00, // flags
         0x00, 0x00, 0x00, 0x00, // reserved
       ]);
-      
+
       final session = DiscoveredSession.fromManufacturerData(
         data,
         hostName: "Maya's Pixel",
         rssi: -45,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       );
 
       expect(session, isNotNull);
@@ -25,6 +26,31 @@ void main() {
       expect(session.sessionUuidLow8, '0011223344556677');
       expect(session.hostName, "Maya's Pixel");
       expect(session.rssi, -45);
+      expect(session.macAddress, 'AA:BB:CC:DD:EE:FF');
+    });
+
+    test('round-trips the macAddress through fromManufacturerData', () {
+      // The MAC isn't encoded in the advertisement payload — it comes from
+      // the BLE scan record on the device side. fromManufacturerData has
+      // to thread it through to DiscoveredSession unchanged so the guest's
+      // GATT-connect call can dial the right host.
+      final data = Uint8List.fromList([
+        0x01, 0x01,
+        0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+      ]);
+      const mac = '11:22:33:44:55:66';
+
+      final session = DiscoveredSession.fromManufacturerData(
+        data,
+        hostName: 'Devon',
+        rssi: -60,
+        macAddress: mac,
+      );
+
+      expect(session, isNotNull);
+      expect(session!.macAddress, mac);
     });
 
     test('rejects advertisement with wrong version', () {
@@ -32,13 +58,23 @@ void main() {
         0x02, // Version 2 (unsupported)
         0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       ]);
-      final session = DiscoveredSession.fromManufacturerData(data, hostName: 'X', rssi: 0);
+      final session = DiscoveredSession.fromManufacturerData(
+        data,
+        hostName: 'X',
+        rssi: 0,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
       expect(session, isNull);
     });
 
     test('rejects truncated advertisement', () {
       final data = Uint8List.fromList([0x01, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00, 0x00, 0x00]);
-      final session = DiscoveredSession.fromManufacturerData(data, hostName: 'X', rssi: 0);
+      final session = DiscoveredSession.fromManufacturerData(
+        data,
+        hostName: 'X',
+        rssi: 0,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
       expect(session, isNull);
     });
 
@@ -55,6 +91,7 @@ void main() {
         flags: 0,
         hostName: 'H1',
         rssi: -50,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       );
       // low12 = 0, tenths = 880 + 0 = 880, mhz = 88.0
       expect(s1.mhzDisplay, '88.0');
@@ -71,6 +108,7 @@ void main() {
         flags: 0,
         hostName: 'H2',
         rssi: -50,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       );
       // low12 = 163, tenths = 880 + (163 % 200) = 880 + 163 = 1043, mhz = 104.3
       expect(s2.mhzDisplay, '104.3');
@@ -84,6 +122,7 @@ void main() {
         flags: 0,
         hostName: 'H3',
         rssi: -50,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       );
       // low12 = 250, tenths = 880 + (250 % 200) = 880 + 50 = 930, mhz = 93.0
       expect(s3.mhzDisplay, '93.0');
