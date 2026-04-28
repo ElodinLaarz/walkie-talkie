@@ -364,8 +364,12 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePauseStreams(
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeResumeStreams(
         JNIEnv *env, jobject thiz) {
+    // Pause and ducking are orthogonal — the caller is responsible for
+    // restoring full volume via setDuckingVolume(1.0) when appropriate.
+    // Keeps the contract symmetric with pauseStreams (which doesn't touch
+    // ducking either) and avoids surprising a duck-then-pause sequence
+    // by silently restoring volume on the wrong event.
     g_focusPaused.store(false, std::memory_order_relaxed);
-    g_duckingVolume.store(1.0f, std::memory_order_relaxed);
     if (g_audioEngine != nullptr) {
         return g_audioEngine->resumeStreams() ? JNI_TRUE : JNI_FALSE;
     }
