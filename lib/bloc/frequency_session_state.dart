@@ -54,6 +54,16 @@ final class SessionDiscovery extends FrequencySessionState {
   List<Object?> get props => [myName, recentHostedFrequencies];
 }
 
+/// Tracks whether the guest's BLE link to the host is healthy.
+///
+/// [online] — established and receiving heartbeats (default for hosts, whose
+///   link is always considered healthy since they *are* the host).
+/// [reconnecting] — a transient drop was detected; [ReconnectController] is
+///   retrying in the background and the UI shows a "Reconnecting…" pill.
+/// [lost] — all retries exhausted; [FrequencySessionCubit.leaveRoom] is
+///   called immediately after emitting this phase.
+enum ConnectionPhase { online, reconnecting, lost }
+
 /// User is in a room. Both [roomFreq] and [roomIsHost] are non-nullable
 /// by construction, so the UI can read them without force-unwrapping.
 ///
@@ -99,6 +109,12 @@ final class SessionRoom extends FrequencySessionState {
   /// isn't a stable session key. Null in the same cases as [macAddress].
   final String? sessionUuidLow8;
 
+  /// Current BLE link health between this guest and the host. Always
+  /// [ConnectionPhase.online] for host-role sessions. Updated by
+  /// [FrequencySessionCubit.notifyDrop] and cleared back to [online] by
+  /// [FrequencySessionCubit.applyJoinAccepted] on a successful rejoin.
+  final ConnectionPhase connectionPhase;
+
   const SessionRoom({
     required this.myName,
     required this.roomFreq,
@@ -108,6 +124,7 @@ final class SessionRoom extends FrequencySessionState {
     this.mediaState,
     this.macAddress,
     this.sessionUuidLow8,
+    this.connectionPhase = ConnectionPhase.online,
   });
 
   /// `??` would conflate "argument omitted" with "argument explicitly set
@@ -133,6 +150,7 @@ final class SessionRoom extends FrequencySessionState {
     Object? mediaState = _unset,
     Object? macAddress = _unset,
     Object? sessionUuidLow8 = _unset,
+    ConnectionPhase? connectionPhase,
   }) =>
       SessionRoom(
         myName: myName ?? this.myName,
@@ -153,6 +171,7 @@ final class SessionRoom extends FrequencySessionState {
         sessionUuidLow8: identical(sessionUuidLow8, _unset)
             ? this.sessionUuidLow8
             : sessionUuidLow8 as String?,
+        connectionPhase: connectionPhase ?? this.connectionPhase,
       );
 
   @override
@@ -165,5 +184,6 @@ final class SessionRoom extends FrequencySessionState {
         mediaState,
         macAddress,
         sessionUuidLow8,
+        connectionPhase,
       ];
 }

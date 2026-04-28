@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../protocol/messages.dart';
+import '../services/audio_service.dart';
 import '../services/ble_control_transport.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
+import '../services/reconnect_controller.dart';
 import 'frequency_session_state.dart';
 
 /// Owns session-level Frequency state and the side-effects that mutate it:
@@ -57,7 +59,17 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// for tests and early development builds.
   final BleControlTransport? _transport;
 
+  /// Optional audio service. Required to drive [notifyDrop] — without it,
+  /// reconnect attempts are silently skipped and the room stays in whatever
+  /// [ConnectionPhase] was last emitted.
+  final AudioService? _audio;
+
+  /// Delay schedule injected into [ReconnectController]. Defaults to the
+  /// production schedule; tests pass short delays to avoid slow test runs.
+  final List<Duration>? _reconnectDelays;
+
   StreamSubscription<FrequencyMessage>? _transportSubscription;
+  ReconnectController? _reconnectController;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
 
@@ -74,7 +86,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     required this.identityStore,
     required this.recentFrequenciesStore,
     BleControlTransport? transport,
+    AudioService? audio,
+    List<Duration>? reconnectDelays,
   })  : _transport = transport,
+        _audio = audio,
+        _reconnectDelays = reconnectDelays,
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -258,6 +274,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
+    // Stop any in-progress reconnect so BLE retries halt promptly when
+    // the user manually leaves rather than waiting for the next delay tick.
+    _reconnectController?.cancel();
+    _reconnectController = null;
     _seq = 0;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
@@ -300,11 +320,63 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final current = state;
     if (current is! SessionRoom) return;
     _seq = 0;
+    // Clear any in-progress reconnect and return to online — the handshake
+    // completing is the authoritative "connection is healthy" signal.
+    _reconnectController?.cancel();
+    _reconnectController = null;
     emit(current.copyWith(
       hostPeerId: msg.hostPeerId,
       roster: msg.roster,
       mediaState: msg.mediaState,
+      connectionPhase: ConnectionPhase.online,
     ));
+  }
+
+  /// Called by heartbeat detection when the guest hasn't heard from the host
+  /// for the heartbeat timeout. Transitions the room to
+  /// [ConnectionPhase.reconnecting] and starts the exponential-backoff retry
+  /// loop.
+  ///
+  /// No-op if the local user is the host, if [_audio] was not injected, or if
+  /// a reconnect is already in progress. On success the transport will deliver
+  /// a [JoinAccepted] that calls [applyJoinAccepted] and transitions back to
+  /// [ConnectionPhase.online]. On failure the room drops to Discovery.
+  Future<void> notifyDrop({required String macAddress}) async {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return;
+    if (current.roomIsHost) return;
+    if (current.connectionPhase == ConnectionPhase.reconnecting) return;
+
+    final audio = _audio;
+    if (audio == null) return;
+
+    emit(current.copyWith(connectionPhase: ConnectionPhase.reconnecting));
+
+    _reconnectController?.cancel();
+    final controller = ReconnectController(
+      audio: audio,
+      delays: _reconnectDelays,
+    );
+    _reconnectController = controller;
+    final reconnected = await controller.attempt(macAddress: macAddress);
+
+    if (isClosed) return;
+    // Guard: if the room state has already moved on (applyJoinAccepted fired
+    // and set connectionPhase back to online, or the user manually left), do
+    // not overwrite that state with a failure-path transition.
+    final postAttempt = state;
+    if (postAttempt is! SessionRoom ||
+        postAttempt.connectionPhase != ConnectionPhase.reconnecting) {
+      return;
+    }
+    if (!reconnected) {
+      // All retries exhausted — surface the lost phase briefly so the UI
+      // can show a "Lost connection" indicator, then drop to Discovery.
+      emit(postAttempt.copyWith(connectionPhase: ConnectionPhase.lost));
+      await leaveRoom();
+    }
+    // On success: wait for the transport's JoinAccepted to call
+    // applyJoinAccepted, which cancels the controller and resets to online.
   }
 
   /// Broadcasts a media command originated by the local peer.
@@ -422,6 +494,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   @override
   Future<void> close() async {
+    // Cancel an in-progress reconnect before closing so the attempt loop
+    // won't call emit() or leaveRoom() after the cubit is disposed.
+    _reconnectController?.cancel();
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
     // suspended `await` in `sendMediaCommand` resumes after it sees
     // `isClosed == true` and bails before touching the controller. If
