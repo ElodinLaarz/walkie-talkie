@@ -18,6 +18,7 @@
 static std::atomic<bool> g_muted{false};
 
 // Global JNI references for voice activity callbacks
+static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
 static jobject g_mainActivity = nullptr;
 
@@ -56,34 +57,39 @@ private:
 
     // Emit talking event to Flutter via JNI
     void emitTalkingEvent(bool talking) {
-        if (g_jvm == nullptr || g_mainActivity == nullptr) return;
+        // Snapshot JNI globals under lock to avoid use-after-free
+        JavaVM* jvm = nullptr;
+        jobject activity = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_jniMutex);
+            if (g_jvm == nullptr || g_mainActivity == nullptr) return;
+            jvm = g_jvm;
+            activity = g_mainActivity;
+        }
 
         JNIEnv* env = nullptr;
         bool needDetach = false;
 
         // Get JNI environment
-        if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-            if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-                LOGE("Failed to attach thread for talking event");
-                return;
+        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+                return;  // Skip logging in audio callback to avoid glitches
             }
             needDetach = true;
         }
 
         // Call MainActivity.sendLocalTalkingEvent(boolean)
-        jclass activityClass = env->GetObjectClass(g_mainActivity);
+        jclass activityClass = env->GetObjectClass(activity);
         if (activityClass != nullptr) {
             jmethodID method = env->GetMethodID(activityClass, "sendLocalTalkingEvent", "(Z)V");
             if (method != nullptr) {
-                env->CallVoidMethod(g_mainActivity, method, talking);
-            } else {
-                LOGE("Failed to find sendLocalTalkingEvent method");
+                env->CallVoidMethod(activity, method, talking);
             }
             env->DeleteLocalRef(activityClass);
         }
 
         if (needDetach) {
-            g_jvm->DetachCurrentThread();
+            jvm->DetachCurrentThread();
         }
     }
 
@@ -176,7 +182,6 @@ public:
                 if (!lastTalking && aboveThresholdFrames >= onHysteresisFrames) {
                     lastTalking = true;
                     emitTalkingEvent(true);
-                    LOGI("Voice activity detected (RMS: %.4f)", rms);
                 }
             } else {
                 belowThresholdFrames += numFrames;
@@ -185,7 +190,6 @@ public:
                 if (lastTalking && belowThresholdFrames >= offHysteresisFrames) {
                     lastTalking = false;
                     emitTalkingEvent(false);
-                    LOGI("Voice activity ended (RMS: %.4f)", rms);
                 }
             }
 
@@ -222,6 +226,8 @@ extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_MainActivity_nativeRegisterForCallbacks(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_jniMutex);
+
     // Store JavaVM for thread attachment
     if (g_jvm == nullptr) {
         env->GetJavaVM(&g_jvm);
@@ -237,13 +243,15 @@ Java_com_elodin_walkie_1talkie_MainActivity_nativeRegisterForCallbacks(JNIEnv *e
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_MainActivity_nativeUnregisterCallbacks(JNIEnv *env, jobject thiz) {
-    // Clean up global references
-    if (g_mainActivity != nullptr) {
+    std::lock_guard<std::mutex> lock(g_jniMutex);
+
+    // Only unregister if this is the same activity instance
+    if (g_mainActivity != nullptr && env->IsSameObject(thiz, g_mainActivity)) {
         env->DeleteGlobalRef(g_mainActivity);
         g_mainActivity = nullptr;
+        g_jvm = nullptr;
+        LOGI("MainActivity unregistered from voice activity callbacks");
     }
-    g_jvm = nullptr;
-    LOGI("MainActivity unregistered from voice activity callbacks");
 }
 
 JNIEXPORT jboolean JNICALL

@@ -82,6 +82,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Stream<MediaCommand> get mediaCommands => _mediaCommandsController.stream;
 
   int _seq = 0;
+  String? _localPeerId;
 
   FrequencySessionCubit({
     required this.identityStore,
@@ -105,6 +106,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> bootstrap() async {
     _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
     _localTalkingSubscription = _audio?.localTalking.listen(_onLocalTalking);
+
+    // Cache peerId to avoid async resolution in hot path (voice activity)
+    try {
+      _localPeerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load peer ID: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
 
     String? persisted;
     try {
@@ -176,32 +185,30 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///
   /// Only sends when in a room and when the transport is wired. If the transport
   /// is absent, the seq counter still advances so messages stay monotonic once
-  /// the transport connects.
+  /// the transport connects. Uses cached [_localPeerId] to avoid async resolution
+  /// and ensure sequence numbers are assigned at event time (no race).
   void _onLocalTalking(bool talking) {
     final current = state;
     if (isClosed || current is! SessionRoom) return;
 
     final t = _transport;
-    if (t == null) {
-      _seq++;
-      return;
+    final peerId = _localPeerId;
+
+    // Increment seq immediately at event time to preserve order
+    final seq = ++_seq;
+
+    if (t == null || peerId == null) {
+      return;  // seq already incremented
     }
 
-    // Resolve peerId asynchronously and send the message
-    identityStore.getPeerId().then((peerId) {
-      if (isClosed) return;
-      final msg = TalkingState(
-        peerId: peerId,
-        seq: ++_seq,
-        atMs: DateTime.now().millisecondsSinceEpoch,
-        talking: talking,
-      );
-      unawaited(t.send(msg));
-    }).catchError((error, stackTrace) {
-      debugPrint('Failed to resolve peer id for talking state: $error');
-      debugPrintStack(stackTrace: stackTrace);
-      _seq++;
-    });
+    // Build and send message synchronously
+    final msg = TalkingState(
+      peerId: peerId,
+      seq: seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      talking: talking,
+    );
+    unawaited(t.send(msg));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
