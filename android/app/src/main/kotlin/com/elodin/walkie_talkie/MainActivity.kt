@@ -1,10 +1,6 @@
 package com.elodin.walkie_talkie
 
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -26,18 +22,9 @@ class MainActivity : FlutterActivity() {
     private var audioRoutingManager: AudioRoutingManager? = null
     private var eventSink: EventChannel.EventSink? = null
 
-    private val leaveReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == WalkieTalkieService.ACTION_LEAVE) {
-                Log.i(TAG, "Leave action received from notification")
-                sendEventToFlutter(mapOf("type" to "leaveRoom"))
-            }
-        }
-    }
-    
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
         // Initialize audio routing manager
         // Auto-detect will be started when voice capture begins (startVoice)
         audioRoutingManager = AudioRoutingManager(this)
@@ -53,7 +40,7 @@ class MainActivity : FlutterActivity() {
                     "name" to name
                 ))
             }
-            
+
             onDeviceConnected = { address ->
                 Log.i(TAG, "Device connected: $address")
                 sendEventToFlutter(mapOf(
@@ -61,7 +48,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-            
+
             onDeviceDisconnected = { address ->
                 Log.i(TAG, "Device disconnected: $address")
                 sendEventToFlutter(mapOf(
@@ -69,7 +56,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-            
+
             onError = { message ->
                 Log.e(TAG, "Bluetooth error: $message")
                 sendEventToFlutter(mapOf(
@@ -78,7 +65,7 @@ class MainActivity : FlutterActivity() {
                 ))
             }
         }
-        
+
         // Set up MethodChannel for Flutter -> Native communication
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
@@ -179,7 +166,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        
+
         // Set up EventChannel for Native -> Flutter events
         eventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
         eventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
@@ -194,29 +181,21 @@ class MainActivity : FlutterActivity() {
             }
         })
     }
-    
+
     private fun sendEventToFlutter(event: Map<String, Any>) {
         Handler(Looper.getMainLooper()).post {
             eventSink?.success(event)
         }
     }
-    
-    override fun onResume() {
-        super.onResume()
-        val filter = IntentFilter(WalkieTalkieService.ACTION_LEAVE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(leaveReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(leaveReceiver, filter)
-        }
-    }
 
-    override fun onPause() {
-        super.onPause()
-        try {
-            unregisterReceiver(leaveReceiver)
-        } catch (_: IllegalArgumentException) {
-            // receiver was never registered — safe to ignore
+    // Called when the notification's Leave action brings this activity back to
+    // the foreground (singleTop launchMode prevents a new instance). The action
+    // extra is forwarded to Flutter so the room screen can call leaveRoom().
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
+            Log.i(TAG, "Leave action received via notification intent")
+            sendEventToFlutter(mapOf("type" to "leaveRoom"))
         }
     }
 

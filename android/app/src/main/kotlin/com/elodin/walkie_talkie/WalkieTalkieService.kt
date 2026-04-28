@@ -26,7 +26,8 @@ class WalkieTalkieService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "walkie_talkie_channel"
         const val EXTRA_FREQ = "freq"
-        const val ACTION_LEAVE = "com.elodin.walkie_talkie.ACTION_LEAVE"
+        const val EXTRA_ACTION = "action"
+        const val ACTION_LEAVE = "leaveRoom"
     }
 
     private var currentFreq: String? = null
@@ -70,10 +71,13 @@ class WalkieTalkieService : Service() {
     private fun buildNotification(freq: String?) = run {
         val contentText = if (freq != null) "On $freq · Tap to return" else "Connected and ready to communicate"
 
-        val leavePendingIntent = PendingIntent.getBroadcast(
+        val leavePendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(ACTION_LEAVE).setPackage(packageName),
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_ACTION, ACTION_LEAVE)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 

@@ -19,7 +19,7 @@ class AudioService {
     try {
       final result = await _methodChannel.invokeMethod(
         'startService',
-        if (freq != null) {'freq': freq} else null,
+        freq != null ? <String, dynamic>{'freq': freq} : null,
       );
       return result as bool;
     } catch (e) {
