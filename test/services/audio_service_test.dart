@@ -191,4 +191,62 @@ void main() {
       expect(received, isEmpty);
     });
   });
+
+    group('localTalking', () {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+
+      test('emits true when native fires localTalking=true', () async {
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = audioService.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope({'type': 'localTalking', 'talking': true}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, [true]);
+      });
+
+      test('emits false when native fires localTalking=false', () async {
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = audioService.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope(
+              {'type': 'localTalking', 'talking': false}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, [false]);
+      });
+
+      test('ignores unrelated native events', () async {
+        final codec = const StandardMethodCodec();
+        final received = <bool>[];
+        final sub = audioService.localTalking.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          eventChannelName,
+          codec.encodeSuccessEnvelope(
+              {'type': 'talkingPeers', 'peers': <String>[]}),
+          (_) {},
+        );
+        await Future<void>.microtask(() {});
+
+        expect(received, isEmpty);
+      });
+    });
+  });
 }

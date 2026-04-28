@@ -92,6 +92,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
   StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
+  StreamSubscription<Set<String>>? _talkingPeersSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -211,6 +212,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             setState(() => _output = newOutput);
           }
         }
+      } else if (type == 'localTalking') {
+        final talking = event['talking'] == true;
+        if (!talking && _talkingId == 'me') {
+          setState(() => _talkingId = null);
+        } else if (talking) {
+          setState(() => _talkingId = 'me');
+        }
       } else if (type == 'leaveRoom') {
         widget.onLeave();
       }
@@ -218,6 +226,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
     _resolveMyPeerId();
     _startProgressTick();
+    _talkingPeersSub = _audio.talkingPeers.listen(_onTalkingPeersChanged);
 
     if (widget.debugDemoTimers) {
       _startTalkSimulation();
@@ -352,6 +361,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
+    _talkingPeersSub?.cancel();
     unawaited(_audio.stopVoice().then((_) => _audio.stopService()));
     super.dispose();
   }
@@ -442,6 +452,25 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       if (p.id == peerId) return p.name;
     }
     return 'Someone';
+  }
+
+  /// Updates [_talkingId] from the native mixer's voice-activity feed.
+  ///
+  /// [peers] contains the IDs of all currently-detected talking peers.
+  /// The 'local' sentinel maps to 'me' (the local user's ring). When
+  /// multiple peers are talking simultaneously, the local user takes
+  /// priority; otherwise the first remote peer in the set is shown.
+  void _onTalkingPeersChanged(Set<String> peers) {
+    if (!mounted) return;
+    String? newTalkingId;
+    if (peers.contains('local')) {
+      newTalkingId = 'me';
+    } else if (peers.isNotEmpty) {
+      newTalkingId = peers.first;
+    }
+    if (newTalkingId != _talkingId) {
+      setState(() => _talkingId = newTalkingId);
+    }
   }
 
   void _startTalkSimulation() {

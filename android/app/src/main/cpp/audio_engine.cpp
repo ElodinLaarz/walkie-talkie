@@ -1,4 +1,4 @@
-#include <jni.h>
+﻿#include <jni.h>
 #include <android/log.h>
 #include <oboe/Oboe.h>
 #include <memory>
@@ -6,170 +6,174 @@
 #include <mutex>
 #include <atomic>
 #include <cstring>
+#include <cmath>
 #include "audio_mixer.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Global mute flag — declared before AudioEngine so onAudioReady (inline
-// in the class body) can reference it without a forward declaration.
 static std::atomic<bool> g_muted{false};
+
+// Voice-activity detection (VAD) globals.
+// g_jvm + g_callbackObj let the real-time audio thread call back into Kotlin
+// (via AttachCurrentThread) without going through a MethodChannel.
+static JavaVM* g_jvm = nullptr;
+static jobject g_callbackObj = nullptr;
+static jmethodID g_onTalkingChangedMethod = nullptr;
+static std::atomic<bool> g_lastTalking{false};
+// Threshold ~= -40 dBFS for 16-bit audio: 32768 * 10^(-40/20) ~= 328
+static constexpr double kTalkingThreshold = 328.0;
+// Hysteresis frame counts at 48 kHz: ~100 ms on, ~300 ms off.
+static constexpr int32_t kOnHoldFrames  = 4800;
+static constexpr int32_t kOffHoldFrames = 14400;
+static int32_t g_aboveFrames = 0;
+static int32_t g_belowFrames = 0;
+
+static void emitLocalTalkingEvent(bool talking) {
+    if (g_jvm == nullptr || g_callbackObj == nullptr || g_onTalkingChangedMethod == nullptr) return;
+    JNIEnv* env = nullptr;
+    bool attached = false;
+    jint status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (status == JNI_EDETACHED) {
+        if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (env == nullptr) return;
+    env->CallVoidMethod(g_callbackObj, g_onTalkingChangedMethod, static_cast<jboolean>(talking));
+    if (attached) g_jvm->DetachCurrentThread();
+}
 
 class AudioEngine : public oboe::AudioStreamDataCallback {
 private:
     std::shared_ptr<oboe::AudioStream> recordingStream;
     std::shared_ptr<oboe::AudioStream> playbackStream;
     std::mutex audioMutex;
-
-    // Audio configuration
-    static constexpr int32_t kSampleRate = 48000;  // LE Audio standard
-    static constexpr int32_t kChannelCount = 1;    // Mono for voice
-    static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;  // 16-bit PCM
+    static constexpr int32_t kSampleRate = 48000;
+    static constexpr int32_t kChannelCount = 1;
+    static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;
 
 public:
     AudioEngine() {}
+    ~AudioEngine() { stop(); }
 
-    ~AudioEngine() {
-        stop();
-    }
-
-    // Start audio streams
     bool start() {
         LOGI("Starting audio engine...");
-
-        // Create recording stream
-        oboe::AudioStreamBuilder recordingBuilder;
-        recordingBuilder.setDirection(oboe::Direction::Input)
-            ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-            ->setSharingMode(oboe::SharingMode::Exclusive)
-            ->setFormat(kFormat)
-            ->setChannelCount(kChannelCount)
-            ->setSampleRate(kSampleRate)
-            ->setDataCallback(this);
-
-        oboe::Result result = recordingBuilder.openStream(recordingStream);
+        oboe::AudioStreamBuilder rb;
+        rb.setDirection(oboe::Direction::Input)
+          ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+          ->setSharingMode(oboe::SharingMode::Exclusive)
+          ->setFormat(kFormat)->setChannelCount(kChannelCount)->setSampleRate(kSampleRate)
+          ->setDataCallback(this);
+        oboe::Result result = rb.openStream(recordingStream);
         if (result != oboe::Result::OK) {
-            LOGE("Failed to create recording stream: %s", oboe::convertToText(result));
+            LOGE("Failed to open recording stream: %s", oboe::convertToText(result));
             return false;
         }
-
-        // Create playback stream
-        oboe::AudioStreamBuilder playbackBuilder;
-        playbackBuilder.setDirection(oboe::Direction::Output)
-            ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-            ->setSharingMode(oboe::SharingMode::Exclusive)
-            ->setFormat(kFormat)
-            ->setChannelCount(kChannelCount)
-            ->setSampleRate(kSampleRate);
-            // We use direct write for playback currently, or could use another callback
-
-        result = playbackBuilder.openStream(playbackStream);
+        oboe::AudioStreamBuilder pb;
+        pb.setDirection(oboe::Direction::Output)
+          ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+          ->setSharingMode(oboe::SharingMode::Exclusive)
+          ->setFormat(kFormat)->setChannelCount(kChannelCount)->setSampleRate(kSampleRate);
+        result = pb.openStream(playbackStream);
         if (result != oboe::Result::OK) {
-            LOGE("Failed to create playback stream: %s", oboe::convertToText(result));
+            LOGE("Failed to open playback stream: %s", oboe::convertToText(result));
             return false;
         }
-
-        // Start streams
         recordingStream->requestStart();
         playbackStream->requestStart();
-
         LOGI("Audio engine started successfully");
         return true;
     }
 
-    // Stop audio streams
     void stop() {
-        if (recordingStream) {
-            recordingStream->requestStop();
-            recordingStream->close();
-        }
-        if (playbackStream) {
-            playbackStream->requestStop();
-            playbackStream->close();
-        }
+        if (recordingStream) { recordingStream->requestStop(); recordingStream->close(); }
+        if (playbackStream)  { playbackStream->requestStop();  playbackStream->close(); }
         LOGI("Audio engine stopped");
     }
 
-    // Oboe callback for audio data
     oboe::DataCallbackResult onAudioReady(
-            oboe::AudioStream *audioStream,
-            void *audioData,
-            int32_t numFrames) override {
-
+            oboe::AudioStream *audioStream, void *audioData, int32_t numFrames) override {
         if (audioStream->getDirection() == oboe::Direction::Input) {
-            // Recording: feed to mixer directly
             auto *inputData = static_cast<int16_t *>(audioData);
-
-            // When muted, zero the mic frames so they don't reach the mixer
-            // or any future BLE transport. The streams stay warm so unmuting
-            // is instant — no codec reinit round-trip.
             if (g_muted.load(std::memory_order_relaxed)) {
                 std::memset(inputData, 0, numFrames * sizeof(int16_t));
             }
-
-            if (g_audioMixer != nullptr) {
-                // Here we'd ideally know which device this input is from.
-                // For a single phone mic, we can assign a special ID like 0.
-                g_audioMixer->updateDeviceAudio(0, inputData, numFrames);
-
-                // For demonstration: mix for device 0 (hearing others) and play it back
-                std::vector<int16_t> mixedOutput(numFrames);
-                g_audioMixer->getMixedAudioForDevice(0, mixedOutput.data(), numFrames);
-
-                if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
-                    playbackStream->write(mixedOutput.data(), numFrames, 0);
+            // VAD: RMS computation with hysteresis. Only when not muted.
+            if (!g_muted.load(std::memory_order_relaxed)) {
+                int64_t sumSq = 0;
+                for (int32_t i = 0; i < numFrames; ++i) {
+                    int64_t s = inputData[i];
+                    sumSq += s * s;
+                }
+                double rms = std::sqrt(static_cast<double>(sumSq) / static_cast<double>(numFrames));
+                bool above = (rms > kTalkingThreshold);
+                if (above) { g_aboveFrames += numFrames; g_belowFrames = 0; }
+                else        { g_belowFrames += numFrames; g_aboveFrames = 0; }
+                bool nowTalking = g_lastTalking.load(std::memory_order_relaxed);
+                if (!nowTalking && g_aboveFrames >= kOnHoldFrames) {
+                    g_aboveFrames = 0;
+                    g_lastTalking.store(true, std::memory_order_relaxed);
+                    emitLocalTalkingEvent(true);
+                } else if (nowTalking && g_belowFrames >= kOffHoldFrames) {
+                    g_belowFrames = 0;
+                    g_lastTalking.store(false, std::memory_order_relaxed);
+                    emitLocalTalkingEvent(false);
                 }
             }
+            if (g_audioMixer != nullptr) {
+                g_audioMixer->updateDeviceAudio(0, inputData, numFrames);
+                std::vector<int16_t> mixedOutput(numFrames);
+                g_audioMixer->getMixedAudioForDevice(0, mixedOutput.data(), numFrames);
+                if (playbackStream && playbackStream->getState() == oboe::StreamState::Started)
+                    playbackStream->write(mixedOutput.data(), numFrames, 0);
+            }
         }
-
         return oboe::DataCallbackResult::Continue;
     }
 };
 
-// Global audio engine instance
 static AudioEngine* g_audioEngine = nullptr;
 
 extern "C" {
 
+// nativeStart also registers this AudioEngineManager instance as the VAD callback
+// recipient so talking-state transitions reach Flutter via EventChannel.
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv *env, jobject thiz) {
-    if (g_audioEngine == nullptr) {
-        g_audioEngine = new AudioEngine();
-    }
+    env->GetJavaVM(&g_jvm);
+    if (g_callbackObj != nullptr) env->DeleteGlobalRef(g_callbackObj);
+    g_callbackObj = env->NewGlobalRef(thiz);
+    jclass cls = env->GetObjectClass(thiz);
+    g_onTalkingChangedMethod = env->GetMethodID(cls, "onTalkingChanged", "(Z)V");
+    env->DeleteLocalRef(cls);
+    g_lastTalking.store(false, std::memory_order_relaxed);
+    g_aboveFrames = 0;
+    g_belowFrames = 0;
+    if (g_audioEngine == nullptr) g_audioEngine = new AudioEngine();
     return g_audioEngine->start();
 }
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv *env, jobject thiz) {
-    if (g_audioEngine != nullptr) {
-        g_audioEngine->stop();
-        delete g_audioEngine;
-        g_audioEngine = nullptr;
-    }
+    if (g_audioEngine != nullptr) { g_audioEngine->stop(); delete g_audioEngine; g_audioEngine = nullptr; }
+    if (g_callbackObj != nullptr) { env->DeleteGlobalRef(g_callbackObj); g_callbackObj = nullptr; }
+    g_onTalkingChangedMethod = nullptr;
+    g_jvm = nullptr;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetMuted(
-        JNIEnv *env, jobject thiz, jboolean muted) {
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetMuted(JNIEnv *env, jobject thiz, jboolean muted) {
     g_muted.store(muted, std::memory_order_relaxed);
     return JNI_TRUE;
 }
 
-// These methods can now be used for manual injection if needed,
-// but the primary path is now internal to C++.
-
 JNIEXPORT jshortArray JNICALL
-Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeGetAudioData(
-        JNIEnv *env, jobject thiz, jint numFrames) {
-    // Legacy support or specific use cases
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeGetAudioData(JNIEnv *env, jobject thiz, jint numFrames) {
     return nullptr;
 }
 
 JNIEXPORT void JNICALL
-Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePlayAudioData(
-        JNIEnv *env, jobject thiz, jshortArray audioData) {
-    // Legacy support or specific use cases
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePlayAudioData(JNIEnv *env, jobject thiz, jshortArray audioData) {
 }
 
 } // extern "C"

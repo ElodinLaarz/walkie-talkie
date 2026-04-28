@@ -1135,6 +1135,80 @@ void main() {
       expect(r.roomIsHost, isTrue);
     });
   });
+
+  group('broadcastTalking / localTalking subscription', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    test('broadcastTalking without transport advances seq and stays in room',
+        () async {
+      final cubit = _makeCubit(identityStore: _FakeStore(initial: 'Maya'));
+      await cubit.bootstrap();
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+
+      await cubit.broadcastTalking(true);
+      await cubit.broadcastTalking(false);
+
+      expect(cubit.state, isA<SessionRoom>());
+      await cubit.close();
+    });
+
+    test('localTalking subscription fires when in a room and stays in room',
+        () async {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+      final codec = const StandardMethodCodec();
+      final binding = TestDefaultBinaryMessengerBinding.instance;
+
+      final audio = AudioService();
+      final cubit = _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya'),
+        audio: audio,
+      );
+      await cubit.bootstrap();
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+
+      binding.defaultBinaryMessenger.handlePlatformMessage(
+        eventChannelName,
+        codec.encodeSuccessEnvelope({'type': 'localTalking', 'talking': true}),
+        (_) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.state, isA<SessionRoom>());
+      await cubit.close();
+    });
+
+    test('localTalking subscription is no-op outside a room', () async {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+      final codec = const StandardMethodCodec();
+      final binding = TestDefaultBinaryMessengerBinding.instance;
+
+      final audio = AudioService();
+      final cubit = _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya'),
+        audio: audio,
+      );
+      await cubit.bootstrap();
+
+      binding.defaultBinaryMessenger.handlePlatformMessage(
+        eventChannelName,
+        codec.encodeSuccessEnvelope({'type': 'localTalking', 'talking': true}),
+        (_) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.state, isA<SessionDiscovery>());
+      await cubit.close();
+    });
+
+    test('close() cancels localTalking subscription without error', () async {
+      final audio = AudioService();
+      final cubit = _makeCubit(audio: audio);
+      await cubit.bootstrap();
+      await cubit.close();
+      // No exception thrown — subscription was cancelled cleanly.
+    });
+  });
+
 }
 
 /// IdentityStore whose `getPeerId` blocks on a caller-supplied future.

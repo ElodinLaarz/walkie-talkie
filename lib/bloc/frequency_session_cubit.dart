@@ -69,6 +69,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final List<Duration>? _reconnectDelays;
 
   StreamSubscription<FrequencyMessage>? _transportSubscription;
+  StreamSubscription<bool>? _localTalkingSub;
   ReconnectController? _reconnectController;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
@@ -102,6 +103,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// the cubit.
   Future<void> bootstrap() async {
     _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
+    _localTalkingSub = _audio?.localTalking.listen(
+      _onLocalTalking,
+      // ignore stream errors — native EventChannel errors are already logged
+      // in AudioService; the subscription must not crash the cubit.
+      onError: (Object e) =>
+          debugPrint('localTalking stream error: $e'),
+    );
 
     String? persisted;
     try {
@@ -492,6 +500,45 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     unawaited(t.send(msg));
   }
 
+  /// Invoked by the [AudioService.localTalking] stream when the native VAD
+  /// detects the local microphone crossing the configured RMS threshold.
+  /// Only acts when the cubit is in a room.
+  void _onLocalTalking(bool talking) {
+    if (isClosed || state is! SessionRoom) return;
+    unawaited(broadcastTalking(talking));
+  }
+
+  /// Broadcasts a talking-state change for the local peer over the control
+  /// transport. Called by [_onLocalTalking] on VAD transitions; also callable
+  /// directly for PTT or test purposes.
+  ///
+  /// When the transport is absent the seq counter still advances so it stays
+  /// monotonic once the transport connects.
+  Future<void> broadcastTalking(bool talking) async {
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve peer id for talking broadcast: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _seq++;
+      return;
+    }
+    if (isClosed) return;
+    final msg = TalkingState(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      talking: talking,
+    );
+    unawaited(t.send(msg));
+  }
+
   @override
   Future<void> close() async {
     // Cancel an in-progress reconnect before closing so the attempt loop
@@ -506,6 +553,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // `cubit.isClosed = true` and throw on `add`.
     await super.close();
     await _transportSubscription?.cancel();
+    await _localTalkingSub?.cancel();
     await _mediaCommandsController.close();
   }
 }

@@ -1,66 +1,41 @@
-package com.elodin.walkie_talkie
+﻿package com.elodin.walkie_talkie
 
 import android.util.Log
 
-/**
- * Manages the native audio engine (Oboe-based).
- * Handles low-latency audio capture and playback.
- */
 class AudioEngineManager {
     companion object {
         private const val TAG = "AudioEngineManager"
-        
-        init {
-            System.loadLibrary("walkie_talkie_audio")
-        }
-    }
-    
-    /**
-     * Start the audio engine.
-     * @return true if started successfully, false otherwise
-     */
-    fun start(): Boolean {
-        Log.i(TAG, "Starting audio engine")
-        return nativeStart()
-    }
-    
-    /**
-     * Stop the audio engine.
-     */
-    fun stop() {
-        Log.i(TAG, "Stopping audio engine")
-        nativeStop()
-    }
-    
-    /**
-     * Get captured audio data from the microphone.
-     * @param numFrames Number of audio frames to retrieve
-     * @return Audio data as 16-bit PCM samples
-     */
-    fun getAudioData(numFrames: Int): ShortArray? {
-        return nativeGetAudioData(numFrames)
-    }
-    
-    /**
-     * Play received audio data through the speaker.
-     * @param audioData 16-bit PCM audio samples
-     */
-    fun playAudioData(audioData: ShortArray) {
-        nativePlayAudioData(audioData)
+        init { System.loadLibrary("walkie_talkie_audio") }
     }
 
-    /**
-     * Gate whether captured mic frames are sent to the mixer / transport.
-     * Keeps streams warm so unmuting is instant.
-     * @param muted true to silence local mic in the audio path
-     * @return true on success
-     */
+    private var talkingCallback: ((Boolean) -> Unit)? = null
+
+    fun start(onTalkingChanged: ((Boolean) -> Unit)? = null): Boolean {
+        Log.i(TAG, "Starting audio engine")
+        talkingCallback = onTalkingChanged
+        return nativeStart()
+    }
+
+    fun stop() {
+        Log.i(TAG, "Stopping audio engine")
+        talkingCallback = null
+        nativeStop()
+    }
+
     fun setMuted(muted: Boolean): Boolean {
         Log.i(TAG, "Setting mute state: $muted")
         return nativeSetMuted(muted)
     }
 
-    // Native methods
+    fun getAudioData(numFrames: Int): ShortArray? = nativeGetAudioData(numFrames)
+
+    fun playAudioData(audioData: ShortArray) = nativePlayAudioData(audioData)
+
+    /** Called from the JNI layer (audio thread) when local voice-activity state changes. */
+    fun onTalkingChanged(talking: Boolean) {
+        talkingCallback?.invoke(talking)
+    }
+
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeGetAudioData(numFrames: Int): ShortArray?

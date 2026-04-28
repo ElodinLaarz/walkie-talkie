@@ -224,6 +224,21 @@ class AudioService {
         });
   }
 
+  /// Stream of local voice-activity state changes from the native VAD.
+  ///
+  /// Emits `true` when the local microphone crosses the RMS threshold with
+  /// the configured on-hysteresis (~100 ms), and `false` when it falls back
+  /// below threshold with the off-hysteresis (~300 ms). Does not emit during
+  /// muted periods — the engine zeros the mic buffer when muted.
+  ///
+  /// The cubit subscribes and sends [TalkingState] over the transport so
+  /// remote peers can update their talking ring indicator.
+  Stream<bool> get localTalking {
+    return audioEvents
+        .where((e) => e['type'] == 'localTalking')
+        .map((e) => e['talking'] == true);
+  }
+
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over

@@ -1,4 +1,4 @@
-package com.elodin.walkie_talkie
+﻿package com.elodin.walkie_talkie
 
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private var controlBytesEventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
+    private var audioEngineManager: AudioEngineManager? = null
     private var gattServerManager: GattServerManager? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
@@ -29,54 +30,30 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Initialize audio routing manager
-        // Auto-detect will be started when voice capture begins (startVoice)
         audioRoutingManager = AudioRoutingManager(this)
 
-        // Initialize Bluetooth manager
         bluetoothManager = BluetoothLeAudioManager(this).apply {
-            // Set up callbacks
             onDeviceDiscovered = { address, name ->
-                Log.i(TAG, "Device discovered: $name ($address)")
-                sendEventToFlutter(mapOf(
-                    "type" to "deviceDiscovered",
-                    "address" to address,
-                    "name" to name
-                ))
+                sendEventToFlutter(mapOf("type" to "deviceDiscovered", "address" to address, "name" to name))
             }
-
             onDeviceConnected = { address ->
-                Log.i(TAG, "Device connected: $address")
-                sendEventToFlutter(mapOf(
-                    "type" to "deviceConnected",
-                    "address" to address
-                ))
+                sendEventToFlutter(mapOf("type" to "deviceConnected", "address" to address))
             }
-
             onDeviceDisconnected = { address ->
-                Log.i(TAG, "Device disconnected: $address")
-                sendEventToFlutter(mapOf(
-                    "type" to "deviceDisconnected",
-                    "address" to address
-                ))
+                sendEventToFlutter(mapOf("type" to "deviceDisconnected", "address" to address))
             }
-
             onError = { message ->
-                Log.e(TAG, "Bluetooth error: $message")
-                sendEventToFlutter(mapOf(
-                    "type" to "error",
-                    "message" to message
-                ))
+                sendEventToFlutter(mapOf("type" to "error", "message" to message))
             }
         }
 
-        // Set up MethodChannel for Flutter -> Native communication
+        audioEngineManager = AudioEngineManager()
+
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startService" -> {
                     val freq = call.argument<String>("freq")
-                    Log.i(TAG, "Starting WalkieTalkieService, freq=$freq")
                     val intent = Intent(this, WalkieTalkieService::class.java).apply {
                         if (freq != null) putExtra(WalkieTalkieService.EXTRA_FREQ, freq)
                     }
@@ -84,99 +61,64 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "stopService" -> {
-                    Log.i(TAG, "Stopping WalkieTalkieService")
-                    val intent = Intent(this, WalkieTalkieService::class.java)
-                    stopService(intent)
+                    stopService(Intent(this, WalkieTalkieService::class.java))
                     result.success(true)
                 }
-                "scanDevices" -> {
-                    Log.i(TAG, "Starting Bluetooth LE Audio scan")
-                    val success = bluetoothManager?.startScan() ?: false
-                    result.success(success)
-                }
-                "stopScan" -> {
-                    Log.i(TAG, "Stopping Bluetooth scan")
-                    bluetoothManager?.stopScan()
-                    result.success(true)
-                }
+                "scanDevices" -> result.success(bluetoothManager?.startScan() ?: false)
+                "stopScan" -> { bluetoothManager?.stopScan(); result.success(true) }
                 "connectDevice" -> {
-                    val macAddress = call.argument<String>("macAddress")
-                    if (macAddress != null) {
-                        Log.i(TAG, "Connecting to device: $macAddress")
-                        val success = bluetoothManager?.connectDevice(macAddress) ?: false
-                        result.success(success)
-                    } else {
-                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
-                    }
+                    val mac = call.argument<String>("macAddress")
+                    if (mac != null) result.success(bluetoothManager?.connectDevice(mac) ?: false)
+                    else result.error("INVALID_ARGUMENT", "macAddress is required", null)
                 }
                 "disconnectDevice" -> {
-                    val macAddress = call.argument<String>("macAddress")
-                    if (macAddress != null) {
-                        Log.i(TAG, "Disconnecting from device: $macAddress")
-                        val success = bluetoothManager?.disconnectDevice(macAddress) ?: false
-                        result.success(success)
-                    } else {
-                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
-                    }
+                    val mac = call.argument<String>("macAddress")
+                    if (mac != null) result.success(bluetoothManager?.disconnectDevice(mac) ?: false)
+                    else result.error("INVALID_ARGUMENT", "macAddress is required", null)
                 }
                 "getConnectedDevices" -> {
                     val devices = bluetoothManager?.getConnectedDevices() ?: emptyList()
-                    val deviceList = devices.map { (address, name) ->
-                        mapOf("address" to address, "name" to name)
-                    }
-                    result.success(deviceList)
+                    result.success(devices.map { (a, n) -> mapOf("address" to a, "name" to n) })
                 }
                 "setAudioOutput" -> {
                     val output = call.argument<String>("output")
                     if (output != null && output in listOf("bluetooth", "earpiece", "speaker")) {
-                        Log.i(TAG, "Setting audio output to: $output")
-                        val success = audioRoutingManager?.setOutput(output) ?: false
-                        result.success(success)
+                        result.success(audioRoutingManager?.setOutput(output) ?: false)
                     } else {
-                        result.error("INVALID_ARGUMENT", "output must be 'bluetooth', 'earpiece', or 'speaker'", null)
+                        result.error("INVALID_ARGUMENT", "output must be bluetooth, earpiece, or speaker", null)
                     }
                 }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
-                    // Start auto-detect for Bluetooth headset routing while voice is active
                     audioRoutingManager?.startAutoDetect { outputType ->
-                        sendEventToFlutter(mapOf(
-                            "type" to "audioOutputChanged",
-                            "output" to outputType
-                        ))
+                        sendEventToFlutter(mapOf("type" to "audioOutputChanged", "output" to outputType))
                     }
-                    // Placeholder - native voice pipeline will be implemented later
-                    result.success(true)
+                    val success = audioEngineManager?.start { talking ->
+                        Log.d(TAG, "Local talking state: $talking")
+                        sendEventToFlutter(mapOf("type" to "localTalking", "talking" to talking))
+                    } ?: false
+                    result.success(success)
                 }
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
-                    // Stop auto-detect when voice stops
                     audioRoutingManager?.stopAutoDetect()
-                    // Placeholder - native voice pipeline will be implemented later
+                    audioEngineManager?.stop()
                     result.success(true)
                 }
                 "setMuted" -> {
                     val muted = call.argument<Boolean>("muted")
-                    if (muted != null) {
-                        Log.i(TAG, "Setting mute state: $muted")
-                        // Placeholder - will be implemented when native voice pipeline is ready
-                        result.success(true)
-                    } else {
-                        result.error("INVALID_ARGUMENT", "muted is required", null)
-                    }
+                    if (muted != null) result.success(audioEngineManager?.setMuted(muted) ?: true)
+                    else result.error("INVALID_ARGUMENT", "muted is required", null)
                 }
                 "startGattServer" -> {
-                    Log.i(TAG, "Starting GATT server")
                     if (gattServerManager == null) {
-                        gattServerManager = GattServerManager(this) { deviceAddress, bytes ->
-                            sendControlBytesToFlutter(deviceAddress, bytes)
+                        gattServerManager = GattServerManager(this) { addr, bytes ->
+                            sendControlBytesToFlutter(addr, bytes)
                         }
                     }
-                    val success = gattServerManager?.start() ?: false
-                    result.success(success)
+                    result.success(gattServerManager?.start() ?: false)
                 }
                 "stopGattServer" -> {
-                    Log.i(TAG, "Stopping GATT server")
                     gattServerManager?.stop()
                     gattServerManager = null
                     result.success(true)
@@ -184,69 +126,44 @@ class MainActivity : FlutterActivity() {
                 "writeNotification" -> {
                     val deviceAddress = call.argument<String>("deviceAddress")
                     val bytes = call.argument<ByteArray>("bytes")
-                    if (deviceAddress != null && bytes != null) {
-                        Log.d(TAG, "Writing ${bytes.size} bytes notification to $deviceAddress")
-                        val success = gattServerManager?.notify(deviceAddress, bytes) ?: false
-                        result.success(success)
-                    } else {
-                        result.error("INVALID_ARGUMENT", "deviceAddress and bytes are required", null)
-                    }
+                    if (deviceAddress != null && bytes != null)
+                        result.success(gattServerManager?.notify(deviceAddress, bytes) ?: false)
+                    else result.error("INVALID_ARGUMENT", "deviceAddress and bytes are required", null)
                 }
-                else -> {
-                    result.notImplemented()
+                "writeControlBytes" -> {
+                    // Guest->host GATT write. GattClientManager (issue #43) will handle the actual
+                    // write; until then the call succeeds silently so the transport does not crash.
+                    Log.d(TAG, "writeControlBytes (GATT client not yet wired)")
+                    result.success(null)
                 }
+                else -> result.notImplemented()
             }
         }
 
-        // Set up EventChannel for Native -> Flutter events
         eventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
         eventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                Log.i(TAG, "EventChannel listener attached")
-                eventSink = events
-            }
-
-            override fun onCancel(arguments: Any?) {
-                Log.i(TAG, "EventChannel listener cancelled")
-                eventSink = null
-            }
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { eventSink = events }
+            override fun onCancel(arguments: Any?) { eventSink = null }
         })
 
-        // Set up EventChannel for control bytes (GATT REQUEST writes)
         controlBytesEventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_BYTES_EVENT_CHANNEL)
         controlBytesEventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                Log.i(TAG, "Control bytes EventChannel listener attached")
-                controlBytesSink = events
-            }
-
-            override fun onCancel(arguments: Any?) {
-                Log.i(TAG, "Control bytes EventChannel listener cancelled")
-                controlBytesSink = null
-            }
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { controlBytesSink = events }
+            override fun onCancel(arguments: Any?) { controlBytesSink = null }
         })
     }
 
     private fun sendEventToFlutter(event: Map<String, Any>) {
+        Handler(Looper.getMainLooper()).post { eventSink?.success(event) }
+    }
+
+    private fun sendControlBytesToFlutter(deviceAddress: String, bytes: ByteArray) {
         Handler(Looper.getMainLooper()).post {
-            eventSink?.success(event)
+            controlBytesSink?.success(mapOf("endpointId" to deviceAddress, "bytes" to bytes))
         }
     }
 
-<<<<<<< HEAD
-    private fun sendControlBytesToFlutter(deviceAddress: String, bytes: ByteArray) {
-        Handler(Looper.getMainLooper()).post {
-            controlBytesSink?.success(mapOf(
-                "endpointId" to deviceAddress,
-                "bytes" to bytes
-            ))
-        }
-    }
-    
-=======
-    // Called when the notification's Leave action brings this activity back to
-    // the foreground (singleTop launchMode prevents a new instance). The action
-    // extra is forwarded to Flutter so the room screen can call leaveRoom().
+    // Called when the notification Leave action brings this activity back to the foreground.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
@@ -255,9 +172,9 @@ class MainActivity : FlutterActivity() {
         }
     }
 
->>>>>>> origin/main
     override fun onDestroy() {
         super.onDestroy()
+        audioEngineManager?.stop()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
         gattServerManager?.stop()
