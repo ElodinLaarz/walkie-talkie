@@ -4,6 +4,7 @@
 
 #define LOG_TAG "AudioMixer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 // Constructor (if needed - add to header too)
 AudioMixer::AudioMixer() {
@@ -48,12 +49,93 @@ void AudioMixer::updateDeviceAudio(int deviceId, const int16_t* audioData, int n
 
     if (device) {
         // Lock-free write to ring buffer
-        size_t written = device->ringBuffer.write(audioData, numFrames);
-        if (written < numFrames) {
+        size_t written = device->ringBuffer.write(audioData, static_cast<size_t>(numFrames));
+        if (written < static_cast<size_t>(numFrames)) {
             // Buffer full or near-full (normal during startup or if mixer tick is slow)
             // Don't log on every occurrence to avoid spam
         }
     }
+}
+
+void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, int numFrames) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    if (!device) {
+        return;
+    }
+
+    const uint32_t prevSeq = device->lastSeq;
+
+    // First frame from this peer always passes regardless of value: a
+    // fresh-session reset can land at any high seq, and the GATT join
+    // handshake bounds when the first frame is allowed to arrive. We use a
+    // dedicated `hasSeenSeq` flag rather than `prevSeq != 0` because seq is
+    // uint32 and a legitimate wrap to 0 must not look like "unseen" to the
+    // next frame.
+    if (device->hasSeenSeq) {
+        // Wrap-safe forward delta: cast the unsigned subtraction to int32_t.
+        // - diff > 0 and small  → in-order, normal flow
+        // - diff > kPoisonThreshold → big forward jump, poison
+        // - diff <= 0 → out-of-order or duplicate (older seq, or same seq)
+        //
+        // Using signed int32 here is what makes the comparison wrap-safe:
+        // near uint32 rollover the unsigned `prevSeq + 16` would overflow,
+        // but `static_cast<int32_t>(seq - prevSeq)` is the modular distance
+        // interpreted as signed, which is correct for any pair within ±2^31.
+        const int32_t diff = static_cast<int32_t>(seq - prevSeq);
+
+        if (diff <= 0) {
+            // Out-of-order or duplicate. Don't poison, don't write, don't
+            // touch lastSeq — the existing watermark stays authoritative.
+            return;
+        }
+
+        if (diff > static_cast<int32_t>(kPoisonThreshold)) {
+            if (!device->poisoned.exchange(true, std::memory_order_relaxed)) {
+                LOGW("Device %d poisoned: seq jump %u -> %u (gap %d > %u)",
+                     deviceId, prevSeq, seq, diff, kPoisonThreshold);
+            }
+            // Advance lastSeq so the next valid frame within the threshold
+            // recovers. Drop the current frame's audio: we don't trust it,
+            // and the ring buffer's SPSC contract forbids producer-side
+            // `clear()` while the mixer-tick consumer is reading. Any
+            // in-flight buffered samples drain naturally over the next tick.
+            device->lastSeq = seq;
+            // hasSeenSeq is already true here (we're inside the `if`).
+            return;
+        }
+    }
+
+    if (device->poisoned.exchange(false, std::memory_order_relaxed)) {
+        LOGI("Device %d recovered at seq %u (prevSeq %u)", deviceId, seq, prevSeq);
+    }
+
+    size_t written = device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
+    if (written < static_cast<size_t>(numFrames)) {
+        // Buffer full or near-full (normal during startup or if mixer tick is slow).
+        // Mirrors the same don't-spam-the-log policy as updateDeviceAudio above —
+        // the seq is still accepted for tracking; only the trailing PCM is dropped.
+    }
+    device->lastSeq = seq;
+    device->hasSeenSeq = true;
+}
+
+bool AudioMixer::isPoisoned(int deviceId) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    return device && device->poisoned.load(std::memory_order_relaxed);
 }
 
 void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames) {

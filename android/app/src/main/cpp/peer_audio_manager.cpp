@@ -342,10 +342,13 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeClear(JNIEnv *env, jobject
     }
 }
 
-// Method for receiving Opus frames from peers and feeding to mixer
+// Method for receiving Opus frames from peers and feeding to mixer.
+// `seq` is the per-link uint32 from the VoiceFrame header; the mixer uses it
+// to detect stuck producers (issue #49). It arrives as a jlong so Kotlin can
+// hand the unsigned value over without sign-extension surprises.
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
-        JNIEnv *env, jobject thiz, jstring macAddress, jbyteArray opusData) {
+        JNIEnv *env, jobject thiz, jstring macAddress, jbyteArray opusData, jlong seq) {
     if (!g_peerAudioManager || !g_audioMixer) return;
 
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
@@ -384,8 +387,9 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
     env->ReleaseByteArrayElements(opusData, encodedBuffer, JNI_ABORT);
 
     if (numSamples > 0) {
-        // Feed to mixer
-        g_audioMixer->updateDeviceAudio(deviceId, pcmBuffer, numSamples);
+        // Route through onVoiceFrame so the per-peer seq tracker can prune a
+        // stuck producer before the data reaches the mix.
+        g_audioMixer->onVoiceFrame(deviceId, static_cast<uint32_t>(seq), pcmBuffer, numSamples);
     }
 }
 

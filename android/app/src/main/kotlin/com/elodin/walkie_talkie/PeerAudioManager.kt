@@ -49,8 +49,28 @@ class PeerAudioManager {
         nativeSetCallback(this)
     }
 
-    fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray) {
-        nativeOnVoiceFrameReceived(macAddress, opusData)
+    /**
+     * Hand a peer-arrived Opus frame to the native mixer along with its
+     * per-link [seq] from the VoiceFrame header. Native uses [seq] to detect
+     * a stuck or wildly-skipping producer (issue #49) and mute that peer's
+     * stream until a frame within the protocol's threshold of the last
+     * accepted seq arrives.
+     *
+     * [seq] is the protocol's uint32; passed as a [Long] so the unsigned
+     * value survives the JNI hop without sign extension. We range-check it
+     * here so a malformed VoiceFrame parse can't sneak a sign-extended
+     * negative through to native, where it would silently truncate to a
+     * different valid uint32 and either spuriously poison or recover the peer.
+     * Out-of-range values are dropped (logged + return) rather than thrown:
+     * this is an over-the-wire input boundary, and one bad packet must not
+     * crash the foreground service.
+     */
+    fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long) {
+        if (seq !in 0..0xFFFF_FFFFL) {
+            Log.w(TAG, "Dropping voice frame from $macAddress: seq=$seq is not a valid uint32")
+            return
+        }
+        nativeOnVoiceFrameReceived(macAddress, opusData, seq)
     }
 
     fun clear() {
@@ -71,5 +91,5 @@ class PeerAudioManager {
     private external fun nativeStopMixerThread()
     private external fun nativeSetCallback(callback: Any)
     private external fun nativeClear()
-    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray)
+    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long)
 }
