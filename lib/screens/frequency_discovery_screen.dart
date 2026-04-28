@@ -29,7 +29,16 @@ class DiscoveryResult {
     required this.isHost,
     this.macAddress,
     this.sessionUuidLow8,
-  });
+  })  : assert(
+          !isHost || (macAddress == null && sessionUuidLow8 == null),
+          'host DiscoveryResult must have null macAddress + sessionUuidLow8 — '
+          'the local user IS the host, there is no remote to dial',
+        ),
+        assert(
+          isHost || (macAddress != null && sessionUuidLow8 != null),
+          'guest DiscoveryResult must carry both macAddress and sessionUuidLow8 — '
+          'the GATT-client transport reads both off the room state to dial the host',
+        );
 }
 
 /// Discovery — find & join a Frequency.

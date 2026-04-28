@@ -243,4 +243,51 @@ void main() {
       },
     );
   });
+
+  group('DiscoveryResult invariants', () {
+    test('host DiscoveryResult with non-null MAC fails the host assert', () {
+      // The Start-a-new-Frequency and Resume-recent paths are local-only
+      // hosts — there's no remote to dial, so MAC + sessionUuidLow8 must
+      // stay null. Catch the bad state at construction.
+      expect(
+        () => DiscoveryResult(
+          freq: '104.3',
+          isHost: true,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
+    test('guest DiscoveryResult with null MAC fails the guest assert', () {
+      // The Nearby tap-to-join path always has both fields by construction
+      // (we just carried them off the discovered advertisement). A null
+      // here would mean the screen forgot to thread them — fail fast
+      // rather than letting #43 dial nothing.
+      expect(
+        () => DiscoveryResult(
+          freq: '104.3',
+          isHost: false,
+          sessionUuidLow8: '0011223344556677',
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
+    test('valid host and guest DiscoveryResults construct cleanly', () {
+      expect(
+        () => const DiscoveryResult(freq: '104.3', isHost: true),
+        returnsNormally,
+      );
+      expect(
+        () => const DiscoveryResult(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          sessionUuidLow8: '0011223344556677',
+        ),
+        returnsNormally,
+      );
+    });
+  });
 }
