@@ -71,7 +71,6 @@ class WalkieTalkieApp extends StatelessWidget {
         RepositoryProvider<BleControlTransport>(
           create: (context) =>
               BleControlTransport(context.read<AudioService>()),
-          dispose: (context, transport) => transport.dispose(),
         ),
       ],
       child: MultiBlocProvider(

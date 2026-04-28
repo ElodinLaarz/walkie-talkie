@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 /// Service for communicating with native Android audio layer
@@ -225,7 +224,6 @@ class AudioService {
         });
   }
 
-<<<<<<< HEAD
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
