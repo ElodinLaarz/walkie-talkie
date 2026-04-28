@@ -28,11 +28,19 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   /// confirms an edit in the rename sheet.
   final ValueChanged<String> onRename;
 
+  /// Most-recent-first list of frequencies the local user has hosted on
+  /// this device. Surfaced as a "Recent" section so the user can re-host
+  /// a personal channel with one tap instead of accepting whichever
+  /// random frequency the create card happens to have minted this visit.
+  /// Empty (the default) hides the section entirely.
+  final List<String> recentHostedFrequencies;
+
   const FrequencyDiscoveryScreen({
     super.key,
     required this.onPick,
     required this.myName,
     required this.onRename,
+    this.recentHostedFrequencies = const [],
   });
 
   @override
@@ -100,6 +108,10 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                   _buildHero(context),
                   const SizedBox(height: 24),
                   _buildCreateCard(context),
+                  if (widget.recentHostedFrequencies.isNotEmpty) ...[
+                    const SectionLabel(text: 'Recent'),
+                    _buildRecentList(context),
+                  ],
                   SectionLabel(
                     text: 'Nearby',
                     trailing: _buildScanIndicator(context),
@@ -259,6 +271,29 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     }
   }
 
+  Widget _buildRecentList(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    return FreqCard(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (int i = 0; i < widget.recentHostedFrequencies.length; i++)
+            _RecentRow(
+              key: ValueKey('recent-${widget.recentHostedFrequencies[i]}'),
+              freq: widget.recentHostedFrequencies[i],
+              first: i == 0,
+              accent: c.accentSoft,
+              accentInk: c.accentInk,
+              onResume: () => widget.onPick(DiscoveryResult(
+                freq: widget.recentHostedFrequencies[i],
+                isHost: true,
+              )),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNearbyList(BuildContext context) {
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
@@ -397,6 +432,110 @@ class _NearbyRow extends StatelessWidget {
   }
 }
 
+
+/// One row in the "Recent" card — a single tappable hit-target that
+/// re-hosts the freq when activated. Mirrors `_NearbyRow`'s visual
+/// language (icon disc + title + freq mono), but the trailing affordance
+/// is a "Resume" hint instead of signal bars + selection state since
+/// recents are a one-tap action with no per-row sub-selection.
+class _RecentRow extends StatelessWidget {
+  final String freq;
+  final bool first;
+  final Color accent;
+  final Color accentInk;
+  final VoidCallback onResume;
+
+  const _RecentRow({
+    super.key,
+    required this.freq,
+    required this.first,
+    required this.accent,
+    required this.accentInk,
+    required this.onResume,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    return Material(
+      color: c.surface,
+      child: InkWell(
+        onTap: onResume,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border(
+              top: first ? BorderSide.none : BorderSide(color: c.line),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(Icons.history, size: 16, color: accentInk),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your channel',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: c.ink,
+                      ),
+                    ),
+                    // Text.rich (rather than a Row of Texts) so the
+                    // freq + unit string can ellipsize gracefully when
+                    // the row is squeezed by a wide Resume button on
+                    // narrower phones — a Row would overflow instead.
+                    Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink3,
+                        ),
+                        children: [
+                          const TextSpan(text: 'Host on '),
+                          TextSpan(
+                            text: freq,
+                            style: kMonoStyle.copyWith(fontSize: 12),
+                          ),
+                          const TextSpan(text: ' MHz'),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              FreqButton(
+                accent: true,
+                label: 'Resume',
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                fontSize: 13,
+                onPressed: onResume,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Tappable circular chip in the chrome that shows the user's initials and
 /// opens the rename sheet when tapped.

@@ -34,12 +34,24 @@ final class SessionOnboarding extends FrequencySessionState {
 
 /// User has a persisted display name and is on Discovery, but hasn't
 /// joined or created a frequency yet.
+///
+/// [recentHostedFrequencies] is the most-recent-first list of channels
+/// the local user has hosted on this device, sourced from
+/// `RecentFrequenciesStore`. Empty when the user hasn't hosted before
+/// or the persisted store couldn't be read. The list is expected to
+/// already be unmodifiable (Equatable diffs it element-wise, so a
+/// caller mutating it in place would silently break state-change
+/// detection).
 final class SessionDiscovery extends FrequencySessionState {
   final String myName;
-  const SessionDiscovery({required this.myName});
+  final List<String> recentHostedFrequencies;
+  const SessionDiscovery({
+    required this.myName,
+    this.recentHostedFrequencies = const [],
+  });
 
   @override
-  List<Object?> get props => [myName];
+  List<Object?> get props => [myName, recentHostedFrequencies];
 }
 
 /// User is in a room. Both [roomFreq] and [roomIsHost] are non-nullable
