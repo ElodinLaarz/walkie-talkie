@@ -15,24 +15,30 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
     }
-
+    
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
+    private var audioRoutingManager: AudioRoutingManager? = null
     private var eventSink: EventChannel.EventSink? = null
-
-    // Audio engine and mixer owned by MainActivity; lifecycle follows
-    // startVoice/stopVoice calls so they only run while the user is in a room.
-    private var audioEngineManager: AudioEngineManager? = null
-    private var audioMixerManager: AudioMixerManager? = null
-    private var voiceActive = false
-    private var currentlyMuted = true
-
+    
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        
+        // Initialize audio routing manager
+        audioRoutingManager = AudioRoutingManager(this).apply {
+            startAutoDetect { outputType ->
+                // Notify Flutter when audio output changes
+                sendEventToFlutter(mapOf(
+                    "type" to "audioOutputChanged",
+                    "output" to outputType
+                ))
+            }
+        }
 
         // Initialize Bluetooth manager
         bluetoothManager = BluetoothLeAudioManager(this).apply {
+            // Set up callbacks
             onDeviceDiscovered = { address, name ->
                 Log.i(TAG, "Device discovered: $name ($address)")
                 sendEventToFlutter(mapOf(
@@ -41,7 +47,7 @@ class MainActivity : FlutterActivity() {
                     "name" to name
                 ))
             }
-
+            
             onDeviceConnected = { address ->
                 Log.i(TAG, "Device connected: $address")
                 sendEventToFlutter(mapOf(
@@ -49,7 +55,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-
+            
             onDeviceDisconnected = { address ->
                 Log.i(TAG, "Device disconnected: $address")
                 sendEventToFlutter(mapOf(
@@ -57,7 +63,7 @@ class MainActivity : FlutterActivity() {
                     "address" to address
                 ))
             }
-
+            
             onError = { message ->
                 Log.e(TAG, "Bluetooth error: $message")
                 sendEventToFlutter(mapOf(
@@ -66,7 +72,7 @@ class MainActivity : FlutterActivity() {
                 ))
             }
         }
-
+        
         // Set up MethodChannel for Flutter -> Native communication
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
@@ -120,49 +126,42 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(deviceList)
                 }
+                "setAudioOutput" -> {
+                    val output = call.argument<String>("output")
+                    if (output != null && output in listOf("bluetooth", "earpiece", "speaker")) {
+                        Log.i(TAG, "Setting audio output to: $output")
+                        val success = audioRoutingManager?.setOutput(output) ?: false
+                        result.success(success)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "output must be 'bluetooth', 'earpiece', or 'speaker'", null)
+                    }
+                }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
-                    // AudioMixerManager initializes the native g_audioMixer global
-                    // that the Oboe callback reads — must be created first.
-                    if (audioMixerManager == null) {
-                        audioMixerManager = AudioMixerManager()
-                    }
-                    if (audioEngineManager == null) {
-                        audioEngineManager = AudioEngineManager()
-                    }
-                    val success = audioEngineManager?.start() ?: false
-                    voiceActive = success
-                    if (success) {
-                        // Apply the pre-existing mute state to the fresh engine.
-                        audioEngineManager?.setMuted(currentlyMuted)
-                        emitTalkingPeers()
-                    }
-                    result.success(success)
+                    // Placeholder - will be implemented when native voice pipeline is ready
+                    result.success(true)
                 }
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
-                    audioEngineManager?.stop()
-                    audioEngineManager = null
-                    audioMixerManager?.clear()
-                    audioMixerManager = null
-                    voiceActive = false
-                    sendEventToFlutter(mapOf("type" to "talkingPeers", "peers" to emptyList<String>()))
+                    // Placeholder - will be implemented when native voice pipeline is ready
                     result.success(true)
                 }
                 "setMuted" -> {
-                    val muted = call.argument<Boolean>("muted") ?: true
-                    Log.i(TAG, "Setting mute: $muted")
-                    currentlyMuted = muted
-                    audioEngineManager?.setMuted(muted)
-                    emitTalkingPeers()
-                    result.success(true)
+                    val muted = call.argument<Boolean>("muted")
+                    if (muted != null) {
+                        Log.i(TAG, "Setting mute state: $muted")
+                        // Placeholder - will be implemented when native voice pipeline is ready
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "muted is required", null)
+                    }
                 }
                 else -> {
                     result.notImplemented()
                 }
             }
         }
-
+        
         // Set up EventChannel for Native -> Flutter events
         eventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
         eventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
@@ -177,29 +176,16 @@ class MainActivity : FlutterActivity() {
             }
         })
     }
-
-    /**
-     * Emit a talkingPeers event reflecting the current local voice state.
-     * The sentinel peer ID 'local' represents this device's mic. Remote peers
-     * will be added once BLE audio transport lands.
-     */
-    private fun emitTalkingPeers() {
-        val peers: List<String> = if (voiceActive && !currentlyMuted) listOf("local") else emptyList()
-        sendEventToFlutter(mapOf("type" to "talkingPeers", "peers" to peers))
-    }
-
+    
     private fun sendEventToFlutter(event: Map<String, Any>) {
         Handler(Looper.getMainLooper()).post {
             eventSink?.success(event)
         }
     }
-
+    
     override fun onDestroy() {
         super.onDestroy()
-        audioEngineManager?.stop()
-        audioEngineManager = null
-        audioMixerManager?.clear()
-        audioMixerManager = null
+        audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)

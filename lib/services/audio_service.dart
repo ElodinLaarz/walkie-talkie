@@ -140,6 +140,30 @@ class AudioService {
     }
   }
 
+  /// Set the audio output routing for the voice stream.
+  ///
+  /// Routes the mixed audio output to the specified device type:
+  /// - "bluetooth": Bluetooth headsets (AirPods, earbuds, etc.)
+  /// - "earpiece": Phone's built-in earpiece (held to ear)
+  /// - "speaker": Phone's speaker (loud, everyone nearby hears)
+  ///
+  /// The native layer auto-detects when Bluetooth devices connect/disconnect
+  /// and routes accordingly, but this method allows manual override.
+  ///
+  /// Returns true if routing was successfully configured, false if the
+  /// requested device type is unavailable or if the platform call fails.
+  Future<bool> setAudioOutput(String output) async {
+    try {
+      final result = await _methodChannel.invokeMethod('setAudioOutput', {
+        'output': output,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('Error setting audio output to $output: $e');
+      return false;
+    }
+  }
+
   /// Get list of connected devices
   Future<List<Map<String, String>>> getConnectedDevices() async {
     try {
@@ -171,23 +195,5 @@ class AudioService {
           return <String, dynamic>{};
         });
     return _eventStream!;
-  }
-
-  /// Stream of peer IDs that are currently transmitting audio.
-  ///
-  /// The sentinel `'local'` represents this device's mic. Remote peers will
-  /// be added once BLE audio transport is wired up. The room screen uses this
-  /// to drive the talking VU rings for remote peers; the local user's ring is
-  /// derived from the mute state directly.
-  Stream<Set<String>> get talkingPeers {
-    return audioEvents
-        .where((e) => e['type'] == 'talkingPeers')
-        .map((e) {
-          final raw = e['peers'];
-          if (raw is List) {
-            return Set<String>.from(raw.map((p) => p.toString()));
-          }
-          return <String>{};
-        });
   }
 }
