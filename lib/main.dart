@@ -11,6 +11,8 @@ import 'data/frequency_mock_data.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
+import 'services/audio_service.dart';
+import 'services/ble_control_transport.dart';
 import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
 import 'services/recent_frequencies_store.dart';
@@ -33,11 +35,16 @@ class WalkieTalkieApp extends StatelessWidget {
   /// Override for tests; defaults to the real Bluetooth-LE implementation.
   final DiscoveryService? discoveryService;
 
+  /// Override for tests; defaults to the real [AudioService] backed by
+  /// the native MethodChannel/EventChannel.
+  final AudioService? audioService;
+
   const WalkieTalkieApp({
     super.key,
     this.identityStore,
     this.recentFrequenciesStore,
     this.discoveryService,
+    this.audioService,
   });
 
   @override
@@ -58,6 +65,13 @@ class WalkieTalkieApp extends StatelessWidget {
         RepositoryProvider<DiscoveryService>(
           create: (_) => discoveryService ?? DiscoveryService(),
         ),
+        RepositoryProvider<AudioService>(
+          create: (_) => audioService ?? AudioService(),
+        ),
+        RepositoryProvider<BleControlTransport>(
+          create: (context) =>
+              BleControlTransport(context.read<AudioService>()),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -66,6 +80,7 @@ class WalkieTalkieApp extends StatelessWidget {
               identityStore: context.read<IdentityStore>(),
               recentFrequenciesStore:
                   context.read<RecentFrequenciesStore>(),
+              transport: context.read<BleControlTransport>(),
             )..bootstrap(),
           ),
           BlocProvider(

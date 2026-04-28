@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 /// Service for communicating with native Android audio layer
@@ -224,6 +225,7 @@ class AudioService {
         });
   }
 
+<<<<<<< HEAD
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
@@ -273,15 +275,16 @@ class AudioService {
     }
   }
 
-  /// Stream of control bytes received from GATT clients.
+  /// Stream of control-plane byte fragments from the native GATT layer.
   ///
-  /// Each event contains:
-  /// - 'endpointId': The MAC address of the device that sent the bytes
-  /// - 'bytes': The raw bytes written to the REQUEST characteristic
+  /// On the host side, each event carries bytes written to the REQUEST
+  /// characteristic by a connected guest. On the guest side, bytes arrive
+  /// via RESPONSE notifications from the host. The [BleControlTransport]
+  /// reassembles fragments and decodes complete [FrequencyMessage]s.
   ///
-  /// The BleControlTransport layer deserializes these bytes into
-  /// FrequencyMessage objects (JoinRequest, MediaCommand, Leave, etc.).
-  Stream<Map<String, dynamic>> get controlBytes {
+  /// Malformed events (missing `endpointId` or `bytes` fields) are silently
+  /// dropped before reaching the transport layer.
+  Stream<({String endpointId, Uint8List bytes})> get controlBytes {
     _controlBytesStream ??= _controlBytesEventChannel
         .receiveBroadcastStream()
         .map((event) {
@@ -292,6 +295,30 @@ class AudioService {
           debugPrint('Control bytes event stream error: $error');
           return <String, dynamic>{};
         });
-    return _controlBytesStream!;
+    return _controlBytesStream!
+        .where((e) => e['endpointId'] is String && e['bytes'] != null)
+        .map((e) {
+          final raw = e['bytes'];
+          final bytes = raw is Uint8List
+              ? raw
+              : Uint8List.fromList((raw as List).cast<int>());
+          return (endpointId: e['endpointId'] as String, bytes: bytes);
+        });
+  }
+
+  /// Write [bytes] to the GATT control plane.
+  ///
+  /// On the guest side this writes to the host's REQUEST characteristic.
+  /// Failures are logged and swallowed — the transport layer decides on
+  /// retry / teardown.
+  Future<void> writeControlBytes(Uint8List bytes) async {
+    try {
+      await _methodChannel.invokeMethod<void>(
+        'writeControlBytes',
+        <String, dynamic>{'bytes': bytes},
+      );
+    } catch (e) {
+      debugPrint('Error writing control bytes: $e');
+    }
   }
 }

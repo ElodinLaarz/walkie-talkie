@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../protocol/messages.dart';
+import '../services/ble_control_transport.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
 import 'frequency_session_state.dart';
@@ -51,6 +52,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final IdentityStore identityStore;
   final RecentFrequenciesStore recentFrequenciesStore;
 
+  /// Optional BLE control transport. When null the cubit operates in the
+  /// same in-memory loopback mode as before the transport landed — useful
+  /// for tests and early development builds.
+  final BleControlTransport? _transport;
+
+  StreamSubscription<FrequencyMessage>? _transportSubscription;
+
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
 
   /// Stream of media commands relevant to the local peer's UI. Emits both
@@ -65,12 +73,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   FrequencySessionCubit({
     required this.identityStore,
     required this.recentFrequenciesStore,
-  }) : super(const SessionBooting());
+    BleControlTransport? transport,
+  })  : _transport = transport,
+        super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
   /// exists, otherwise into Onboarding. Always exits Booting — even if the
   /// read throws — so the user never strands on the splash.
+  ///
+  /// Also wires the BLE transport's [BleControlTransport.incoming] stream
+  /// so incoming wire messages drive state transitions for the lifetime of
+  /// the cubit.
   Future<void> bootstrap() async {
+    _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
+
     String? persisted;
     try {
       persisted = await identityStore.getDisplayName();
@@ -89,6 +105,42 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       myName: persisted,
       recentHostedFrequencies: recent,
     ));
+  }
+
+  void _onTransportMessage(FrequencyMessage msg) {
+    switch (msg) {
+      case JoinAccepted m:
+        applyJoinAccepted(m);
+      case MediaCommand m:
+        applyHostMediaEcho(m);
+      case RosterUpdate m:
+        final current = state;
+        if (isClosed || current is! SessionRoom) return;
+        emit(current.copyWith(roster: m.roster));
+      case Leave m:
+        // Host role: drop the leaving peer from the roster and clean up
+        // transport state. Guest role: if the host leaves, leaveRoom().
+        final current = state;
+        if (isClosed || current is! SessionRoom) return;
+        if (m.peerId == current.hostPeerId && !current.roomIsHost) {
+          unawaited(leaveRoom());
+        } else {
+          final updated =
+              current.roster.where((p) => p.peerId != m.peerId).toList();
+          emit(current.copyWith(roster: updated));
+          _transport?.forgetPeer(m.peerId);
+        }
+      // These message types are handled by future issues (heartbeats,
+      // signal reports, voice-activity detection). Silently drop for now.
+      case TalkingState():
+      case MuteState():
+      case Heartbeat():
+      case JoinRequest():
+      case JoinDenied():
+      case RemovePeer():
+      case SignalReport():
+        break;
+    }
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -278,6 +330,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       positionMs: positionMs,
     );
     _mediaCommandsController.add(cmd);
+    // Fire-and-forget the BLE write — a failure is already logged inside
+    // BleControlTransport; the optimistic local apply stands regardless.
+    final t = _transport;
+    if (t != null) unawaited(t.send(cmd));
   }
 
   /// Apply a host-echoed `MediaCommand`. The canonical apply path:
@@ -307,23 +363,36 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Broadcasts a mute-state change originated by the local peer.
   ///
   /// Builds a `MuteState` message with the local peerId and a fresh seq,
-  /// then sends it via the BLE control transport (once wired). Until the
-  /// transport lands, this is a no-op — the local `_audio.setMuted` call
-  /// in the room screen is the only side effect.
+  /// then sends it via the BLE control transport (if wired). When the
+  /// transport is absent (no BLE connection yet) the seq counter still
+  /// advances so it stays monotonic once the transport connects.
   ///
   /// The host will apply the mute state to its roster snapshot and echo
   /// it to all peers (including the originator) so UI indicators reflect
   /// the canonical view.
   Future<void> broadcastMute(bool muted) async {
-    // TODO(transport): once BLE control transport lands, resolve peerId and send:
-    //   final peerId = await identityStore.getPeerId();
-    //   await transport.send(MuteState(peerId: peerId, seq: ++_seq,
-    //                         atMs: DateTime.now().millisecondsSinceEpoch, muted: muted));
-    // For now, this is a no-op — the local audio engine state is the only
-    // side effect. The host will apply + echo mute changes when the wire
-    // protocol is live.
-    // Increment sequence counter to keep it synchronized for when transport lands.
-    _seq++;
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve peer id for mute broadcast: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _seq++;
+      return;
+    }
+    if (isClosed) return;
+    final msg = MuteState(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      muted: muted,
+    );
+    unawaited(t.send(msg));
   }
 
   @override
@@ -336,6 +405,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // `_mediaCommandsController.isClosed = true` and
     // `cubit.isClosed = true` and throw on `add`.
     await super.close();
+    await _transportSubscription?.cancel();
     await _mediaCommandsController.close();
   }
 }
