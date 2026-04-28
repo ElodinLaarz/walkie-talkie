@@ -15,6 +15,10 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
         private const val CONTROL_BYTES_EVENT_CHANNEL = "com.elodin.walkie_talkie/control_bytes"
+
+        init {
+            System.loadLibrary("walkie_talkie_audio")
+        }
     }
 
     private var methodChannel: MethodChannel? = null
@@ -28,6 +32,9 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Register for native voice activity callbacks
+        nativeRegisterForCallbacks()
 
         // Initialize audio routing manager
         // Auto-detect will be started when voice capture begins (startVoice)
@@ -233,7 +240,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-<<<<<<< HEAD
     private fun sendControlBytesToFlutter(deviceAddress: String, bytes: ByteArray) {
         Handler(Looper.getMainLooper()).post {
             controlBytesSink?.success(mapOf(
@@ -242,8 +248,15 @@ class MainActivity : FlutterActivity() {
             ))
         }
     }
-    
-=======
+
+    // Called from JNI when voice activity crosses threshold
+    fun sendLocalTalkingEvent(talking: Boolean) {
+        sendEventToFlutter(mapOf(
+            "type" to "localTalking",
+            "talking" to talking
+        ))
+    }
+
     // Called when the notification's Leave action brings this activity back to
     // the foreground (singleTop launchMode prevents a new instance). The action
     // extra is forwarded to Flutter so the room screen can call leaveRoom().
@@ -254,10 +267,9 @@ class MainActivity : FlutterActivity() {
             sendEventToFlutter(mapOf("type" to "leaveRoom"))
         }
     }
-
->>>>>>> origin/main
     override fun onDestroy() {
         super.onDestroy()
+        nativeUnregisterCallbacks()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
         gattServerManager?.stop()
@@ -265,4 +277,8 @@ class MainActivity : FlutterActivity() {
         eventChannel?.setStreamHandler(null)
         controlBytesEventChannel?.setStreamHandler(null)
     }
+
+    // Native methods for voice activity detection callbacks
+    private external fun nativeRegisterForCallbacks()
+    private external fun nativeUnregisterCallbacks()
 }
