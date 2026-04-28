@@ -127,6 +127,13 @@ FrequencySessionCubit _makeCubit({
 class _FakePermissionWatcher implements PermissionWatcher {
   final StreamController<List<AppPermission>> controller =
       StreamController<List<AppPermission>>.broadcast();
+
+  /// Result returned by [checkNow]. Tests that exercise the boot-time
+  /// revoked path set this to a non-empty list before calling [bootstrap]
+  /// so the cubit's defensive checkNow at the end of bootstrap surfaces
+  /// the denied state.
+  List<AppPermission> checkNowResult = const [];
+
   int checkNowCalls = 0;
   bool disposed = false;
 
@@ -139,7 +146,7 @@ class _FakePermissionWatcher implements PermissionWatcher {
   @override
   Future<List<AppPermission>> checkNow() async {
     checkNowCalls++;
-    return const [];
+    return checkNowResult;
   }
 
   @override
@@ -2315,9 +2322,15 @@ void main() {
         final watcher = _FakePermissionWatcher();
         final cubit = _makeCubit(permissionWatcher: watcher);
         await cubit.bootstrap();
+        // bootstrap performs a defensive checkNow() at the end so an
+        // initial revoked snapshot isn't dropped during Booting; let that
+        // call settle before counting recheckPermissions.
+        await Future<void>.delayed(Duration.zero);
+        final baseline = watcher.checkNowCalls;
+        expect(baseline, 1);
 
         await cubit.recheckPermissions();
-        expect(watcher.checkNowCalls, 1);
+        expect(watcher.checkNowCalls, baseline + 1);
 
         await cubit.close();
         await watcher.dispose();
@@ -2331,6 +2344,88 @@ void main() {
         await cubit.bootstrap();
         await expectLater(cubit.recheckPermissions(), completes);
         await cubit.close();
+      },
+    );
+
+    test(
+      'fresh launch with already-revoked perms lands on the denied screen',
+      () async {
+        // Models the case where the user revoked perms via the system
+        // notification shade or settings while the app was killed. The
+        // watcher's first sample reports a non-empty missing list before
+        // bootstrap finishes; the cubit's defensive checkNow at the end of
+        // bootstrap must apply it instead of swallowing it during Booting.
+        final watcher = _FakePermissionWatcher()
+          ..checkNowResult = const [AppPermission.microphone];
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          permissionWatcher: watcher,
+        );
+
+        await cubit.bootstrap();
+        // bootstrap fires the defensive checkNow asynchronously.
+        await Future<void>.delayed(Duration.zero);
+
+        final s = cubit.state;
+        expect(s, isA<SessionPermissionDenied>());
+        expect((s as SessionPermissionDenied).missing,
+            [AppPermission.microphone]);
+        expect(s.myName, 'Maya');
+
+        await cubit.close();
+        await watcher.dispose();
+      },
+    );
+
+    test(
+      'recover-from-denied does not clobber a fresh denied state during the '
+      'recent-frequencies disk-read await',
+      () async {
+        // Race: watcher reports all-granted → cubit starts
+        // _recoverFromPermissionDenied which awaits _loadRecentFrequencies.
+        // Mid-await, the user toggles a permission off again and the watcher
+        // pushes a fresh denied state. Recovery must not overwrite that.
+        final recent = _GatedRecentFrequenciesStore();
+        final watcher = _FakePermissionWatcher();
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+          permissionWatcher: watcher,
+        );
+        await cubit.bootstrap();
+
+        // Enter denied.
+        watcher.push([AppPermission.microphone]);
+        await Future<void>.delayed(Duration.zero);
+        expect(cubit.state, isA<SessionPermissionDenied>());
+
+        // Wedge the next getRecent call so recovery's await blocks.
+        final blocker = Completer<List<String>>();
+        recent.gate = blocker.future;
+
+        // User re-grants — recovery starts and awaits the slow disk read.
+        watcher.push(const []);
+        await Future<void>.delayed(Duration.zero);
+        // Still denied (recovery is mid-await).
+        expect(cubit.state, isA<SessionPermissionDenied>());
+
+        // Mid-await, user toggles bluetooth off — fresh denied state lands.
+        watcher.push([AppPermission.bluetooth]);
+        await Future<void>.delayed(Duration.zero);
+        expect((cubit.state as SessionPermissionDenied).missing,
+            [AppPermission.bluetooth]);
+
+        // Now the disk read completes. Recovery must NOT emit Discovery —
+        // a newer denied state took its place.
+        blocker.complete(const []);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(cubit.state, isA<SessionPermissionDenied>());
+        expect((cubit.state as SessionPermissionDenied).missing,
+            [AppPermission.bluetooth]);
+
+        await cubit.close();
+        await watcher.dispose();
       },
     );
   });
@@ -2356,6 +2451,32 @@ void main() {
       expect(r.roomIsHost, isTrue);
     });
   });
+}
+
+/// RecentFrequenciesStore whose `getRecent()` blocks on a caller-supplied
+/// future, letting a test wedge an awaiting cubit method mid-await to
+/// exercise races against state transitions that fire during the gap.
+///
+/// The first call always resolves immediately (so bootstrap can finish)
+/// and only later calls block. Tests that want to wedge mid-recovery set
+/// the gate before triggering the recovery path.
+class _GatedRecentFrequenciesStore implements RecentFrequenciesStore {
+  Future<List<String>>? gate;
+  int callCount = 0;
+
+  @override
+  Future<List<String>> getRecent() async {
+    callCount++;
+    final g = gate;
+    if (g == null) return const [];
+    return g;
+  }
+
+  @override
+  Future<void> record(String freq) async {}
+
+  @override
+  Future<void> clear() async {}
 }
 
 /// IdentityStore whose `getPeerId` blocks on a caller-supplied future.

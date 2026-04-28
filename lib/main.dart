@@ -28,7 +28,7 @@ void main() async {
   runApp(const WalkieTalkieApp());
 }
 
-class WalkieTalkieApp extends StatelessWidget {
+class WalkieTalkieApp extends StatefulWidget {
   /// Override for tests; defaults to the Hive-backed implementation.
   final IdentityStore? identityStore;
 
@@ -57,37 +57,58 @@ class WalkieTalkieApp extends StatelessWidget {
   });
 
   @override
+  State<WalkieTalkieApp> createState() => _WalkieTalkieAppState();
+}
+
+class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
+  /// Owned by this State so [PermissionWatcher.dispose] runs deterministically
+  /// when the app widget is unmounted (hot restart, tests, embedded usage).
+  /// `flutter_bloc` 8.1.6's [RepositoryProvider] suppresses the underlying
+  /// `dispose:` parameter, so we own the lifecycle here and inject the
+  /// instance into the provider below — only test-supplied watchers (whose
+  /// owner is the test) are skipped.
+  PermissionWatcher? _ownedWatcher;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.permissionWatcher == null) {
+      _ownedWatcher = DefaultPermissionWatcher();
+    }
+  }
+
+  @override
+  void dispose() {
+    // Only dispose if we created it; a caller-supplied watcher is the
+    // caller's responsibility to release.
+    unawaited(_ownedWatcher?.dispose());
+    _ownedWatcher = null;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // If the service is not provided, we create it here. Since RepositoryProvider
-    // doesn't have a dispose callback like Provider, it's safer to provide it via
-    // a StatefulWidget if we need to manage its lifecycle, but for the global
-    // app scope it's okay to just let it live.
+    final watcher = widget.permissionWatcher ?? _ownedWatcher!;
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<IdentityStore>(
-          create: (_) => identityStore ?? HiveIdentityStore(),
+          create: (_) => widget.identityStore ?? HiveIdentityStore(),
         ),
         RepositoryProvider<RecentFrequenciesStore>(
           create: (_) =>
-              recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
+              widget.recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
         ),
         RepositoryProvider<DiscoveryService>(
-          create: (_) => discoveryService ?? DiscoveryService(),
+          create: (_) => widget.discoveryService ?? DiscoveryService(),
         ),
         RepositoryProvider<AudioService>(
-          create: (_) => audioService ?? AudioService(),
+          create: (_) => widget.audioService ?? AudioService(),
         ),
         RepositoryProvider<BleControlTransport>(
           create: (context) =>
               BleControlTransport(context.read<AudioService>()),
         ),
-        RepositoryProvider<PermissionWatcher>(
-          // The watcher lives for the lifetime of the app — same scope as
-          // [DiscoveryService] and [AudioService] above. It uses
-          // [WidgetsBindingObserver]; the framework releases the observer
-          // alongside the binding at app exit.
-          create: (_) => permissionWatcher ?? DefaultPermissionWatcher(),
-        ),
+        RepositoryProvider<PermissionWatcher>.value(value: watcher),
       ],
       child: MultiBlocProvider(
         providers: [

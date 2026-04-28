@@ -199,14 +199,36 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     if (persisted == null) {
       emit(const SessionOnboarding());
-      return;
+    } else {
+      final recent = await _loadRecentFrequencies();
+      if (isClosed) return;
+      emit(SessionDiscovery(
+        myName: persisted,
+        recentHostedFrequencies: recent,
+      ));
     }
-    final recent = await _loadRecentFrequencies();
-    if (isClosed) return;
-    emit(SessionDiscovery(
-      myName: persisted,
-      recentHostedFrequencies: recent,
-    ));
+    // Defensive replay of the latest permission state. The watcher's
+    // initial sample is emitted before bootstrap finishes (cubit is still
+    // in [SessionBooting] when the listener runs), and
+    // [_onPermissionsChanged] intentionally ignores Booting because
+    // onboarding owns its own permission flow. Without this re-check, an
+    // initial revoked state would be swallowed by the watcher's de-dup
+    // and never re-surface — a fresh launch with mic / BT already revoked
+    // would land on Discovery instead of the denied screen. Apply the
+    // latest sample through the same handler now that we've left Booting.
+    final watcher = _permissionWatcher;
+    if (watcher != null && !isClosed) {
+      unawaited(() async {
+        try {
+          final missing = await watcher.checkNow();
+          if (isClosed) return;
+          _onPermissionsChanged(missing);
+        } catch (error, stackTrace) {
+          debugPrint('Initial permission check failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
+      }());
+    }
   }
 
   void _onTransportMessage(FrequencyMessage msg) {
@@ -794,17 +816,29 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// reported all permissions granted. Routes to [SessionDiscovery] when
   /// a display name is on hand (the typical case — the user had already
   /// onboarded), or to [SessionOnboarding] otherwise.
+  ///
+  /// Identity-checks the current state right before the final emit: between
+  /// the watcher's "all granted" signal and the recent-frequencies disk
+  /// read, the user could have toggled a permission off again and the
+  /// watcher could have pushed a fresh denied state through. Each
+  /// [_onPermissionsChanged] call emits a *new* [SessionPermissionDenied]
+  /// instance, so checking `identical(state, current)` rather than
+  /// `state is! SessionPermissionDenied` correctly distinguishes "same
+  /// denied state we entered recovery from" (safe to emit Discovery) from
+  /// "a newer denied state replaced it during the await" (don't clobber).
   Future<void> _recoverFromPermissionDenied(
     SessionPermissionDenied current,
   ) async {
     final myName = current.myName;
     if (myName == null) {
       if (isClosed) return;
+      if (!identical(state, current)) return;
       emit(const SessionOnboarding());
       return;
     }
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
+    if (!identical(state, current)) return;
     emit(SessionDiscovery(
       myName: myName,
       recentHostedFrequencies: recent,

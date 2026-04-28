@@ -62,10 +62,12 @@ final class SessionDiscovery extends FrequencySessionState {
 ///
 /// [missing] is the ordered list of permissions the user has revoked
 /// (microphone before bluetooth, mirroring the watcher's emission). The
-/// list is unmodifiable so subscribers can compare with `==` for change
-/// detection. The cubit clears this state by emitting [SessionDiscovery]
-/// (or [SessionOnboarding] for a fresh install) once the watcher reports
-/// an empty list — recovering room state mid-session is intentionally not
+/// list is unmodifiable so a caller can't retroactively mutate past states
+/// and break Equatable's diffing — this state's element-wise diff comes
+/// from [Equatable] (see [props]) rather than `List.==`, which is identity.
+/// The cubit clears this state by emitting [SessionDiscovery] (or
+/// [SessionOnboarding] for a fresh install) once the watcher reports an
+/// empty list — recovering room state mid-session is intentionally not
 /// attempted (see issue #57's acceptance criteria: re-grant returns the
 /// user to Discovery, not the previous room).
 final class SessionPermissionDenied extends FrequencySessionState {

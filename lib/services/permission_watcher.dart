@@ -17,20 +17,24 @@ enum AppPermission { microphone, bluetooth }
 /// the BLE control + L2CAP voice planes).
 ///
 /// Emits a [List] of currently-missing permissions on the [watch] stream.
-/// The list is ordered (microphone before bluetooth) and de-duplicated, so
-/// listeners can compare with `==` (via [ListEquality]-style semantics) to
-/// detect a real change. The first event after subscription is the current
-/// snapshot — listeners don't need to seed state separately.
+/// The list is ordered (microphone before bluetooth) and de-duplicated by
+/// element-wise comparison — Dart's `List.==` is identity, so consumers
+/// that want value-semantics should use `listEquals` from `flutter/foundation`,
+/// or wrap the result in an `Equatable`-compatible value (which is what
+/// `SessionPermissionDenied` does). Each new subscriber sees the most
+/// recently emitted snapshot first, then change-only updates after that.
 ///
 /// The default implementation re-checks on app resume (via
 /// [WidgetsBindingObserver]) and on a 5-second timer while the app is
-/// foregrounded. The timer keeps the watcher honest even if the user toggles
-/// the permission via the notification shade rather than the system Settings
-/// screen (which wouldn't always trigger an `AppLifecycleState.resumed`).
+/// foregrounded. The timer is gated by the latest [AppLifecycleState]: when
+/// the app is paused / inactive / detached the polling falls silent so the
+/// app doesn't spend battery querying permissions while in the background.
+/// On resume the watcher re-samples immediately, which catches any change
+/// that happened during the gap.
 abstract class PermissionWatcher {
-  /// Stream of currently-missing permissions. The first event is the initial
-  /// snapshot at subscription time; subsequent events fire only when the set
-  /// changes. Empty list means all permissions are granted.
+  /// Stream of currently-missing permissions. New subscribers receive the
+  /// last sampled value (if any) first, then change-only updates after that.
+  /// Empty list means all permissions are granted.
   Stream<List<AppPermission>> watch();
 
   /// Re-check permissions immediately. Returns the current missing list and
@@ -60,10 +64,19 @@ class DefaultPermissionWatcher
   bool _observerAdded = false;
   bool _disposed = false;
 
-  /// Last emitted set, used to suppress duplicate events. Stored as an
-  /// unmodifiable list so subscribers can hold the reference safely.
+  /// Last emitted set, used to suppress duplicate events and to replay the
+  /// current snapshot to late subscribers. Stored as an unmodifiable list so
+  /// subscribers can hold the reference safely.
   List<AppPermission> _last = const [];
   bool _hasEmitted = false;
+
+  /// Tracks the app's foreground/background state. The timer fires every 5 s
+  /// regardless of foreground state, but [_backgroundCheck] short-circuits
+  /// when the app isn't resumed, so we don't waste a platform call (and
+  /// battery) querying permissions while the user is in another app. On
+  /// [AppLifecycleState.resumed] we re-sample immediately, which catches any
+  /// permission flip that happened during the gap.
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
 
   /// Re-entrancy guard for *background* ticks (poll timer + lifecycle
   /// resume). The poll timer and lifecycle hook can both fire while a
@@ -88,7 +101,35 @@ class DefaultPermissionWatcher
       // Fire-and-forget — emission lands on the broadcast stream.
       _backgroundCheck();
     }
-    return _controller.stream;
+    // Replay the last sampled value to each new subscriber so a late
+    // listener (e.g. cubit re-bootstrap on hot restart) doesn't miss a
+    // stable revoked state. Without this, a subscriber that attaches AFTER
+    // the kickoff sample wouldn't receive the current snapshot until the
+    // next change — and if the set never changes, never.
+    return _replayAndForward();
+  }
+
+  /// Stream wrapper that emits [_last] (when one has been sampled) before
+  /// forwarding subsequent events from [_controller]. Each subscriber gets
+  /// its own copy of the replay.
+  Stream<List<AppPermission>> _replayAndForward() {
+    late StreamController<List<AppPermission>> out;
+    StreamSubscription<List<AppPermission>>? inner;
+    out = StreamController<List<AppPermission>>(
+      onListen: () {
+        if (_hasEmitted) out.add(_last);
+        inner = _controller.stream.listen(
+          out.add,
+          onError: out.addError,
+          onDone: out.close,
+        );
+      },
+      onCancel: () async {
+        await inner?.cancel();
+        inner = null;
+      },
+    );
+    return out.stream;
   }
 
   @override
@@ -102,16 +143,19 @@ class DefaultPermissionWatcher
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_disposed) return;
+    _lifecycleState = state;
     if (state == AppLifecycleState.resumed) {
       _backgroundCheck();
     }
   }
 
   /// Background-tick entry point: drops the call if a previous background
-  /// check is still awaiting platform answers. Lifecycle / poll timer use
-  /// this; user-driven [checkNow] does not.
+  /// check is still awaiting platform answers, or if the app isn't currently
+  /// foregrounded. Lifecycle resume / poll timer use this; user-driven
+  /// [checkNow] does not.
   void _backgroundCheck() {
     if (_disposed) return;
+    if (_lifecycleState != AppLifecycleState.resumed) return;
     if (_backgroundCheckInFlight) return;
     _backgroundCheckInFlight = true;
     unawaited(_sampleAndEmit().whenComplete(() {

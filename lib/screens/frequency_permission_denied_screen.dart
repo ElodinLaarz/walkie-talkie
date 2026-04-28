@@ -41,57 +41,74 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const FrequencyWordmark(),
-              const SizedBox(height: 36),
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: c.surface2,
-                  borderRadius: BorderRadius.circular(14),
+        // The screen lays out long-form copy plus two action buttons.
+        // [LayoutBuilder] + [SingleChildScrollView] keeps Open settings /
+        // Retry pinned to the bottom on tall devices (matching the original
+        // [Spacer] layout) but lets the whole stack scroll on small phones
+        // or with large accessibility text — without scroll, the action
+        // buttons would overflow off-screen and strand the user.
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const FrequencyWordmark(),
+                      const SizedBox(height: 36),
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: c.surface2,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        alignment: Alignment.center,
+                        child:
+                            Icon(Icons.lock_outline, size: 26, color: c.danger),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'Permissions revoked',
+                        style: Theme.of(context).textTheme.displayLarge,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _explainerCopy(missing),
+                        style:
+                            Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: c.ink2,
+                                ),
+                      ),
+                      const SizedBox(height: 22),
+                      for (final perm in missing) ...[
+                        _DeniedRow(perm: perm),
+                        const SizedBox(height: 8),
+                      ],
+                      const Spacer(),
+                      PrimaryButton(
+                        label: 'Open settings',
+                        block: true,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        fontSize: 15,
+                        onPressed: () => unawaited(onOpenSettings()),
+                      ),
+                      const SizedBox(height: 8),
+                      FreqButton(
+                        label: 'Retry',
+                        block: true,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        fontSize: 15,
+                        onPressed: () => unawaited(onRetry()),
+                      ),
+                    ],
+                  ),
                 ),
-                alignment: Alignment.center,
-                child: Icon(Icons.lock_outline, size: 26, color: c.danger),
               ),
-              const SizedBox(height: 18),
-              Text(
-                'Permissions revoked',
-                style: Theme.of(context).textTheme.displayLarge,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _explainerCopy(missing),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: c.ink2,
-                    ),
-              ),
-              const SizedBox(height: 22),
-              for (final perm in missing) ...[
-                _DeniedRow(perm: perm),
-                const SizedBox(height: 8),
-              ],
-              const Spacer(),
-              PrimaryButton(
-                label: 'Open settings',
-                block: true,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                fontSize: 15,
-                onPressed: () => unawaited(onOpenSettings()),
-              ),
-              const SizedBox(height: 8),
-              FreqButton(
-                label: 'Retry',
-                block: true,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                fontSize: 15,
-                onPressed: () => unawaited(onRetry()),
-              ),
-            ],
+            ),
           ),
         ),
       ),
