@@ -250,8 +250,15 @@ class MainActivity : FlutterActivity() {
                             // Connect blocks (with retries) — run off the main thread.
                             val transport = voiceTransport!!
                             Thread({
-                                val ok = transport.connectClient(mac, psm)
-                                Handler(Looper.getMainLooper()).post { result.success(ok) }
+                                try {
+                                    val ok = transport.connectClient(mac, psm)
+                                    Handler(Looper.getMainLooper()).post { result.success(ok) }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "connectVoiceClient thread error: ${e.message}")
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.error("L2CAP_ERROR", e.message, null)
+                                    }
+                                }
                             }, "L2capConnect").apply { isDaemon = true; start() }
                         }
                     }
