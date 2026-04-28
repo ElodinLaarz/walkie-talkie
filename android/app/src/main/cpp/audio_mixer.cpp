@@ -116,7 +116,12 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
         LOGI("Device %d recovered at seq %u (prevSeq %u)", deviceId, seq, prevSeq);
     }
 
-    device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
+    size_t written = device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
+    if (written < static_cast<size_t>(numFrames)) {
+        // Buffer full or near-full (normal during startup or if mixer tick is slow).
+        // Mirrors the same don't-spam-the-log policy as updateDeviceAudio above —
+        // the seq is still accepted for tracking; only the trailing PCM is dropped.
+    }
     device->lastSeq = seq;
     device->hasSeenSeq = true;
 }
