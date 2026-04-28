@@ -16,5 +16,5 @@ if [ ! -f test/cpp/mixer_test.cpp ]; then
   exit 1
 fi
 mkdir -p build/cpp_test
-g++ -std=c++17 test/cpp/mixer_test.cpp -o build/cpp_test/mixer_test
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread test/cpp/mixer_test.cpp -o build/cpp_test/mixer_test
 build/cpp_test/mixer_test
