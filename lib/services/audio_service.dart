@@ -196,4 +196,23 @@ class AudioService {
         });
     return _eventStream!;
   }
+
+  /// Stream of peer IDs currently transmitting voice.
+  ///
+  /// Emits a new set whenever the native mixer detects voice activity changes
+  /// (peers starting or stopping transmission). The set contains peer IDs of
+  /// all currently talking peers, or is empty when no one is transmitting.
+  ///
+  /// Filters audioEvents for 'talkingPeers' events and extracts the peer list.
+  Stream<Set<String>> get talkingPeers {
+    return audioEvents
+        .where((e) => e['type'] == 'talkingPeers')
+        .map((e) {
+          final raw = e['peers'];
+          if (raw is List) {
+            return Set<String>.from(raw.map((p) => p.toString()));
+          }
+          return <String>{};
+        });
+  }
 }
