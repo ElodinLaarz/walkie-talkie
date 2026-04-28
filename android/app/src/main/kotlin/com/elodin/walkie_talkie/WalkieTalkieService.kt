@@ -41,7 +41,7 @@ class WalkieTalkieService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val freq = intent?.getStringExtra(EXTRA_FREQ)
-        if (freq != null && freq != currentFreq) {
+        if (freq != currentFreq) {
             currentFreq = freq
             updateNotification(freq)
         }
@@ -81,10 +81,15 @@ class WalkieTalkieService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                setPackage(packageName)
+            }
         val tapPendingIntent = PendingIntent.getActivity(
             this,
             0,
-            packageManager.getLaunchIntentForPackage(packageName),
+            launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -118,7 +123,7 @@ class WalkieTalkieService : Service() {
         }
     }
 
-    private fun updateNotification(freq: String) {
+    private fun updateNotification(freq: String?) {
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, buildNotification(freq))
     }
