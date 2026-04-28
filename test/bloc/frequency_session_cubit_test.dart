@@ -95,6 +95,13 @@ const _testReconnectDelays = [
   Duration.zero,
 ];
 
+/// Deterministic UUID whose low 12 bits map to mhzDisplay '104.3' via
+/// `FrequencySession`'s 880 + (low12 % 200) tenths formula
+/// (low 3 nibbles = 0x0a3 = 163; 880 + 163 = 1043 → "104.3"). Pinning it
+/// here means existing host-path tests can keep asserting `roomFreq:
+/// '104.3'` without each one having to wire up its own mint stub.
+const _testHostSessionUuid = '00000000-0000-4000-8000-0000000000a3';
+
 FrequencySessionCubit _makeCubit({
   IdentityStore? identityStore,
   RecentFrequenciesStore? recentFrequenciesStore,
@@ -104,6 +111,7 @@ FrequencySessionCubit _makeCubit({
   BleControlTransport? transport,
   SignalReporter? signalReporter,
   WeakSignalDetector? weakSignalDetector,
+  String Function()? mintSessionUuid,
 }) =>
     FrequencySessionCubit(
       identityStore: identityStore ?? _FakeStore(),
@@ -115,6 +123,7 @@ FrequencySessionCubit _makeCubit({
       transport: transport,
       signalReporter: signalReporter,
       weakSignalDetector: weakSignalDetector,
+      mintSessionUuid: mintSessionUuid ?? (() => _testHostSessionUuid),
     );
 
 void main() {
@@ -218,15 +227,23 @@ void main() {
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
-      'joinRoom from Discovery enters the Room with freq + host flag',
+      'joinRoom from Discovery enters the Room with derived freq, host flag, '
+      'and a self-seeded roster',
+      // Host bootstrap: minted UUID drives roomFreq via the same low-12-bit
+      // mapping guests use, hostPeerId is pinned to the local peerId, and
+      // the roster carries a single entry — the local user.
       build: () => _makeCubit(),
       seed: () => const SessionDiscovery(myName: 'Maya'),
-      act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
+      act: (cubit) => cubit.joinRoom(isHost: true),
       expect: () => [
         const SessionRoom(
           myName: 'Maya',
           roomFreq: '104.3',
           roomIsHost: true,
+          hostPeerId: 'fake-peer-id',
+          roster: [
+            ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+          ],
         ),
       ],
     );
@@ -235,7 +252,7 @@ void main() {
       'joinRoom outside Discovery is a no-op',
       build: () => _makeCubit(),
       seed: () => const SessionOnboarding(),
-      act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
+      act: (cubit) => cubit.joinRoom(isHost: true),
       expect: () => const <FrequencySessionState>[],
     );
 
@@ -272,8 +289,8 @@ void main() {
       build: () => _makeCubit(),
       seed: () => const SessionDiscovery(myName: 'Maya'),
       act: (cubit) => cubit.joinRoom(
-        freq: '104.3',
         isHost: true,
+        freq: '104.3',
         macAddress: 'AA:BB:CC:DD:EE:FF',
         sessionUuidLow8: '0011223344556677',
       ),
@@ -282,8 +299,238 @@ void main() {
           myName: 'Maya',
           roomFreq: '104.3',
           roomIsHost: true,
+          hostPeerId: 'fake-peer-id',
+          roster: [
+            ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+          ],
         ),
       ],
+    );
+
+    test(
+      'joinRoom as host derives roomFreq from the freshly-minted sessionUuid',
+      () async {
+        // Decouple the test's mhz check from any specific UUID by minting
+        // a different one and asserting the derived value matches the same
+        // formula `FrequencySession.mhzDisplay` uses.
+        // Low 3 nibbles = 0x123 = 291; 880 + (291 % 200) = 880 + 91 = 971
+        // → '97.1'.
+        const sessionUuid = '11111111-1111-4111-8111-111111111123';
+        final cubit = _makeCubit(mintSessionUuid: () => sessionUuid);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        // Let the bootstrap's async peerId resolution settle.
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.roomFreq, '97.1');
+        expect(room.hostPeerId, 'fake-peer-id');
+        expect(room.roster, hasLength(1));
+        expect(room.roster.single.peerId, 'fake-peer-id');
+        expect(room.roster.single.displayName, 'Maya');
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host calls startAdvertising and startGattServer on audio '
+      'with the minted sessionUuid + display name',
+      () async {
+        // Per issue #39's acceptance: a unit test verifies the host
+        // bootstrap calls into the audio service with the right args. We
+        // intercept the underlying MethodChannel rather than mocking the
+        // service so this test stays anchored on the contract callers
+        // depend on (the platform method names + arg map).
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          // Both methods nominally return bool on the native side.
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        const sessionUuid = '00000000-0000-4000-8000-0000000000a3';
+        final cubit = _makeCubit(
+          audio: AudioService(),
+          mintSessionUuid: () => sessionUuid,
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        // The cubit fires both calls unawaited; let the event loop drain.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final advertise = calls.firstWhere((c) => c.method == 'startAdvertising');
+        expect(advertise.arguments, {
+          'sessionUuid': sessionUuid,
+          'displayName': 'Maya',
+        });
+        expect(
+          calls.where((c) => c.method == 'startGattServer'),
+          hasLength(1),
+        );
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host without an audio service still self-seeds the room',
+      () async {
+        // The native bootstrap is best-effort; without audio injected we
+        // should still emit a host SessionRoom so the UI advances. The
+        // cubit constructor allows audio == null for tests / loopback
+        // builds; this guards that path.
+        final cubit = _makeCubit(); // no audio
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.roomIsHost, isTrue);
+        expect(room.hostPeerId, 'fake-peer-id');
+        expect(room.roster.single.peerId, 'fake-peer-id');
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host bails out when peerId resolution fails — '
+      'no broken room is emitted',
+      () async {
+        // hostPeerId is load-bearing for the protocol's message
+        // attribution; seeding a room without it would just put the user
+        // into a broken state they'd have to leave manually. Stay on
+        // Discovery so the UI can retry.
+        final store = _FakeStore(initial: 'Maya')..throwOnGetPeerId = true;
+        final cubit = _makeCubit(identityStore: store);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, isA<SessionDiscovery>());
+        await cubit.close();
+      },
+    );
+
+    test(
+      'leaveRoom on a host room calls stopAdvertising + stopGattServer',
+      () async {
+        // Symmetric teardown: the host kicks off advertising + GATT in
+        // joinRoom, so backing out of the room must close both surfaces.
+        // Otherwise nearby phones keep seeing a phantom session.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        calls.clear();
+        await cubit.leaveRoom();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, containsAll(<String>{'stopAdvertising', 'stopGattServer'}));
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'leaveRoom on a guest room does NOT call host-side stop methods',
+      () async {
+        // Guests don't own the advertiser / GATT server, so leaving a
+        // guest-role room mustn't tear down a (possibly co-hosted) room
+        // on the same device.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+        ));
+
+        calls.clear();
+        await cubit.leaveRoom();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, isNot(contains('stopAdvertising')));
+        expect(methods, isNot(contains('stopGattServer')));
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'close() while in a host room tears down host BLE surfaces',
+      () async {
+        // Same teardown as leaveRoom — without it, killing the cubit
+        // mid-session leaks the advertiser + GATT server.
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return true;
+        });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final cubit = _makeCubit(audio: AudioService());
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        calls.clear();
+        await cubit.close();
+        await Future<void>.delayed(Duration.zero);
+
+        final methods = calls.map((c) => c.method).toSet();
+        expect(methods, containsAll(<String>{'stopAdvertising', 'stopGattServer'}));
+      },
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(

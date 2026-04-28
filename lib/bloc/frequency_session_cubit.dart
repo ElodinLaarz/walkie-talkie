@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../protocol/frequency_session.dart';
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
+import '../protocol/uuid.dart';
 import '../services/audio_service.dart';
 import '../services/ble_control_transport.dart';
 import '../services/heartbeat_scheduler.dart';
@@ -71,6 +73,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Delay schedule injected into [ReconnectController]. Defaults to the
   /// production schedule; tests pass short delays to avoid slow test runs.
   final List<Duration>? _reconnectDelays;
+
+  /// Mint the per-session UUID on the host bootstrap path. Indirection so
+  /// tests can pin a deterministic UUID and assert the derived `roomFreq`.
+  /// Defaults to the cryptographic [generateUuidV4] for production builds.
+  final String Function() _mintSessionUuid;
 
   /// Drives the protocol's `ping` plane. Started on room entry, stopped
   /// on leave / close. The cubit owns the role-specific reaction to a
@@ -141,12 +148,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     HeartbeatScheduler? heartbeats,
     SignalReporter? signalReporter,
     WeakSignalDetector? weakSignalDetector,
+    String Function()? mintSessionUuid,
   })  : _transport = transport,
         _audio = audio,
         _reconnectDelays = reconnectDelays,
         _heartbeats = heartbeats ?? HeartbeatScheduler(),
         _signalReporter = signalReporter ?? SignalReporter(),
         _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
+        _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -567,52 +576,127 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
   }
 
-  /// Enters Room on [freq]. [isHost] is true when the user created the
-  /// frequency, false when they tuned in to an existing one. No-op if
-  /// the user isn't on Discovery (shouldn't happen — Discovery is the
-  /// only screen that triggers it).
+  /// Enters Room. [isHost] is true when the user created the frequency,
+  /// false when they tuned in to an existing one. The [freq] argument is
+  /// required on the guest path (it carries the discovered MHz string)
+  /// and ignored on the host path (the room frequency is derived from a
+  /// freshly-minted sessionUuid). No-op if the user isn't on Discovery
+  /// (shouldn't happen — Discovery is the only screen that triggers it).
   ///
-  /// On the guest side, the caller passes [macAddress] and
-  /// [sessionUuidLow8] from the discovered advertisement. Both are stored
-  /// on `SessionRoom` so the GATT-client transport can dial the host
-  /// later (the actual `connectToHost` call lands in the GATT-client
-  /// issue). On the host side both are null — the local user *is* the
-  /// host, so there's no remote to dial.
+  /// **Host path.** Mints a fresh `sessionUuid`, derives the room's
+  /// cosmetic [roomFreq] from its low 12 bits (the same mapping guests
+  /// use when decoding the advertisement), self-seeds the roster with
+  /// the local user, and asks the audio service to start LE advertising
+  /// + the GATT server so other phones can see and dial the room. The
+  /// [freq] argument is ignored on this path — the freshly-minted UUID
+  /// is the source of truth for both the cosmetic display and what
+  /// guests will eventually see in their discovery list. Recorded to
+  /// the recent-hosted list as a side-effect.
+  ///
+  /// **Guest path.** Uses [freq] as the room's cosmetic display (it
+  /// already matches the advertised UUID's mhzDisplay since both flow
+  /// from the same protocol mapping). [macAddress] and [sessionUuidLow8]
+  /// come from the discovered advertisement and are stored on
+  /// `SessionRoom` so the GATT-client transport can dial the host later
+  /// (the actual `connectToHost` call lands in #43). On the host path
+  /// both are null — the local user *is* the host, so there's no remote
+  /// to dial.
   ///
   /// Resets the per-link sequence counter to 0 so the next sent message
   /// starts at `seq = 1` per the protocol's reconnect rule.
   ///
-  /// When [isHost] is true, the freq is recorded to the recent-hosted
-  /// list as a side-effect. Persistence runs in the background — a
-  /// failure or slow disk shouldn't block the transition into the room.
-  /// The updated list shows up the next time the user lands on
-  /// Discovery (via [leaveRoom]'s re-read).
+  /// Recent-frequency persistence runs in the background — a failure or
+  /// slow disk shouldn't block the transition into the room. The updated
+  /// list shows up the next time the user lands on Discovery (via
+  /// [leaveRoom]'s re-read).
   Future<void> joinRoom({
-    required String freq,
     required bool isHost,
+    String? freq,
     String? macAddress,
     String? sessionUuidLow8,
   }) async {
     final current = state;
     if (current is! SessionDiscovery) return;
     _seq = 0;
+    final SessionRoom room;
     if (isHost) {
+      // Mint the canonical session identity. Everything else on the host
+      // path (advertised manufacturer payload, cosmetic mhz, hostPeerId
+      // self-seed) flows from this UUID + the local peerId.
+      final sessionUuid = _mintSessionUuid();
+      // Resolve the local peerId for the self-seed. The cache covers
+      // the common case where bootstrap has already run; falls back to
+      // the store otherwise. A hard failure aborts the host path —
+      // hostPeerId is load-bearing for the protocol's message
+      // attribution, and seeding the room without it would just put the
+      // user into a broken state they'd have to leave anyway.
+      String? hostPeerId = _localPeerId;
+      if (hostPeerId == null) {
+        try {
+          hostPeerId = await identityStore.getPeerId();
+          _localPeerId = hostPeerId;
+        } catch (error, stackTrace) {
+          debugPrint('Failed to load peerId for host bootstrap: $error');
+          debugPrintStack(stackTrace: stackTrace);
+          return;
+        }
+      }
+      if (isClosed) return;
+      // Re-read state after the await — `rename()` could have fired in
+      // the gap, and the captured `current.myName` would be stale.
+      // `leaveRoom()` isn't possible from Discovery, but a state
+      // transition out of Discovery still means the user no longer wants
+      // this room and we should bail.
+      final afterAwait = state;
+      if (afterAwait is! SessionDiscovery) return;
+      final myName = afterAwait.myName;
+      final session = FrequencySession(
+        sessionUuid: sessionUuid,
+        hostPeerId: hostPeerId,
+      );
+      final roomFreq = session.mhzDisplay;
       // Fire-and-forget: the user has already committed to entering the
       // room, so we shouldn't await disk I/O before emitting. Errors are
       // logged on the future and surfaced on next launch as a missing
       // entry; nothing else depends on success here.
-      unawaited(_recordRecentFrequency(freq));
+      unawaited(_recordRecentFrequency(roomFreq));
+      room = SessionRoom(
+        myName: myName,
+        roomFreq: roomFreq,
+        roomIsHost: true,
+        hostPeerId: hostPeerId,
+        roster: [ProtocolPeer(peerId: hostPeerId, displayName: myName)],
+      );
+      emit(room);
+      // Kick off the BLE side. Both calls return false on permission /
+      // OEM rejection; we don't block the room transition on either,
+      // matching the existing pattern for non-fatal native-side failures.
+      // The native implementations land in #41 (advertiser) and the
+      // existing #38 (GATT server, already wired). Symmetric teardown
+      // happens in [leaveRoom] and [close].
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.startAdvertising(
+          sessionUuid: sessionUuid,
+          displayName: myName,
+        ));
+        unawaited(audio.startGattServer());
+      }
+    } else {
+      if (freq == null) {
+        debugPrint(
+            'joinRoom guest path requires a freq; refusing to enter the room.');
+        return;
+      }
+      room = SessionRoom(
+        myName: current.myName,
+        roomFreq: freq,
+        roomIsHost: false,
+        macAddress: macAddress,
+        sessionUuidLow8: sessionUuidLow8,
+      );
+      emit(room);
     }
-    emit(SessionRoom(
-      myName: current.myName,
-      roomFreq: freq,
-      roomIsHost: isHost,
-      // Guest path threads MAC + session UUID through to the room state so
-      // the GATT-client transport can dial the host. Host path leaves them
-      // null — the local user is the host.
-      macAddress: isHost ? null : macAddress,
-      sessionUuidLow8: isHost ? null : sessionUuidLow8,
-    ));
     // Begin the heartbeat plane for the lifetime of the room. Pings the
     // wire every interval and watches inbound activity for silent peers
     // (host) / a silent host (guest). Calling start() is idempotent —
@@ -649,6 +733,19 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
+    // Symmetric teardown of the host BLE surfaces booted in joinRoom.
+    // Without this the device keeps advertising and serving GATT after
+    // the host backs out — strangers nearby would still see the room and
+    // could connect to a phantom session. Guests don't own these so we
+    // gate on roomIsHost. Both calls are unawaited to mirror the start
+    // pattern; failures log on the audio service.
+    if (current.roomIsHost) {
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.stopAdvertising());
+        unawaited(audio.stopGattServer());
+      }
+    }
     // Stop any in-progress reconnect so BLE retries halt promptly when
     // the user manually leaves rather than waiting for the next delay tick.
     _reconnectController?.cancel();
@@ -885,6 +982,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   @override
   Future<void> close() async {
+    // Tear down the host BLE surfaces if the cubit is closing while the
+    // local user is still the host. Without this, killing the cubit
+    // (e.g. test teardown, app disposal mid-session) leaves the platform
+    // advertiser + GATT server running until the OS reaps the
+    // foreground service. Mirrors the leaveRoom path; same gating on
+    // roomIsHost.
+    final current = state;
+    if (current is SessionRoom && current.roomIsHost) {
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.stopAdvertising());
+        unawaited(audio.stopGattServer());
+      }
+    }
     // Cancel an in-progress reconnect before closing so the attempt loop
     // won't call emit() or leaveRoom() after the cubit is disposed.
     _reconnectController?.cancel();
