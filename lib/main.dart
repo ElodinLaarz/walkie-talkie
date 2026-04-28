@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -132,7 +134,9 @@ class FrequencyApp extends StatelessWidget {
           // tolerates a fire-and-forget call (the user has already
           // committed to entering the room).
           onPick: (result) {
-            cubit.joinRoom(freq: result.freq, isHost: result.isHost);
+            unawaited(
+              cubit.joinRoom(freq: result.freq, isHost: result.isHost),
+            );
           },
         ),
       SessionRoom(:final myName, :final roomFreq, :final roomIsHost) =>
@@ -148,7 +152,7 @@ class FrequencyApp extends StatelessWidget {
           // explicitly so the discarded future is intentional rather
           // than a tear-off lint.
           onLeave: () {
-            cubit.leaveRoom();
+            unawaited(cubit.leaveRoom());
           },
         ),
     };

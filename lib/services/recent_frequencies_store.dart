@@ -84,7 +84,12 @@ class HiveRecentFrequenciesStore implements RecentFrequenciesStore {
     final box = await _open();
     final raw = box.get(_key);
     if (raw is! List) return const [];
-    return List<String>.unmodifiable(raw.cast<String>());
+    // `whereType<String>()` rather than `cast<String>()`: cast returns a
+    // lazy view that throws on the first non-String element when the
+    // unmodifiable wrapper iterates it, which would blow up bootstrap
+    // for a corrupted or schema-migrated payload. Filtering surfaces
+    // any still-valid entries and treats junk as empty.
+    return List<String>.unmodifiable(raw.whereType<String>().toList());
   }
 
   @override
@@ -99,7 +104,11 @@ class HiveRecentFrequenciesStore implements RecentFrequenciesStore {
     if (trimmed.isEmpty) return;
     final box = await _open();
     final raw = box.get(_key);
-    final current = raw is List ? raw.cast<String>() : const <String>[];
+    // Same safe-filter rationale as getRecent — a malformed payload
+    // (non-String entry) shouldn't throw mid-record and leak the
+    // exception up through the cubit's fire-and-forget boundary.
+    final current =
+        raw is List ? raw.whereType<String>().toList() : const <String>[];
     final updated = <String>[trimmed];
     for (final entry in current) {
       if (entry == trimmed) continue;

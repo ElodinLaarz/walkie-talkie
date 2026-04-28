@@ -113,6 +113,33 @@ void main() {
       expect(recent.toSet(), {'92.4', '100.1', '88.7', '104.3'});
     });
 
+    test(
+      'getRecent treats a List<dynamic> with mixed types as a filtered '
+      'String list (no throw)',
+      () async {
+        // Simulate a Hive payload from a future schema migration / a
+        // direct write. `cast<String>()` would throw on the first
+        // non-String when the unmodifiable wrapper iterates it,
+        // blowing up bootstrap. `whereType<String>` filters silently.
+        final box = await Hive.openBox<dynamic>('recent_frequencies');
+        await box.put('list', <dynamic>['92.4', 42, '100.1', null, '88.7']);
+        await box.close();
+
+        final store = HiveRecentFrequenciesStore();
+        expect(await store.getRecent(), ['92.4', '100.1', '88.7']);
+      },
+    );
+
+    test('record over a malformed payload rebuilds a clean list', () async {
+      final box = await Hive.openBox<dynamic>('recent_frequencies');
+      await box.put('list', <dynamic>['92.4', 42, '100.1']);
+      await box.close();
+
+      final store = HiveRecentFrequenciesStore();
+      await store.record('104.3');
+      expect(await store.getRecent(), ['104.3', '92.4', '100.1']);
+    });
+
     test('getRecent returns an unmodifiable list', () async {
       // Callers shouldn't be able to mutate the returned list and have
       // their changes observed by anyone else (or, worse, accidentally
