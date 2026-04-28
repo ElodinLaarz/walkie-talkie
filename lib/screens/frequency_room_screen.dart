@@ -567,11 +567,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             children: [
               BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
                 buildWhen: (prev, next) {
-                  // Rebuild chrome when connectionPhase changes
+                  // Rebuild chrome when connectionPhase changes or state type changes
                   if (prev is SessionRoom && next is SessionRoom) {
                     return prev.connectionPhase != next.connectionPhase;
                   }
-                  return false;
+                  // Also rebuild when transitioning to/from SessionRoom (initial build)
+                  return true;
                 },
                 builder: (context, state) {
                   final phase = state is SessionRoom
