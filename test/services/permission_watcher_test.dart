@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -241,6 +243,77 @@ void main() {
 
       await sub.cancel();
     });
+
+    test(
+      'a slow background sample does not overwrite a newer checkNow result',
+      () async {
+        // Reproduces the race CodeRabbit flagged on PR #85: a background
+        // tick that started first finishes last. Without generation tagging
+        // its stale read would overwrite the newer Retry sample, yanking
+        // the UI back to the prior state and bouncing the user.
+        final perms = _FakePermissions({
+          _kMicrophone: _kDenied,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kGranted,
+          _kBluetoothAdvertise: _kGranted,
+        });
+
+        // Only the very first platform call blocks; everything after it
+        // returns immediately. That wedges the kickoff (background) sample
+        // partway through its reads while the subsequent checkNow sample
+        // can run to completion against the freshly-granted map.
+        final firstCallGate = Completer<void>();
+        var consumedGate = false;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('flutter.baseflow.com/permissions/methods'),
+          (MethodCall call) async {
+            if (call.method != 'checkPermissionStatus') return null;
+            final code = call.arguments as int;
+            if (!consumedGate) {
+              consumedGate = true;
+              await firstCallGate.future;
+            }
+            return perms.statusByPermission[code] ?? 0;
+          },
+        );
+
+        final watcher = DefaultPermissionWatcher();
+        addTearDown(watcher.dispose);
+
+        final events = <List<AppPermission>>[];
+        final sub = watcher.watch().listen(events.add);
+        // Flush microtasks so the kickoff sample queues its first read
+        // and gets wedged on the gate.
+        for (var i = 0; i < 3; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(events, isEmpty);
+
+        // Flip the answer to all-granted and run checkNow. Sample 2 goes
+        // through the unblocked handler and returns [].
+        perms.statusByPermission[_kMicrophone] = _kGranted;
+        final fresh = await watcher.checkNow();
+        expect(fresh, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(events.last, isEmpty);
+
+        // Flip the answer back to denied right before releasing sample 1
+        // so its delayed read sees the stale value when it resumes —
+        // models "permissions changed underneath a slow read."
+        perms.statusByPermission[_kMicrophone] = _kDenied;
+        firstCallGate.complete();
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        // Sample 1 (gen=1) is older than sample 2 (gen=2). Its emit must
+        // be suppressed even though it observed a [microphone]-denied
+        // reading — the newer sample's empty reading stands.
+        expect(events.last, isEmpty);
+
+        await sub.cancel();
+      },
+    );
 
     test('checkNow throws after dispose', () async {
       _setHandler(_FakePermissions({

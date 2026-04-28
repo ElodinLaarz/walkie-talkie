@@ -87,6 +87,15 @@ class DefaultPermissionWatcher
   /// always reflect a fresh sample, even if a background tick is in flight.
   bool _backgroundCheckInFlight = false;
 
+  /// Monotonic counter incremented at the start of every [_sampleAndEmit].
+  /// A sample only writes to [_last] / [_controller] if it's still the
+  /// newest one when the platform reads complete. Without this, a slow
+  /// background tick that started before a fresh [checkNow] could finish
+  /// last with stale data and overwrite the newer reading — yanking the
+  /// UI back to the previous denied state and bouncing the user back to
+  /// Discovery on a brief flicker.
+  int _sampleGeneration = 0;
+
   @override
   Stream<List<AppPermission>> watch() {
     if (_disposed) {
@@ -167,8 +176,16 @@ class DefaultPermissionWatcher
   /// last emission, and push a new event onto the broadcast stream when it
   /// changed. Returns the freshly-sampled missing list (or [_last] when
   /// the platform read threw — see catch block).
+  ///
+  /// Multiple samplers can run concurrently (a background tick + a
+  /// [checkNow] from the Retry button, for example). Each one tags itself
+  /// with [_sampleGeneration]; only the newest-started sample updates
+  /// [_last] / [_controller]. Older samples that finish later return their
+  /// own reading to the caller but do not emit, so a slow background read
+  /// can't clobber a newer Retry result with stale data.
   Future<List<AppPermission>> _sampleAndEmit() async {
     if (_disposed) return _last;
+    final myGeneration = ++_sampleGeneration;
     final missing = <AppPermission>[];
     try {
       if (!await _isMicrophoneGranted()) {
@@ -186,6 +203,11 @@ class DefaultPermissionWatcher
       return _last;
     }
     final snapshot = List<AppPermission>.unmodifiable(missing);
+    if (_disposed) return snapshot;
+    // A newer sample started after us; let it apply its result. We still
+    // return our own reading to the caller (it's what we read), but we
+    // don't update shared state.
+    if (myGeneration != _sampleGeneration) return snapshot;
     if (!_hasEmitted || !_listEqual(_last, snapshot)) {
       _hasEmitted = true;
       _last = snapshot;
