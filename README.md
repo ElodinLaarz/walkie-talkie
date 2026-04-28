@@ -66,11 +66,11 @@ To prevent everyone from hearing themselves echo, the **host** runs a
 **mix-minus matrix**. The host is the only device that ever mixes audio;
 guests just encode their own mic and decode whatever the host sends them.
 
-**Concept** — for guests A, B, C connected to host H:
+**Concept** — for guests A and B connected to host H (the diagram below
+matches this two-guest example; the same pattern scales to N guests):
 
-  * **Headset A hears:**  H + B + C  *(A's own mic is subtracted)*
-  * **Headset B hears:**  H + A + C  *(B's own mic is subtracted)*
-  * **Headset C hears:**  H + A + B  *(C's own mic is subtracted)*
+  * **Headset A hears:**  H + B  *(A's own mic is subtracted)*
+  * **Headset B hears:**  H + A  *(B's own mic is subtracted)*
 
 **Logical flow:**
 
@@ -184,7 +184,8 @@ graph TD
 
 1.  **AndroidX Bluetooth APIs** — `BluetoothLeAdvertiser`, `BluetoothLeScanner`,
     `BluetoothGattServer` / `BluetoothGatt`, and `BluetoothSocket` opened in
-    L2CAP CoC mode (`createInsecureL2capChannel` / `listenUsingInsecureL2capChannel`).
+    L2CAP CoC mode (`createInsecureL2capChannel` /
+    `listenUsingInsecureL2capChannel`, **API 29+ / Android 10+**).
     The voice plane is L2CAP CoC + Opus, **not** LE Audio CIS / BIS — see the
     transport note above.
 2.  **`libopus`** (C / NDK) — voice codec, narrowband / wideband, 20-ms
@@ -193,7 +194,8 @@ graph TD
 3.  **`Oboe`** (C++) — low-latency mic capture and playback. Java-side
     `AudioRecord` / `AudioTrack` introduce too much latency for a
     walkie-talkie feel.
-4.  **`Gson`** (or kotlinx.serialization) — JSON for the GATT control plane.
+4.  **`kotlinx.serialization`** — JSON for the GATT control plane (preferred
+    over Gson for compile-time safety on a Kotlin-first codebase).
 
 -----
 
