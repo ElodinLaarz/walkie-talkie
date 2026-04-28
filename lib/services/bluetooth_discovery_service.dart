@@ -75,6 +75,7 @@ class DiscoveryService {
         data,
         hostName: r.advertisementData.advName,
         rssi: r.rssi,
+        macAddress: r.device.remoteId.str,
       );
       if (session != null) return session;
     }

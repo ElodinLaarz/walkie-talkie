@@ -46,6 +46,7 @@ void main() {
         flags: 0,
         hostName: 'Host',
         rssi: -50,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       ),
     ];
 
@@ -71,6 +72,7 @@ void main() {
         flags: 0,
         hostName: 'Host',
         rssi: -50,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
       ),
     ];
     resultsController.add(sessions);

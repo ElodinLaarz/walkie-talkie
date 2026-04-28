@@ -13,6 +13,10 @@ class DiscoveredSession {
   final int rssi;
   final String mhzDisplay;
 
+  /// BT MAC of the advertising host. The guest hands this to the GATT client
+  /// on tap-to-join — without it there's nothing to dial.
+  final String macAddress;
+
   DiscoveredSession({
     required this.protocolVersion,
     required this.isHost,
@@ -20,6 +24,7 @@ class DiscoveredSession {
     required this.flags,
     required this.hostName,
     required this.rssi,
+    required this.macAddress,
   }) : mhzDisplay = _deriveMhz(sessionUuidLow8);
 
   /// Derives the cosmetic MHz display string from the session UUID.
@@ -63,6 +68,7 @@ class DiscoveredSession {
     Uint8List data, {
     required String hostName,
     required int rssi,
+    required String macAddress,
   }) {
     if (data.length < 16) return null;
 
@@ -88,6 +94,7 @@ class DiscoveredSession {
       flags: flags,
       hostName: hostName,
       rssi: rssi,
+      macAddress: macAddress,
     );
   }
 }

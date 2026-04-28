@@ -135,7 +135,12 @@ class FrequencyApp extends StatelessWidget {
           // committed to entering the room).
           onPick: (result) {
             unawaited(
-              cubit.joinRoom(freq: result.freq, isHost: result.isHost),
+              cubit.joinRoom(
+                freq: result.freq,
+                isHost: result.isHost,
+                macAddress: result.macAddress,
+                sessionUuidLow8: result.sessionUuidLow8,
+              ),
             );
           },
         ),

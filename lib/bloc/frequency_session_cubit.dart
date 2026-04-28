@@ -145,6 +145,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// the user isn't on Discovery (shouldn't happen — Discovery is the
   /// only screen that triggers it).
   ///
+  /// On the guest side, the caller passes [macAddress] and
+  /// [sessionUuidLow8] from the discovered advertisement. Both are stored
+  /// on `SessionRoom` so the GATT-client transport can dial the host
+  /// later (the actual `connectToHost` call lands in the GATT-client
+  /// issue). On the host side both are null — the local user *is* the
+  /// host, so there's no remote to dial.
+  ///
   /// Resets the per-link sequence counter to 0 so the next sent message
   /// starts at `seq = 1` per the protocol's reconnect rule.
   ///
@@ -153,7 +160,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// failure or slow disk shouldn't block the transition into the room.
   /// The updated list shows up the next time the user lands on
   /// Discovery (via [leaveRoom]'s re-read).
-  Future<void> joinRoom({required String freq, required bool isHost}) async {
+  Future<void> joinRoom({
+    required String freq,
+    required bool isHost,
+    String? macAddress,
+    String? sessionUuidLow8,
+  }) async {
     final current = state;
     if (current is! SessionDiscovery) return;
     _seq = 0;
@@ -168,6 +180,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       myName: current.myName,
       roomFreq: freq,
       roomIsHost: isHost,
+      // Guest path threads MAC + session UUID through to the room state so
+      // the GATT-client transport can dial the host. Host path leaves them
+      // null — the local user is the host.
+      macAddress: isHost ? null : macAddress,
+      sessionUuidLow8: isHost ? null : sessionUuidLow8,
     ));
   }
 

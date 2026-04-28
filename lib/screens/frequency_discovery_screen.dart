@@ -13,7 +13,23 @@ import '../widgets/frequency_atoms.dart';
 class DiscoveryResult {
   final String freq;
   final bool isHost;
-  const DiscoveryResult({required this.freq, required this.isHost});
+
+  /// BT MAC of the host the user tapped. Null when the user is creating a new
+  /// frequency (host path) or resuming a recent — there's no remote host
+  /// device to dial in those cases. Populated only when joining as a guest.
+  final String? macAddress;
+
+  /// Low 8 bytes of the host's session UUID (hex). Same shape as
+  /// [macAddress]: null on the host / Recent paths, populated when tuning in
+  /// to a discovered session so the guest can identify the host's room.
+  final String? sessionUuidLow8;
+
+  const DiscoveryResult({
+    required this.freq,
+    required this.isHost,
+    this.macAddress,
+    this.sessionUuidLow8,
+  });
 }
 
 /// Discovery — find & join a Frequency.
@@ -321,6 +337,8 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                     widget.onPick(DiscoveryResult(
                       freq: session.mhzDisplay,
                       isHost: false,
+                      macAddress: session.macAddress,
+                      sessionUuidLow8: session.sessionUuidLow8,
                     ));
                   },
                 ),

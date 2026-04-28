@@ -211,6 +211,53 @@ void main() {
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'joinRoom as guest threads MAC + sessionUuidLow8 onto SessionRoom',
+      // The GATT-client transport (issue #43) reads these off SessionRoom
+      // to dial the host. They have to survive the Discovery → Room
+      // transition or the guest has nothing to connect to.
+      build: () => _makeCubit(),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) => cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        sessionUuidLow8: '0011223344556677',
+      ),
+      expect: () => [
+        const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          sessionUuidLow8: '0011223344556677',
+        ),
+      ],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'joinRoom as host drops MAC + sessionUuidLow8 even if accidentally passed',
+      // The local user IS the host on this path, so a remote MAC would be
+      // meaningless. We strip it defensively rather than trusting callers
+      // to omit it — keeps SessionRoom's invariant clean for the
+      // GATT-client issue's "if mac != null, dial it" branch.
+      build: () => _makeCubit(),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) => cubit.joinRoom(
+        freq: '104.3',
+        isHost: true,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        sessionUuidLow8: '0011223344556677',
+      ),
+      expect: () => [
+        const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ),
+      ],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
       'leaveRoom drops back to Discovery with the prior name',
       build: () => _makeCubit(),
       seed: () => const SessionRoom(
