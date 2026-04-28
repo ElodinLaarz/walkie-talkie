@@ -81,6 +81,7 @@ class WalkieTalkieApp extends StatelessWidget {
               recentFrequenciesStore:
                   context.read<RecentFrequenciesStore>(),
               transport: context.read<BleControlTransport>(),
+              audio: context.read<AudioService>(),
             )..bootstrap(),
           ),
           BlocProvider(

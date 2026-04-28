@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
 import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
+import 'package:walkie_talkie/services/audio_service.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 
@@ -78,14 +80,28 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   Future<void> clear() async => _entries.clear();
 }
 
+// Zero delays so reconnect tests don't actually wait.
+const _testReconnectDelays = [
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+];
+
 FrequencySessionCubit _makeCubit({
   IdentityStore? identityStore,
   RecentFrequenciesStore? recentFrequenciesStore,
+  AudioService? audio,
+  List<Duration>? reconnectDelays,
 }) =>
     FrequencySessionCubit(
       identityStore: identityStore ?? _FakeStore(),
       recentFrequenciesStore:
           recentFrequenciesStore ?? _FakeRecentFrequenciesStore(),
+      audio: audio,
+      reconnectDelays: reconnectDelays,
     );
 
 void main() {
@@ -804,6 +820,224 @@ void main() {
         ),
       ],
     );
+  });
+
+  // ── Reconnect / ConnectionPhase ───────────────────────────────────────
+
+  group('notifyDrop / ConnectionPhase', () {
+    late AudioService audio;
+    // The mock handler returns values pushed here; empty = return false.
+    final List<bool> connectQueue = [];
+    // Completer to block the first connectDevice call so we can inspect
+    // intermediate state.
+    Completer<bool>? blockFirst;
+
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    setUp(() {
+      audio = AudioService();
+      connectQueue.clear();
+      blockFirst = null;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        (MethodCall call) async {
+          if (call.method == 'connectDevice') {
+            final blocker = blockFirst;
+            if (blocker != null) {
+              blockFirst = null;
+              return blocker.future;
+            }
+            if (connectQueue.isEmpty) return false;
+            return connectQueue.removeAt(0);
+          }
+          return null;
+        },
+      );
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.elodin.walkie_talkie/audio'),
+        null,
+      );
+    });
+
+    test('notifyDrop without audio injected is a no-op', () async {
+      final cubit = _makeCubit(
+        reconnectDelays: _testReconnectDelays,
+      ); // no audio
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      ));
+
+      await cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.online,
+      );
+      await cubit.close();
+    });
+
+    test('notifyDrop on host room is a no-op', () async {
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Devon',
+        roomFreq: '104.3',
+        roomIsHost: true,
+      ));
+
+      await cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.online,
+      );
+      await cubit.close();
+    });
+
+    test('notifyDrop transitions state to reconnecting', () async {
+      // Block the first connectDevice so we can observe the intermediate state.
+      final blocker = Completer<bool>();
+      blockFirst = blocker;
+
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      ));
+
+      final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+
+      // Yield to let the cubit emit reconnecting before connectDevice resolves.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.reconnecting,
+      );
+
+      // Let the connection succeed and allow the cubit to finish.
+      blocker.complete(true);
+      await dropFuture;
+
+      await cubit.close();
+    });
+
+    test('notifyDrop while already reconnecting is a no-op', () async {
+      final blocker = Completer<bool>();
+      blockFirst = blocker;
+
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      final first = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+      await Future<void>.delayed(Duration.zero); // let it emit reconnecting
+
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.reconnecting,
+      );
+
+      // Second call while already reconnecting — state must not change.
+      await cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.reconnecting,
+      );
+
+      blocker.complete(true);
+      await first;
+      await cubit.close();
+    });
+
+    test('applyJoinAccepted resets connectionPhase to online', () async {
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+        connectionPhase: ConnectionPhase.reconnecting,
+      ));
+
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [],
+      ));
+
+      expect(
+        (cubit.state as SessionRoom).connectionPhase,
+        ConnectionPhase.online,
+      );
+      await cubit.close();
+    });
+
+    test('notifyDrop drops to Discovery when all retries fail', () async {
+      // connectQueue empty → mock always returns false.
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      ));
+
+      await cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+
+      expect(cubit.state, isA<SessionDiscovery>());
+      await cubit.close();
+    });
+
+    test('close() during reconnect does not throw', () async {
+      final blocker = Completer<bool>();
+      blockFirst = blocker;
+
+      final cubit = _makeCubit(
+        audio: audio,
+        reconnectDelays: _testReconnectDelays,
+      );
+      cubit.emit(const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+      await Future<void>.delayed(Duration.zero); // enter reconnecting
+
+      await cubit.close();
+      blocker.complete(false);
+      await expectLater(dropFuture, completes);
+    });
   });
 
   group('FrequencySessionState', () {
