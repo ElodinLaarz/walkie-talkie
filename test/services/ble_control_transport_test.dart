@@ -338,10 +338,11 @@ void main() {
         );
         t.setActiveEndpoint('host-mac-1');
 
-        await t.send(_heartbeat());
+        final ok = await t.send(_heartbeat());
 
-        // Nothing reached the wire — the aborted send leaves the link
-        // intact for the caller to tear down (or wait out).
+        // Drop is surfaced to the caller (cubit) so disconnect/remediation
+        // logic can fire — and nothing reached the wire.
+        expect(ok, isFalse);
         expect(mtuWritten, isEmpty);
         t.dispose();
       });
@@ -354,8 +355,9 @@ void main() {
         );
         t.setActiveEndpoint('host-mac-1');
 
-        await t.send(_heartbeat());
+        final ok = await t.send(_heartbeat());
 
+        expect(ok, isTrue);
         // At least one fragment hit the wire, none above the budget
         // (mtu - att header = 61).
         expect(mtuWritten, isNotEmpty);

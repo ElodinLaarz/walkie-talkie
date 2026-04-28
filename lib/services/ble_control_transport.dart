@@ -117,13 +117,19 @@ class BleControlTransport {
   /// returns null (no MTU observed yet), the encoder falls back to
   /// [kMaxFragmentSize] — the same behavior the transport had before MTU
   /// plumbing landed.
-  Future<void> send(FrequencyMessage msg) async {
+  ///
+  /// Returns true when the message reached the wire, false when an
+  /// MTU-floor violation caused the transport to drop the send. The cubit
+  /// uses this signal to decide whether to disconnect: a single drop is
+  /// expected (just-connected, MTU not yet observed → retry); persistent
+  /// drops over the heartbeat window mean the link is unusable.
+  Future<bool> send(FrequencyMessage msg) async {
     final maxFragmentSize = await _resolveFragmentSize();
     if (maxFragmentSize == null) {
       // MTU below the control-plane floor — drop the message rather than
       // emit fragments the link can't reliably carry. Caller (cubit) is
       // responsible for tearing down the connection if this persists.
-      return;
+      return false;
     }
     final fragments = encodeFragments(
       msg.encode(),
@@ -132,6 +138,7 @@ class BleControlTransport {
     for (final f in fragments) {
       await _writeBytes(f);
     }
+    return true;
   }
 
   /// Returns the per-fragment byte budget [send] should request from the
