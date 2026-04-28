@@ -14,13 +14,17 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "MainActivity"
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
+        private const val CONTROL_BYTES_EVENT_CHANNEL = "com.elodin.walkie_talkie/control_bytes"
     }
 
     private var methodChannel: MethodChannel? = null
     private var eventChannel: EventChannel? = null
+    private var controlBytesEventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
+    private var gattServerManager: GattServerManager? = null
     private var eventSink: EventChannel.EventSink? = null
+    private var controlBytesSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -161,6 +165,33 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
                     }
                 }
+                "startGattServer" -> {
+                    Log.i(TAG, "Starting GATT server")
+                    if (gattServerManager == null) {
+                        gattServerManager = GattServerManager(this) { deviceAddress, bytes ->
+                            sendControlBytesToFlutter(deviceAddress, bytes)
+                        }
+                    }
+                    val success = gattServerManager?.start() ?: false
+                    result.success(success)
+                }
+                "stopGattServer" -> {
+                    Log.i(TAG, "Stopping GATT server")
+                    gattServerManager?.stop()
+                    gattServerManager = null
+                    result.success(true)
+                }
+                "writeNotification" -> {
+                    val deviceAddress = call.argument<String>("deviceAddress")
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (deviceAddress != null && bytes != null) {
+                        Log.d(TAG, "Writing ${bytes.size} bytes notification to $deviceAddress")
+                        val success = gattServerManager?.notify(deviceAddress, bytes) ?: false
+                        result.success(success)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "deviceAddress and bytes are required", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -180,6 +211,20 @@ class MainActivity : FlutterActivity() {
                 eventSink = null
             }
         })
+
+        // Set up EventChannel for control bytes (GATT REQUEST writes)
+        controlBytesEventChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_BYTES_EVENT_CHANNEL)
+        controlBytesEventChannel?.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                Log.i(TAG, "Control bytes EventChannel listener attached")
+                controlBytesSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                Log.i(TAG, "Control bytes EventChannel listener cancelled")
+                controlBytesSink = null
+            }
+        })
     }
 
     private fun sendEventToFlutter(event: Map<String, Any>) {
@@ -188,6 +233,17 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+<<<<<<< HEAD
+    private fun sendControlBytesToFlutter(deviceAddress: String, bytes: ByteArray) {
+        Handler(Looper.getMainLooper()).post {
+            controlBytesSink?.success(mapOf(
+                "endpointId" to deviceAddress,
+                "bytes" to bytes
+            ))
+        }
+    }
+    
+=======
     // Called when the notification's Leave action brings this activity back to
     // the foreground (singleTop launchMode prevents a new instance). The action
     // extra is forwarded to Flutter so the room screen can call leaveRoom().
@@ -199,11 +255,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+>>>>>>> origin/main
     override fun onDestroy() {
         super.onDestroy()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
+        gattServerManager?.stop()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
+        controlBytesEventChannel?.setStreamHandler(null)
     }
 }
