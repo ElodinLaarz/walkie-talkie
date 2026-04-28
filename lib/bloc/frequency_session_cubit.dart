@@ -69,6 +69,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   final List<Duration>? _reconnectDelays;
 
   StreamSubscription<FrequencyMessage>? _transportSubscription;
+  StreamSubscription<bool>? _localTalkingSubscription;
   ReconnectController? _reconnectController;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
@@ -99,9 +100,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///
   /// Also wires the BLE transport's [BleControlTransport.incoming] stream
   /// so incoming wire messages drive state transitions for the lifetime of
-  /// the cubit.
+  /// the cubit. Subscribes to voice activity detection from [_audio] to send
+  /// TalkingState messages over the control transport.
   Future<void> bootstrap() async {
     _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
+    _localTalkingSubscription = _audio?.localTalking.listen(_onLocalTalking);
 
     String? persisted;
     try {
@@ -165,6 +168,40 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       case SignalReport():
         break;
     }
+  }
+
+  /// Called when local voice activity detection triggers. Sends a [TalkingState]
+  /// message over the BLE control transport to notify other peers about the
+  /// local user's speaking state.
+  ///
+  /// Only sends when in a room and when the transport is wired. If the transport
+  /// is absent, the seq counter still advances so messages stay monotonic once
+  /// the transport connects.
+  void _onLocalTalking(bool talking) {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return;
+
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+
+    // Resolve peerId asynchronously and send the message
+    identityStore.getPeerId().then((peerId) {
+      if (isClosed) return;
+      final msg = TalkingState(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+        talking: talking,
+      );
+      unawaited(t.send(msg));
+    }).catchError((error, stackTrace) {
+      debugPrint('Failed to resolve peer id for talking state: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _seq++;
+    });
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -506,6 +543,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // `cubit.isClosed = true` and throw on `add`.
     await super.close();
     await _transportSubscription?.cancel();
+    await _localTalkingSubscription?.cancel();
     await _mediaCommandsController.close();
   }
 }
