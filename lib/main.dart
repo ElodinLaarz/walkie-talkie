@@ -11,6 +11,7 @@ import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
+import 'services/recent_frequencies_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
 
@@ -24,10 +25,18 @@ class WalkieTalkieApp extends StatelessWidget {
   /// Override for tests; defaults to the Hive-backed implementation.
   final IdentityStore? identityStore;
 
+  /// Override for tests; defaults to the Hive-backed implementation.
+  final RecentFrequenciesStore? recentFrequenciesStore;
+
   /// Override for tests; defaults to the real Bluetooth-LE implementation.
   final DiscoveryService? discoveryService;
 
-  const WalkieTalkieApp({super.key, this.identityStore, this.discoveryService});
+  const WalkieTalkieApp({
+    super.key,
+    this.identityStore,
+    this.recentFrequenciesStore,
+    this.discoveryService,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +49,10 @@ class WalkieTalkieApp extends StatelessWidget {
         RepositoryProvider<IdentityStore>(
           create: (_) => identityStore ?? HiveIdentityStore(),
         ),
+        RepositoryProvider<RecentFrequenciesStore>(
+          create: (_) =>
+              recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
+        ),
         RepositoryProvider<DiscoveryService>(
           create: (_) => discoveryService ?? DiscoveryService(),
         ),
@@ -49,6 +62,8 @@ class WalkieTalkieApp extends StatelessWidget {
           BlocProvider(
             create: (context) => FrequencySessionCubit(
               identityStore: context.read<IdentityStore>(),
+              recentFrequenciesStore:
+                  context.read<RecentFrequenciesStore>(),
             )..bootstrap(),
           ),
           BlocProvider(
@@ -106,15 +121,19 @@ class FrequencyApp extends StatelessWidget {
             cubit.completeOnboarding(name);
           },
         ),
-      SessionDiscovery(:final myName) => FrequencyDiscoveryScreen(
+      SessionDiscovery(:final myName, :final recentHostedFrequencies) =>
+        FrequencyDiscoveryScreen(
           myName: myName,
+          recentHostedFrequencies: recentHostedFrequencies,
           onRename: (name) {
             cubit.rename(name);
           },
-          onPick: (result) => cubit.joinRoom(
-            freq: result.freq,
-            isHost: result.isHost,
-          ),
+          // joinRoom is a Future<void> now that it persists; the cubit
+          // tolerates a fire-and-forget call (the user has already
+          // committed to entering the room).
+          onPick: (result) {
+            cubit.joinRoom(freq: result.freq, isHost: result.isHost);
+          },
         ),
       SessionRoom(:final myName, :final roomFreq, :final roomIsHost) =>
         FrequencyRoomScreen(
@@ -124,7 +143,13 @@ class FrequencyApp extends StatelessWidget {
           groupSize: 5,
           mediaKind: MediaKind.music,
           pttMode: false,
-          onLeave: cubit.leaveRoom,
+          // `leaveRoom` is async (re-reads recent frequencies before
+          // emitting), but `onLeave` is a sync VoidCallback — wrap
+          // explicitly so the discarded future is intentional rather
+          // than a tear-off lint.
+          onLeave: () {
+            cubit.leaveRoom();
+          },
         ),
     };
   }

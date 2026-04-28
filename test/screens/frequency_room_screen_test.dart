@@ -11,6 +11,7 @@ import 'package:walkie_talkie/data/frequency_mock_data.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 
@@ -361,7 +362,10 @@ void main() {
       'rejoin with no mediaState resets the transport instead of stranding '
       'on the prior snapshot',
       (tester) async {
-        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        final cubit = FrequencySessionCubit(
+          identityStore: _MemoryStore(),
+          recentFrequenciesStore: _NullRecentFrequenciesStore(),
+        );
         addTearDown(cubit.close);
 
         cubit
@@ -406,7 +410,10 @@ void main() {
     testWidgets(
       'snapshot for an unknown source is dropped — UI keeps the prior queue',
       (tester) async {
-        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        final cubit = FrequencySessionCubit(
+          identityStore: _MemoryStore(),
+          recentFrequenciesStore: _NullRecentFrequenciesStore(),
+        );
         addTearDown(cubit.close);
 
         cubit
@@ -536,7 +543,10 @@ void main() {
       'applyJoinAccepted snapshot seeds the local player on rejoin',
       (tester) async {
         // Real cubit so the BlocListener actually reacts to state changes.
-        final cubit = FrequencySessionCubit(identityStore: _MemoryStore());
+        final cubit = FrequencySessionCubit(
+          identityStore: _MemoryStore(),
+          recentFrequenciesStore: _NullRecentFrequenciesStore(),
+        );
         addTearDown(cubit.close);
 
         // Pretend the user already tuned in to a music room.
@@ -593,4 +603,15 @@ class _MemoryStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() async => _peerId ??= 'me-peer-id';
+}
+
+/// Inert RecentFrequenciesStore — these tests don't exercise the
+/// recent-frequencies path, but the cubit constructor now requires one.
+class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
+  @override
+  Future<List<String>> getRecent() async => const [];
+  @override
+  Future<void> record(String freq) async {}
+  @override
+  Future<void> clear() async {}
 }

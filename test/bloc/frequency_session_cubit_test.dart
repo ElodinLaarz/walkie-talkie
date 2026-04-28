@@ -7,6 +7,7 @@ import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 
 class _FakeStore implements IdentityStore {
   String? _name;
@@ -39,16 +40,56 @@ class _FakeStore implements IdentityStore {
   }
 }
 
+class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
+  final List<String> _entries;
+  bool throwOnGet = false;
+  bool throwOnRecord = false;
+  int recordCalls = 0;
+
+  _FakeRecentFrequenciesStore({List<String>? initial})
+      : _entries = List<String>.of(initial ?? const []);
+
+  @override
+  Future<List<String>> getRecent() async {
+    if (throwOnGet) throw StateError('boom');
+    return List<String>.unmodifiable(_entries);
+  }
+
+  @override
+  Future<void> record(String freq) async {
+    recordCalls++;
+    if (throwOnRecord) throw StateError('boom');
+    final trimmed = freq.trim();
+    if (trimmed.isEmpty) return;
+    _entries
+      ..remove(trimmed)
+      ..insert(0, trimmed);
+  }
+
+  @override
+  Future<void> clear() async => _entries.clear();
+}
+
+FrequencySessionCubit _makeCubit({
+  IdentityStore? identityStore,
+  RecentFrequenciesStore? recentFrequenciesStore,
+}) =>
+    FrequencySessionCubit(
+      identityStore: identityStore ?? _FakeStore(),
+      recentFrequenciesStore:
+          recentFrequenciesStore ?? _FakeRecentFrequenciesStore(),
+    );
+
 void main() {
   group('FrequencySessionCubit', () {
     test('starts in SessionBooting', () {
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       expect(cubit.state, isA<SessionBooting>());
     });
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'bootstrap with a persisted name routes to Discovery',
-      build: () => FrequencySessionCubit(
+      build: () => _makeCubit(
         identityStore: _FakeStore(initial: 'Maya'),
       ),
       act: (cubit) => cubit.bootstrap(),
@@ -57,14 +98,14 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'bootstrap without a persisted name routes to Onboarding',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       act: (cubit) => cubit.bootstrap(),
       expect: () => [const SessionOnboarding()],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'bootstrap falls through to Onboarding when the store throws',
-      build: () => FrequencySessionCubit(
+      build: () => _makeCubit(
         identityStore: _FakeStore()..throwOnGet = true,
       ),
       act: (cubit) => cubit.bootstrap(),
@@ -73,7 +114,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'completeOnboarding persists and advances to Discovery',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.completeOnboarding('Devon'),
       expect: () => [const SessionDiscovery(myName: 'Devon')],
@@ -85,7 +126,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'completeOnboarding still advances when persistence throws',
-      build: () => FrequencySessionCubit(
+      build: () => _makeCubit(
         identityStore: _FakeStore()..throwOnSet = true,
       ),
       seed: () => const SessionOnboarding(),
@@ -95,7 +136,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'rename in Discovery updates the name in place',
-      build: () => FrequencySessionCubit(
+      build: () => _makeCubit(
         identityStore: _FakeStore(initial: 'Maya'),
       ),
       seed: () => const SessionDiscovery(myName: 'Maya'),
@@ -105,7 +146,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'rename still updates name when persistence throws',
-      build: () => FrequencySessionCubit(
+      build: () => _makeCubit(
         identityStore: _FakeStore(initial: 'Maya')..throwOnSet = true,
       ),
       seed: () => const SessionDiscovery(myName: 'Maya'),
@@ -115,7 +156,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'rename in Room preserves freq + host role',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -133,7 +174,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'rename in Booting/Onboarding is a no-op on the visible state',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.rename('Sam'),
       expect: () => const <FrequencySessionState>[],
@@ -141,7 +182,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'joinRoom from Discovery enters the Room with freq + host flag',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionDiscovery(myName: 'Maya'),
       act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
       expect: () => [
@@ -155,7 +196,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'joinRoom outside Discovery is a no-op',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.joinRoom(freq: '104.3', isHost: true),
       expect: () => const <FrequencySessionState>[],
@@ -163,7 +204,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'leaveRoom drops back to Discovery with the prior name',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -175,17 +216,180 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'leaveRoom outside Room is a no-op',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionDiscovery(myName: 'Maya'),
       act: (cubit) => cubit.leaveRoom(),
       expect: () => const <FrequencySessionState>[],
+    );
+
+    // ── Recent-frequencies persistence ─────────────────────────────────
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'bootstrap surfaces the persisted recent-frequencies list on Discovery',
+      build: () => _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya'),
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(
+          initial: const ['100.1', '92.4'],
+        ),
+      ),
+      act: (cubit) => cubit.bootstrap(),
+      expect: () => [
+        const SessionDiscovery(
+          myName: 'Maya',
+          recentHostedFrequencies: ['100.1', '92.4'],
+        ),
+      ],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'bootstrap with no persisted name does not read recent frequencies',
+      // No name → Onboarding; the store hasn't been used by the user yet,
+      // so reading it would just be wasted I/O on a fresh install.
+      build: () => _makeCubit(
+        recentFrequenciesStore: _FakeRecentFrequenciesStore()..throwOnGet = true,
+      ),
+      act: (cubit) => cubit.bootstrap(),
+      expect: () => [const SessionOnboarding()],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'bootstrap tolerates a recent-frequencies read failure',
+      // Name reads fine, recent-freqs read throws — Discovery should
+      // still land, with an empty list, instead of stranding the user
+      // in Booting.
+      build: () => _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya'),
+        recentFrequenciesStore: _FakeRecentFrequenciesStore()..throwOnGet = true,
+      ),
+      act: (cubit) => cubit.bootstrap(),
+      expect: () => [const SessionDiscovery(myName: 'Maya')],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'completeOnboarding loads recent frequencies into Discovery',
+      build: () => _makeCubit(
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(
+          initial: const ['92.4'],
+        ),
+      ),
+      seed: () => const SessionOnboarding(),
+      act: (cubit) => cubit.completeOnboarding('Devon'),
+      expect: () => [
+        const SessionDiscovery(
+          myName: 'Devon',
+          recentHostedFrequencies: ['92.4'],
+        ),
+      ],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'rename in Discovery preserves the recent-frequencies list',
+      // Re-reading on every rename would be wasted I/O and would briefly
+      // flicker the section if persistence is slow — the loaded list
+      // should pass through unchanged.
+      build: () => _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya'),
+      ),
+      seed: () => const SessionDiscovery(
+        myName: 'Maya',
+        recentHostedFrequencies: ['100.1', '92.4'],
+      ),
+      act: (cubit) => cubit.rename('Maya R.'),
+      expect: () => [
+        const SessionDiscovery(
+          myName: 'Maya R.',
+          recentHostedFrequencies: ['100.1', '92.4'],
+        ),
+      ],
+    );
+
+    test(
+      'joinRoom as host records the freq in the recent-frequencies store',
+      () async {
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        // Let the fire-and-forget record() complete.
+        await Future<void>.delayed(Duration.zero);
+
+        expect(recent.recordCalls, 1);
+        expect(await recent.getRecent(), ['104.3']);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as guest does NOT record the freq',
+      () async {
+        // Guest-side joins reflect "I tuned in to someone else's channel"
+        // — those don't belong in *my* recent-hosted list.
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(freq: '104.3', isHost: false);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(recent.recordCalls, 0);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host swallows record() failures',
+      () async {
+        // The user has already committed to entering the room; a disk
+        // hiccup must not bubble up as an unhandled async error or
+        // block the state transition.
+        final recent = _FakeRecentFrequenciesStore()..throwOnRecord = true;
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await expectLater(
+          cubit.joinRoom(freq: '104.3', isHost: true),
+          completes,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(cubit.state, isA<SessionRoom>());
+
+        await cubit.close();
+      },
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'leaveRoom re-reads recent frequencies so a just-hosted freq is at the top',
+      build: () {
+        // Pre-seed the store with '104.3' to model the freq the user
+        // just hosted having been recorded during joinRoom.
+        return _makeCubit(
+          recentFrequenciesStore: _FakeRecentFrequenciesStore(
+            initial: const ['104.3', '92.4'],
+          ),
+        );
+      },
+      seed: () => const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: true,
+      ),
+      act: (cubit) => cubit.leaveRoom(),
+      expect: () => [
+        const SessionDiscovery(
+          myName: 'Maya',
+          recentHostedFrequencies: ['104.3', '92.4'],
+        ),
+      ],
     );
 
     // ── Wire-protocol surface ──────────────────────────────────────────
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'applyJoinAccepted lands roster + hostPeerId + mediaState on the room',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -255,7 +459,7 @@ void main() {
       // The host-has-nothing-playing case: copyWith must distinguish
       // "argument omitted" from "argument explicitly null", or the stale
       // mediaState from the last connection survives the rejoin.
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -289,7 +493,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'applyJoinAccepted outside SessionRoom is a no-op',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => const SessionDiscovery(myName: 'Maya'),
       act: (cubit) => cubit.applyJoinAccepted(JoinAccepted(
         peerId: 'p-host',
@@ -305,7 +509,7 @@ void main() {
       // Per the protocol: a fresh JoinAccepted (initial join or reconnect)
       // resets seq counters on both ends — receivers clear lastSeq[peer]
       // and senders restart at 1. We exercise the sender side here.
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -333,7 +537,7 @@ void main() {
     });
 
     test('sendMediaCommand emits the originator command on the stream', () async {
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -366,7 +570,7 @@ void main() {
       'applyHostMediaEcho re-emits the host-echoed command for non-originator UI '
       'reaction',
       () async {
-        final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+        final cubit = _makeCubit();
         cubit.emit(const SessionRoom(
           myName: 'Maya',
           roomFreq: '104.3',
@@ -400,7 +604,7 @@ void main() {
     test('applyJoinAccepted after close is a silent no-op', () async {
       // BLE callbacks can fire after the user navigates away and the
       // cubit closes; we shouldn't throw on a post-dispose emit.
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -425,7 +629,7 @@ void main() {
       // unhandled async errors — room-screen callers fire-and-forget,
       // so an unhandled rethrow would crash the zone.
       final store = _FakeStore()..throwOnGetPeerId = true;
-      final cubit = FrequencySessionCubit(identityStore: store);
+      final cubit = _makeCubit(identityStore: store);
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -446,7 +650,7 @@ void main() {
       // `Bad state: Cannot add new events after calling close`.
       final completer = Completer<String>();
       final store = _GatedPeerIdStore(completer.future);
-      final cubit = FrequencySessionCubit(identityStore: store);
+      final cubit = _makeCubit(identityStore: store);
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -471,7 +675,7 @@ void main() {
     test('applyHostMediaEcho after close is a silent no-op', () async {
       // Same shape: a late RESPONSE-notify shouldn't throw
       // `Bad state: Cannot add new events after calling close`.
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       cubit.emit(const SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
@@ -492,7 +696,7 @@ void main() {
     });
 
     test('applyHostMediaEcho outside SessionRoom is a no-op', () async {
-      final cubit = FrequencySessionCubit(identityStore: _FakeStore());
+      final cubit = _makeCubit();
       // No room emitted; we're sitting in Booting.
       final emissions = <MediaCommand>[];
       final sub = cubit.mediaCommands.listen(emissions.add);
@@ -514,7 +718,7 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'rename in Room preserves the JoinAccepted snapshot fields',
-      build: () => FrequencySessionCubit(identityStore: _FakeStore()),
+      build: () => _makeCubit(),
       seed: () => SessionRoom(
         myName: 'Maya',
         roomFreq: '104.3',
