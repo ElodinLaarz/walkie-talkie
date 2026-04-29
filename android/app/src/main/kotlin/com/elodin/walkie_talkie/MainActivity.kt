@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
     private var bluetoothManager: BluetoothLeAudioManager? = null
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
+    private var gattClientManager: GattClientManager? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
@@ -192,6 +193,39 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "deviceAddress and bytes are required", null)
                     }
                 }
+                "connectToHost" -> {
+                    val macAddress = call.argument<String>("macAddress")
+                    if (macAddress == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
+                    } else {
+                        Log.i(TAG, "Connecting to host GATT server at $macAddress")
+                        if (gattClientManager == null) {
+                            gattClientManager = GattClientManager(this) { bytes ->
+                                // Forward RESPONSE bytes to Flutter via controlBytes stream
+                                // Use the MAC address as the endpointId (host identifier)
+                                sendControlBytesToFlutter(macAddress, bytes)
+                            }
+                        }
+                        val success = gattClientManager?.connectToHost(macAddress) ?: false
+                        result.success(success)
+                    }
+                }
+                "disconnectFromHost" -> {
+                    Log.i(TAG, "Disconnecting from host GATT server")
+                    gattClientManager?.disconnect()
+                    gattClientManager = null
+                    result.success(true)
+                }
+                "writeRequest" -> {
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (bytes == null) {
+                        result.error("INVALID_ARGUMENT", "bytes is required", null)
+                    } else {
+                        Log.d(TAG, "Writing ${bytes.size} bytes to REQUEST characteristic")
+                        val success = gattClientManager?.writeRequest(bytes) ?: false
+                        result.success(success)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -233,7 +267,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-<<<<<<< HEAD
     private fun sendControlBytesToFlutter(deviceAddress: String, bytes: ByteArray) {
         Handler(Looper.getMainLooper()).post {
             controlBytesSink?.success(mapOf(
@@ -242,8 +275,7 @@ class MainActivity : FlutterActivity() {
             ))
         }
     }
-    
-=======
+
     // Called when the notification's Leave action brings this activity back to
     // the foreground (singleTop launchMode prevents a new instance). The action
     // extra is forwarded to Flutter so the room screen can call leaveRoom().
@@ -254,13 +286,12 @@ class MainActivity : FlutterActivity() {
             sendEventToFlutter(mapOf("type" to "leaveRoom"))
         }
     }
-
->>>>>>> origin/main
     override fun onDestroy() {
         super.onDestroy()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
         gattServerManager?.stop()
+        gattClientManager?.disconnect()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
         controlBytesEventChannel?.setStreamHandler(null)
