@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
     private var gattClientManager: GattClientManager? = null
+    private var hostAdvertiser: HostAdvertiser? = null
     private var voiceTransport: L2capVoiceTransport? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
@@ -175,6 +176,29 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
                     }
+                }
+                "startAdvertising" -> {
+                    val sessionUuid = call.argument<String>("sessionUuid")
+                    val displayName = call.argument<String>("displayName")
+                    if (sessionUuid == null || displayName == null) {
+                        result.error(
+                            "INVALID_ARGUMENT",
+                            "sessionUuid and displayName are required",
+                            null
+                        )
+                    } else {
+                        Log.i(TAG, "Starting LE advertising: session=$sessionUuid name=$displayName")
+                        if (hostAdvertiser == null) {
+                            hostAdvertiser = HostAdvertiser(this)
+                        }
+                        val success = hostAdvertiser?.start(sessionUuid, displayName) ?: false
+                        result.success(success)
+                    }
+                }
+                "stopAdvertising" -> {
+                    Log.i(TAG, "Stopping LE advertising")
+                    hostAdvertiser?.stop()
+                    result.success(true)
                 }
                 "startGattServer" -> {
                     Log.i(TAG, "Starting GATT server")
@@ -414,6 +438,7 @@ class MainActivity : FlutterActivity() {
         voiceTransport?.stop()
         gattServerManager?.stop()
         gattClientManager?.disconnect()
+        hostAdvertiser?.stop()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
         controlBytesEventChannel?.setStreamHandler(null)
