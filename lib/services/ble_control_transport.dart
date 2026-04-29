@@ -84,6 +84,20 @@ class BleControlTransport {
     }
   }
 
+  /// Drop the watermark and reassembler buffer for **every** known peer.
+  ///
+  /// Called when the cubit leaves a room — held-over watermarks from the
+  /// previous session would silently swallow `seq=1` of the next session
+  /// (per the protocol's "fresh JoinAccepted resets seq" rule). Cheaper
+  /// than enumerating the roster and calling [forgetPeer] N times, and
+  /// also clears any peer the cubit didn't know about (ghosts left in
+  /// the reassembler from a partial-fragment burst).
+  void forgetAllPeers() {
+    _filter.clear();
+    _endpointByPeer.clear();
+    _reassemblers.clear();
+  }
+
   /// Cancel the native-bytes subscription and close [incoming].
   ///
   /// After dispose, [incoming] emits no further events. Call once during

@@ -152,8 +152,12 @@ class FrequencyApp extends StatelessWidget {
           onPick: (result) {
             unawaited(
               cubit.joinRoom(
-                freq: result.freq,
                 isHost: result.isHost,
+                // Host path ignores `freq` — the cubit derives it from a
+                // freshly-minted sessionUuid (#39). Pass it through anyway
+                // for the guest path, where it carries the discovered
+                // session's cosmetic mhzDisplay.
+                freq: result.isHost ? null : result.freq,
                 macAddress: result.macAddress,
                 sessionUuidLow8: result.sessionUuidLow8,
               ),

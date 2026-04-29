@@ -254,6 +254,35 @@ void main() {
         await sub.cancel();
       });
 
+      test('forgetAllPeers clears every peer\'s watermark + reassembler',
+          () async {
+        // Wipe-the-slate-clean variant for the leaveRoom path: held-over
+        // watermarks from an old session must not silently swallow `seq=1`
+        // of the next session.
+        final emitted = <FrequencyMessage>[];
+        final sub = transport.incoming.listen(emitted.add);
+
+        // Advance watermarks for two distinct peers.
+        _injectMessage(controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 5));
+        _injectMessage(controlBytesController,
+            _heartbeat(peerId: 'peer-b', seq: 3));
+        await Future<void>.delayed(Duration.zero);
+        expect(emitted, hasLength(2));
+
+        transport.forgetAllPeers();
+
+        // Both peers' fresh sessions start at seq=1; both should land.
+        _injectMessage(controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 1));
+        _injectMessage(controlBytesController,
+            _heartbeat(peerId: 'peer-b', seq: 1));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(emitted, hasLength(4));
+        await sub.cancel();
+      });
+
       test('cleans up the reassembler via endpointId mapping on reconnect',
           () async {
         final emitted = <FrequencyMessage>[];

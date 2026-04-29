@@ -15,6 +15,10 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
         private const val CONTROL_BYTES_EVENT_CHANNEL = "com.elodin.walkie_talkie/control_bytes"
+
+        init {
+            System.loadLibrary("walkie_talkie_audio")
+        }
     }
 
     private var methodChannel: MethodChannel? = null
@@ -24,11 +28,15 @@ class MainActivity : FlutterActivity() {
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
     private var gattClientManager: GattClientManager? = null
+    private var voiceTransport: L2capVoiceTransport? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Register for native voice activity callbacks
+        nativeRegisterForCallbacks()
 
         // Initialize audio routing manager
         // Auto-detect will be started when voice capture begins (startVoice)
@@ -182,6 +190,18 @@ class MainActivity : FlutterActivity() {
                     gattServerManager = null
                     result.success(true)
                 }
+                "getCurrentRssi" -> {
+                    // Per issue #53: returns one (peerId, rssi) entry per
+                    // peer connected over the GATT link. The full
+                    // implementation requires BluetoothGatt.readRemoteRssi,
+                    // which only the GATT *client* (issue #43) exposes —
+                    // the GATT server side cannot read remote RSSI on its
+                    // accepted connections. Until #43 lands we return an
+                    // empty list rather than fabricating values; the Dart
+                    // side already short-circuits a send when the list is
+                    // empty, so the wire stays quiet.
+                    result.success(emptyList<Map<String, Any>>())
+                }
                 "writeNotification" -> {
                     val deviceAddress = call.argument<String>("deviceAddress")
                     val bytes = call.argument<ByteArray>("bytes")
@@ -225,6 +245,75 @@ class MainActivity : FlutterActivity() {
                         val success = gattClientManager?.writeRequest(bytes) ?: false
                         result.success(success)
                     }
+                }
+                "startVoiceServer" -> {
+                    Log.i(TAG, "Starting L2CAP voice server")
+                    val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                    if (bt == null) {
+                        result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
+                    } else {
+                        if (voiceTransport == null) {
+                            voiceTransport = L2capVoiceTransport(
+                                bluetoothAdapter = bt,
+                                onVoiceFrame = { /* mix-minus wired in issue #48 */ },
+                                onClientConnected = { addr ->
+                                    sendEventToFlutter(mapOf(
+                                        "type" to "voiceClientConnected",
+                                        "address" to addr,
+                                    ))
+                                },
+                                onError = { msg ->
+                                    sendEventToFlutter(mapOf("type" to "error", "message" to msg))
+                                },
+                            )
+                        }
+                        val psm = voiceTransport?.startServer()
+                        if (psm != null) result.success(psm)
+                        else result.error("L2CAP_FAILED", "Failed to open L2CAP server socket", null)
+                    }
+                }
+                "connectVoiceClient" -> {
+                    val mac = call.argument<String>("macAddress")
+                    val psm = call.argument<Int>("psm")
+                    if (mac == null || psm == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress and psm are required", null)
+                    } else {
+                        Log.i(TAG, "Connecting L2CAP voice client to $mac PSM 0x${psm.toString(16)}")
+                        val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                        if (bt == null) {
+                            result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
+                        } else {
+                            if (voiceTransport == null) {
+                                voiceTransport = L2capVoiceTransport(
+                                    bluetoothAdapter = bt,
+                                    onVoiceFrame = { /* playback wired in issue #48 */ },
+                                    onClientConnected = {},
+                                    onError = { msg ->
+                                        sendEventToFlutter(mapOf("type" to "error", "message" to msg))
+                                    },
+                                )
+                            }
+                            // Connect blocks (with retries) — run off the main thread.
+                            val transport = voiceTransport!!
+                            Thread({
+                                try {
+                                    val ok = transport.connectClient(mac, psm)
+                                    Handler(Looper.getMainLooper()).post { result.success(ok) }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "connectVoiceClient thread error: ${e.message}")
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.error("L2CAP_ERROR", e.message, null)
+                                    }
+                                }
+                            }, "L2capConnect").apply { isDaemon = true; start() }
+                        }
+                    }
+                }
+                "stopVoiceTransport" -> {
+                    Log.i(TAG, "Stopping L2CAP voice transport")
+                    voiceTransport?.stop()
+                    voiceTransport = null
+                    result.success(true)
                 }
                 else -> {
                     result.notImplemented()
@@ -276,6 +365,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // Called from JNI when voice activity crosses threshold
+    fun sendLocalTalkingEvent(talking: Boolean) {
+        sendEventToFlutter(mapOf(
+            "type" to "localTalking",
+            "talking" to talking
+        ))
+    }
+
     // Called when the notification's Leave action brings this activity back to
     // the foreground (singleTop launchMode prevents a new instance). The action
     // extra is forwarded to Flutter so the room screen can call leaveRoom().
@@ -288,12 +385,18 @@ class MainActivity : FlutterActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        nativeUnregisterCallbacks()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
+        voiceTransport?.stop()
         gattServerManager?.stop()
         gattClientManager?.disconnect()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
         controlBytesEventChannel?.setStreamHandler(null)
     }
+
+    // Native methods for voice activity detection callbacks
+    private external fun nativeRegisterForCallbacks()
+    private external fun nativeUnregisterCallbacks()
 }

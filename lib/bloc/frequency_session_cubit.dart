@@ -3,12 +3,18 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../protocol/frequency_session.dart';
 import '../protocol/messages.dart';
+import '../protocol/peer.dart';
+import '../protocol/uuid.dart';
 import '../services/audio_service.dart';
 import '../services/ble_control_transport.dart';
+import '../services/heartbeat_scheduler.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/reconnect_controller.dart';
+import '../services/signal_reporter.dart';
+import '../services/weak_signal_detector.dart';
 import 'frequency_session_state.dart';
 
 /// Owns session-level Frequency state and the side-effects that mutate it:
@@ -68,7 +74,43 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// production schedule; tests pass short delays to avoid slow test runs.
   final List<Duration>? _reconnectDelays;
 
+  /// Mint the per-session UUID on the host bootstrap path. Indirection so
+  /// tests can pin a deterministic UUID and assert the derived `roomFreq`.
+  /// Defaults to the cryptographic [generateUuidV4] for production builds.
+  final String Function() _mintSessionUuid;
+
+  /// Drives the protocol's `ping` plane. Started on room entry, stopped
+  /// on leave / close. The cubit owns the role-specific reaction to a
+  /// lost peer (host: drop from roster + broadcast `RosterUpdate`;
+  /// guest: notify a host drop via [notifyDrop]).
+  final HeartbeatScheduler _heartbeats;
+
+  /// Drives the protocol's `signal_report` plane. Started on room entry
+  /// **on the guest side only** (the host receives reports rather than
+  /// sending them) and stopped on leave / close.
+  final SignalReporter _signalReporter;
+
+  /// Host-side gate: keeps per-neighbor consecutive-weak counters and
+  /// rate-limits toasts for the same neighbor. Lives for the cubit
+  /// lifetime; cleared on `leaveRoom` and on per-peer drop / removal.
+  final WeakSignalDetector _weakSignalDetector;
+
+  /// Re-entrancy guard for [_sendHeartbeat]. The scheduler tick is
+  /// `unawaited`-launched, so a slow GATT write could otherwise overlap
+  /// the next tick and let two `send()` calls interleave on the same
+  /// transport. When a send is in flight, later ticks become no-ops
+  /// (and the seq counter stays put — the dropped tick effectively
+  /// merges with the in-flight one).
+  bool _heartbeatSendInFlight = false;
+
+  /// Re-entrancy guard for [_sendSignalReport]. Same rationale as
+  /// [_heartbeatSendInFlight]: the reporter tick is `unawaited`-launched
+  /// and `getCurrentRssi` plus `transport.send` can stretch across the
+  /// next 10 s tick on a slow link.
+  bool _signalReportSendInFlight = false;
+
   StreamSubscription<FrequencyMessage>? _transportSubscription;
+  StreamSubscription<bool>? _localTalkingSubscription;
   ReconnectController? _reconnectController;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
@@ -80,7 +122,22 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// idempotent ops a duplicate apply is a no-op.
   Stream<MediaCommand> get mediaCommands => _mediaCommandsController.stream;
 
+  final _weakSignalEventsController =
+      StreamController<({String peerId, String displayName})>.broadcast();
+
+  /// Host-only stream of "neighbor X is weak" events that have already
+  /// passed the consecutive-reports threshold and the per-peer rate-limit.
+  /// The room screen subscribes and renders a toast.
+  ///
+  /// `displayName` is resolved against the current roster; when the
+  /// neighbor isn't in the roster (e.g. a stale report after `RemovePeer`)
+  /// the event is dropped before it reaches the stream rather than
+  /// surfacing a generic-sounding toast.
+  Stream<({String peerId, String displayName})> get weakSignalEvents =>
+      _weakSignalEventsController.stream;
+
   int _seq = 0;
+  String? _localPeerId;
 
   FrequencySessionCubit({
     required this.identityStore,
@@ -88,9 +145,17 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     BleControlTransport? transport,
     AudioService? audio,
     List<Duration>? reconnectDelays,
+    HeartbeatScheduler? heartbeats,
+    SignalReporter? signalReporter,
+    WeakSignalDetector? weakSignalDetector,
+    String Function()? mintSessionUuid,
   })  : _transport = transport,
         _audio = audio,
         _reconnectDelays = reconnectDelays,
+        _heartbeats = heartbeats ?? HeartbeatScheduler(),
+        _signalReporter = signalReporter ?? SignalReporter(),
+        _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
+        _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -99,9 +164,19 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///
   /// Also wires the BLE transport's [BleControlTransport.incoming] stream
   /// so incoming wire messages drive state transitions for the lifetime of
-  /// the cubit.
+  /// the cubit. Subscribes to voice activity detection from [_audio] to send
+  /// TalkingState messages over the control transport.
   Future<void> bootstrap() async {
     _transportSubscription = _transport?.incoming.listen(_onTransportMessage);
+    _localTalkingSubscription = _audio?.localTalking.listen(_onLocalTalking);
+
+    // Cache peerId to avoid async resolution in hot path (voice activity)
+    try {
+      _localPeerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load peer ID: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
 
     String? persisted;
     try {
@@ -124,6 +199,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   }
 
   void _onTransportMessage(FrequencyMessage msg) {
+    // Any inbound activity from a peer counts as a sign-of-life — refresh
+    // the heartbeat watermark before dispatching, so a peer that's actively
+    // sending control messages won't be declared lost just because a
+    // dedicated `ping` was delayed.
+    _heartbeats.notePingFrom(msg.peerId);
     switch (msg) {
       case JoinAccepted m:
         applyJoinAccepted(m);
@@ -145,6 +225,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
               current.roster.where((p) => p.peerId != m.peerId).toList();
           emit(current.copyWith(roster: updated));
           _transport?.forgetPeer(m.peerId);
+          _heartbeats.forgetPeer(m.peerId);
+          _weakSignalDetector.forgetPeer(m.peerId);
         }
       case RemovePeer m:
         // Host-broadcasted peer removal. Drop the named peer from the roster
@@ -155,16 +237,294 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
             current.roster.where((p) => p.peerId != m.target).toList();
         emit(current.copyWith(roster: updated));
         _transport?.forgetPeer(m.target);
-      // These message types are handled by future issues (heartbeats,
-      // signal reports, voice-activity detection). Silently drop for now.
+        _heartbeats.forgetPeer(m.target);
+        _weakSignalDetector.forgetPeer(m.target);
+      case Heartbeat():
+        // Already noted above; no further dispatch — the heartbeat plane
+        // is purely a liveness signal, not a state-changing event.
+        break;
+      case SignalReport m:
+        _onSignalReport(m);
+      // These message types are handled by future issues
+      // (voice-activity detection, join request flow). Silently drop.
       case TalkingState():
       case MuteState():
-      case Heartbeat():
       case JoinRequest():
       case JoinDenied():
-      case SignalReport():
         break;
     }
+  }
+
+  /// Host-only ingress for `SignalReport`. Guests currently send
+  /// reports but never consume them — only the host owns the toast
+  /// surface for "X's signal is weak."
+  ///
+  /// Reports are passed to [_weakSignalDetector] which keeps the
+  /// per-neighbor consecutive-weak counter and the per-neighbor toast
+  /// rate-limit. Each tripped neighbor is resolved against the current
+  /// roster for a display name; if the neighbor isn't in the roster
+  /// (e.g. a stale report after a `RemovePeer`) the event is dropped
+  /// before it reaches [weakSignalEvents]. This keeps the room screen
+  /// from rendering toasts for ghosts.
+  void _onSignalReport(SignalReport report) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom || !current.roomIsHost) return;
+    if (_weakSignalEventsController.isClosed) return;
+    final fired = _weakSignalDetector.onReport(report);
+    if (fired.isEmpty) return;
+    // Build the lookup once per report rather than scanning the roster
+    // per neighbor — a single weak report could trip several at once,
+    // and the per-call cost otherwise grows as the room fills up.
+    final namesByPeerId = <String, String>{
+      for (final p in current.roster) p.peerId: p.displayName,
+    };
+    for (final neighborId in fired) {
+      // Don't surface a toast for our own peerId — a guest's report
+      // includes its observation of every neighbor it can sample, which
+      // can include the host. The host toasting itself is noise.
+      if (neighborId == current.hostPeerId) continue;
+      final displayName = namesByPeerId[neighborId];
+      if (displayName == null) continue;
+      _weakSignalEventsController.add(
+        (peerId: neighborId, displayName: displayName),
+      );
+    }
+  }
+
+  /// Tick callback wired into [SignalReporter.start] on the guest side.
+  /// Samples local RSSI via the audio service, builds a [SignalReport],
+  /// and writes it to the transport. No-op when no neighbors have an
+  /// RSSI to report (e.g. before the GATT client has a connection),
+  /// which keeps the wire quiet during link bring-up.
+  ///
+  /// **Seq accounting.** Two distinct skip cases, with different rules:
+  ///   * Transport / audio absent, RSSI sample throws, peerId resolve
+  ///     fails — the seq counter still advances. These are failure
+  ///     paths where another producer may have already used a seq, so
+  ///     the next valid report needs the next number to stay monotonic.
+  ///     Same defensive pattern as [_sendHeartbeat].
+  ///   * Empty sample list — the seq counter does **not** advance. An
+  ///     empty report is a non-event (nothing to send), so the next
+  ///     report with samples picks up where we left off instead of
+  ///     skipping wire-level numbers the host's SequenceFilter would
+  ///     have to tolerate gaps in.
+  Future<void> _sendSignalReport() async {
+    final t = _transport;
+    final audio = _audio;
+    if (t == null || audio == null) {
+      _seq++;
+      return;
+    }
+    if (_signalReportSendInFlight) return;
+    _signalReportSendInFlight = true;
+    try {
+      final List<({String peerId, int rssi})> samples;
+      try {
+        samples = await audio.getCurrentRssi();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to sample RSSI: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      // Empty sample list — nothing to report. Do *not* advance the seq
+      // counter: an empty report is a non-event, and a future report
+      // with samples should pick up where we left off rather than
+      // skipping numbers (which the host's SequenceFilter tolerates but
+      // is wasteful on the wire).
+      if (samples.isEmpty) return;
+      final String peerId;
+      try {
+        peerId = await identityStore.getPeerId();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to resolve peer id for signal report: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      final msg = SignalReport(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+        neighbors: [
+          for (final s in samples)
+            NeighborSignal(peerId: s.peerId, rssi: s.rssi),
+        ],
+      );
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        debugPrint('SignalReport send failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      _signalReportSendInFlight = false;
+    }
+  }
+
+  /// Tick callback wired into [HeartbeatScheduler.start] on room entry.
+  /// Builds + sends a single `Heartbeat` over the transport. The native
+  /// layer decides whether `send` broadcasts to all subscribed centrals
+  /// (host) or unicasts to the connected host (guest).
+  ///
+  /// The seq counter advances even when the transport is null so it
+  /// stays monotonic once the BLE link comes up — same defensive pattern
+  /// as [broadcastMute].
+  Future<void> _sendHeartbeat() async {
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+    // Coalesce overlapping ticks: a slow link must not fan out into
+    // concurrent transport writes that interleave fragments on the wire.
+    // The flag is set *synchronously* before the first `await` below — if
+    // it's set after the await on getPeerId, two ticks could both pass
+    // this check, both await the peerId, and then both reach the send.
+    if (_heartbeatSendInFlight) return;
+    _heartbeatSendInFlight = true;
+    try {
+      final String peerId;
+      try {
+        peerId = await identityStore.getPeerId();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to resolve peer id for heartbeat: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        _seq++;
+        return;
+      }
+      if (isClosed) return;
+      final msg = Heartbeat(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        // Transport-layer failures are already logged inside
+        // BleControlTransport; swallow here so a single bad tick doesn't
+        // poison the timer.
+        debugPrint('Heartbeat send failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      _heartbeatSendInFlight = false;
+    }
+  }
+
+  /// Fired by [HeartbeatScheduler] when [missThreshold] elapses without
+  /// a `notePingFrom` for [peerId]. Role-specific behaviour:
+  ///
+  ///   * **Host** — drop the peer from the local roster, clean up
+  ///     transport state, and broadcast a `RosterUpdate` to the
+  ///     remaining guests. Mirrors the protocol's host-as-authority
+  ///     dirty-disconnect contract.
+  ///   * **Guest** — only react if the lost peer is the host. Routes
+  ///     into [notifyDrop] (which starts the reconnect loop) when a
+  ///     MAC is on the room state, or to [leaveRoom] as a fallback
+  ///     when there's nothing to dial.
+  ///
+  /// No-op outside `SessionRoom` (e.g. a late tick after the user has
+  /// already left), or after the cubit is closed.
+  void _onHeartbeatPeerLost(String peerId) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom) return;
+    if (current.roomIsHost) {
+      // Defensive guard: never react to a "lost" event for the local
+      // host's own peerId — a stale watermark must not self-delete the
+      // host roster entry or emit a `RosterUpdate` that erases it.
+      // The host's own peerId shouldn't end up in `_lastSeen` in
+      // production (we never receive our own messages back through the
+      // wire), but the guard is cheap and removes the failure mode.
+      if (peerId == current.hostPeerId) return;
+      final updated =
+          current.roster.where((p) => p.peerId != peerId).toList();
+      if (updated.length == current.roster.length) return;
+      emit(current.copyWith(roster: updated));
+      _transport?.forgetPeer(peerId);
+      _weakSignalDetector.forgetPeer(peerId);
+      final t = _transport;
+      if (t == null) return;
+      // Best-effort RosterUpdate to remaining guests. We need a peerId
+      // for the envelope; resolve lazily and fire-and-forget.
+      unawaited(_broadcastRosterUpdate(updated));
+    } else {
+      // Guest: only the host's silence matters. A guest going quiet is
+      // the host's problem to handle and broadcast — we'd just hear
+      // about it via a `RosterUpdate`.
+      if (peerId != current.hostPeerId) return;
+      // Drop the transport's idempotency state for the host before the
+      // reconnect attempt: the fresh `JoinAccepted` after reconnect
+      // restarts seq at 1 per protocol, and a stale watermark of, say, 7
+      // from this session would otherwise swallow the new session's seqs
+      // 1–7.
+      _transport?.forgetPeer(peerId);
+      _heartbeats.forgetPeer(peerId);
+      final mac = current.macAddress;
+      if (mac != null) {
+        unawaited(notifyDrop(macAddress: mac));
+      } else {
+        unawaited(leaveRoom());
+      }
+    }
+  }
+
+  Future<void> _broadcastRosterUpdate(List<ProtocolPeer> roster) async {
+    final t = _transport;
+    if (t == null) return;
+    final String peerId;
+    try {
+      peerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve peer id for roster update: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return;
+    }
+    if (isClosed) return;
+    final msg = RosterUpdate(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      roster: roster,
+    );
+    unawaited(t.send(msg));
+  }
+
+  /// Called when local voice activity detection triggers. Sends a [TalkingState]
+  /// message over the BLE control transport to notify other peers about the
+  /// local user's speaking state.
+  ///
+  /// Only sends when in a room and when the transport is wired. If the transport
+  /// is absent, the seq counter still advances so messages stay monotonic once
+  /// the transport connects. Uses cached [_localPeerId] to avoid async resolution
+  /// and ensure sequence numbers are assigned at event time (no race).
+  void _onLocalTalking(bool talking) {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return;
+
+    final t = _transport;
+    final peerId = _localPeerId;
+
+    // Increment seq immediately at event time to preserve order
+    final seq = ++_seq;
+
+    if (t == null || peerId == null) {
+      return; // seq already incremented
+    }
+
+    // Build and send message synchronously
+    final msg = TalkingState(
+      peerId: peerId,
+      seq: seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      talking: talking,
+    );
+    unawaited(t.send(msg));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -216,52 +576,151 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
   }
 
-  /// Enters Room on [freq]. [isHost] is true when the user created the
-  /// frequency, false when they tuned in to an existing one. No-op if
-  /// the user isn't on Discovery (shouldn't happen — Discovery is the
-  /// only screen that triggers it).
+  /// Enters Room. [isHost] is true when the user created the frequency,
+  /// false when they tuned in to an existing one. The [freq] argument is
+  /// required on the guest path (it carries the discovered MHz string)
+  /// and ignored on the host path (the room frequency is derived from a
+  /// freshly-minted sessionUuid). No-op if the user isn't on Discovery
+  /// (shouldn't happen — Discovery is the only screen that triggers it).
   ///
-  /// On the guest side, the caller passes [macAddress] and
-  /// [sessionUuidLow8] from the discovered advertisement. Both are stored
-  /// on `SessionRoom` so the GATT-client transport can dial the host
-  /// later (the actual `connectToHost` call lands in the GATT-client
-  /// issue). On the host side both are null — the local user *is* the
-  /// host, so there's no remote to dial.
+  /// **Host path.** Mints a fresh `sessionUuid`, derives the room's
+  /// cosmetic [roomFreq] from its low 12 bits (the same mapping guests
+  /// use when decoding the advertisement), self-seeds the roster with
+  /// the local user, and asks the audio service to start LE advertising
+  /// + the GATT server so other phones can see and dial the room. The
+  /// [freq] argument is ignored on this path — the freshly-minted UUID
+  /// is the source of truth for both the cosmetic display and what
+  /// guests will eventually see in their discovery list. Recorded to
+  /// the recent-hosted list as a side-effect.
+  ///
+  /// **Guest path.** Uses [freq] as the room's cosmetic display (it
+  /// already matches the advertised UUID's mhzDisplay since both flow
+  /// from the same protocol mapping). [macAddress] and [sessionUuidLow8]
+  /// come from the discovered advertisement and are stored on
+  /// `SessionRoom` so the GATT-client transport can dial the host later
+  /// (the actual `connectToHost` call lands in #43). On the host path
+  /// both are null — the local user *is* the host, so there's no remote
+  /// to dial.
   ///
   /// Resets the per-link sequence counter to 0 so the next sent message
   /// starts at `seq = 1` per the protocol's reconnect rule.
   ///
-  /// When [isHost] is true, the freq is recorded to the recent-hosted
-  /// list as a side-effect. Persistence runs in the background — a
-  /// failure or slow disk shouldn't block the transition into the room.
-  /// The updated list shows up the next time the user lands on
-  /// Discovery (via [leaveRoom]'s re-read).
+  /// Recent-frequency persistence runs in the background — a failure or
+  /// slow disk shouldn't block the transition into the room. The updated
+  /// list shows up the next time the user lands on Discovery (via
+  /// [leaveRoom]'s re-read).
   Future<void> joinRoom({
-    required String freq,
     required bool isHost,
+    String? freq,
     String? macAddress,
     String? sessionUuidLow8,
   }) async {
     final current = state;
     if (current is! SessionDiscovery) return;
     _seq = 0;
+    final SessionRoom room;
     if (isHost) {
+      // Mint the canonical session identity. Everything else on the host
+      // path (advertised manufacturer payload, cosmetic mhz, hostPeerId
+      // self-seed) flows from this UUID + the local peerId.
+      final sessionUuid = _mintSessionUuid();
+      // Resolve the local peerId for the self-seed. The cache covers
+      // the common case where bootstrap has already run; falls back to
+      // the store otherwise. A hard failure aborts the host path —
+      // hostPeerId is load-bearing for the protocol's message
+      // attribution, and seeding the room without it would just put the
+      // user into a broken state they'd have to leave anyway.
+      String? hostPeerId = _localPeerId;
+      if (hostPeerId == null) {
+        try {
+          hostPeerId = await identityStore.getPeerId();
+          _localPeerId = hostPeerId;
+        } catch (error, stackTrace) {
+          debugPrint('Failed to load peerId for host bootstrap: $error');
+          debugPrintStack(stackTrace: stackTrace);
+          return;
+        }
+      }
+      if (isClosed) return;
+      // Re-read state after the await — `rename()` could have fired in
+      // the gap, and the captured `current.myName` would be stale.
+      // `leaveRoom()` isn't possible from Discovery, but a state
+      // transition out of Discovery still means the user no longer wants
+      // this room and we should bail.
+      final afterAwait = state;
+      if (afterAwait is! SessionDiscovery) return;
+      final myName = afterAwait.myName;
+      final session = FrequencySession(
+        sessionUuid: sessionUuid,
+        hostPeerId: hostPeerId,
+      );
+      final roomFreq = session.mhzDisplay;
       // Fire-and-forget: the user has already committed to entering the
       // room, so we shouldn't await disk I/O before emitting. Errors are
       // logged on the future and surfaced on next launch as a missing
       // entry; nothing else depends on success here.
-      unawaited(_recordRecentFrequency(freq));
+      unawaited(_recordRecentFrequency(roomFreq));
+      room = SessionRoom(
+        myName: myName,
+        roomFreq: roomFreq,
+        roomIsHost: true,
+        hostPeerId: hostPeerId,
+        roster: [ProtocolPeer(peerId: hostPeerId, displayName: myName)],
+      );
+      emit(room);
+      // Kick off the BLE side. Both calls return false on permission /
+      // OEM rejection; we don't block the room transition on either,
+      // matching the existing pattern for non-fatal native-side failures.
+      // The native implementations land in #41 (advertiser) and the
+      // existing #38 (GATT server, already wired). Symmetric teardown
+      // happens in [leaveRoom] and [close].
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.startAdvertising(
+          sessionUuid: sessionUuid,
+          displayName: myName,
+        ));
+        unawaited(audio.startGattServer());
+      }
+    } else {
+      if (freq == null) {
+        debugPrint(
+            'joinRoom guest path requires a freq; refusing to enter the room.');
+        return;
+      }
+      room = SessionRoom(
+        myName: current.myName,
+        roomFreq: freq,
+        roomIsHost: false,
+        macAddress: macAddress,
+        sessionUuidLow8: sessionUuidLow8,
+      );
+      emit(room);
     }
-    emit(SessionRoom(
-      myName: current.myName,
-      roomFreq: freq,
-      roomIsHost: isHost,
-      // Guest path threads MAC + session UUID through to the room state so
-      // the GATT-client transport can dial the host. Host path leaves them
-      // null — the local user is the host.
-      macAddress: isHost ? null : macAddress,
-      sessionUuidLow8: isHost ? null : sessionUuidLow8,
-    ));
+    // Begin the heartbeat plane for the lifetime of the room. Pings the
+    // wire every interval and watches inbound activity for silent peers
+    // (host) / a silent host (guest). Calling start() is idempotent —
+    // re-entry into a fresh room will reset its watermarks.
+    //
+    // Skipped when no transport is wired: there's no wire to ping and no
+    // peers to detect silence on. Avoids leaking a long-running periodic
+    // timer in widget tests that exercise the cubit in loopback mode.
+    if (_transport != null) {
+      _heartbeats.start(
+        onTick: () => unawaited(_sendHeartbeat()),
+        onPeerLost: _onHeartbeatPeerLost,
+      );
+    }
+    // Begin the signal-report plane on the guest side. The host receives
+    // reports from guests and turns them into weak-signal toasts; it
+    // doesn't send reports to itself. Audio is required to sample RSSI;
+    // skipped when audio or transport is absent, same rationale as the
+    // heartbeat skip above.
+    if (!isHost && _transport != null && _audio != null) {
+      _signalReporter.start(
+        onTick: () => unawaited(_sendSignalReport()),
+      );
+    }
   }
 
   /// Drops back to Discovery and forgets the room. No-op if not in a
@@ -274,10 +733,39 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
+    // Symmetric teardown of the host BLE surfaces booted in joinRoom.
+    // Without this the device keeps advertising and serving GATT after
+    // the host backs out — strangers nearby would still see the room and
+    // could connect to a phantom session. Guests don't own these so we
+    // gate on roomIsHost. Both calls are unawaited to mirror the start
+    // pattern; failures log on the audio service.
+    if (current.roomIsHost) {
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.stopAdvertising());
+        unawaited(audio.stopGattServer());
+      }
+    }
     // Stop any in-progress reconnect so BLE retries halt promptly when
     // the user manually leaves rather than waiting for the next delay tick.
     _reconnectController?.cancel();
     _reconnectController = null;
+    // Cancel the heartbeat timer so it doesn't keep ticking against an
+    // empty roster (and incidentally trigger a phantom RosterUpdate if
+    // a stale watermark expires post-leave).
+    _heartbeats.stop();
+    // Cancel the signal reporter so a guest leaving doesn't keep pinging
+    // RSSI samples at the (now disconnected) GATT link.
+    _signalReporter.stop();
+    // Wipe per-neighbor weak-signal state so a fresh room starts with a
+    // clean detector — no stale rate-limit cooldowns, no inherited
+    // consecutive-weak counters from the previous session.
+    _weakSignalDetector.clear();
+    // Wipe transport-side idempotency state for *every* peer of the
+    // departing room. A re-join (same room or different) restarts the
+    // protocol's seq counters at 1; held-over watermarks from this room
+    // would otherwise swallow the next session's first messages.
+    _transport?.forgetAllPeers();
     _seq = 0;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
@@ -494,9 +982,30 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   @override
   Future<void> close() async {
+    // Tear down the host BLE surfaces if the cubit is closing while the
+    // local user is still the host. Without this, killing the cubit
+    // (e.g. test teardown, app disposal mid-session) leaves the platform
+    // advertiser + GATT server running until the OS reaps the
+    // foreground service. Mirrors the leaveRoom path; same gating on
+    // roomIsHost.
+    final current = state;
+    if (current is SessionRoom && current.roomIsHost) {
+      final audio = _audio;
+      if (audio != null) {
+        unawaited(audio.stopAdvertising());
+        unawaited(audio.stopGattServer());
+      }
+    }
     // Cancel an in-progress reconnect before closing so the attempt loop
     // won't call emit() or leaveRoom() after the cubit is disposed.
     _reconnectController?.cancel();
+    // Stop the heartbeat timer before super.close() so a tick suspended
+    // mid-microtask can't try to emit() against a closing cubit.
+    _heartbeats.stop();
+    // Same rationale: stop the signal reporter before super.close() so a
+    // tick mid-await can't reach _onSignalReport or transport.send on a
+    // disposed cubit.
+    _signalReporter.stop();
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
     // suspended `await` in `sendMediaCommand` resumes after it sees
     // `isClosed == true` and bails before touching the controller. If
@@ -506,6 +1015,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // `cubit.isClosed = true` and throw on `add`.
     await super.close();
     await _transportSubscription?.cancel();
+    await _localTalkingSubscription?.cancel();
     await _mediaCommandsController.close();
+    await _weakSignalEventsController.close();
   }
 }

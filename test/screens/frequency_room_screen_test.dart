@@ -48,6 +48,11 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
     
     final controller = StreamController<MediaCommand>.broadcast();
     when(() => mockCubit.mediaCommands).thenAnswer((_) => controller.stream);
+
+    final weakSignalController =
+        StreamController<({String peerId, String displayName})>.broadcast();
+    when(() => mockCubit.weakSignalEvents)
+        .thenAnswer((_) => weakSignalController.stream);
     
     when(() => mockCubit.sendMediaCommand(
           op: any(named: 'op'),
@@ -156,7 +161,7 @@ void main() {
       await tester.pump();
 
       // On-air pill in the chrome carries the frequency.
-      expect(find.text('On air · '), findsOneWidget);
+      expect(find.text('On air'), findsOneWidget);
       expect(find.text('104.3'), findsOneWidget);
 
       // Me-row shows the configured name without the muted suffix.

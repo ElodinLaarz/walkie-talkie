@@ -11,6 +11,7 @@
 
 # Claude Code local overrides (per-developer settings, not for the team)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # IntelliJ related
 *.iml

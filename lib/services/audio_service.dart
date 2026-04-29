@@ -224,6 +224,66 @@ class AudioService {
         });
   }
 
+  /// Stream of local voice activity detection events.
+  ///
+  /// Emits true when the native audio engine detects voice activity above the
+  /// threshold (RMS > -40 dBFS), false when activity drops below threshold.
+  /// Includes hysteresis (100ms to flip on, 300ms to flip off) to avoid
+  /// flickering at the threshold boundary.
+  ///
+  /// Filters audioEvents for 'localTalking' events from the native layer.
+  Stream<bool> get localTalking {
+    return audioEvents
+        .where((e) => e['type'] == 'localTalking')
+        .map((e) => e['talking'] == true);
+  }
+
+  /// Start LE advertising for the host.
+  ///
+  /// Broadcasts the walkie-talkie service UUID plus a 16-byte manufacturer
+  /// payload that encodes the protocol version, role, and low 8 bytes of
+  /// [sessionUuid] (see [docs/protocol.md] § "Bluetooth LE advertising").
+  /// Other phones running the discovery service pick this up and surface
+  /// the host as a tunable frequency.
+  ///
+  /// [displayName] is included in the advertisement (LE device-name field)
+  /// so the discovery row can render the host's name without an extra
+  /// GATT round-trip. [sessionUuid] is the canonical full UUID minted by
+  /// the host on session start; the advertiser truncates it to the low
+  /// 8 bytes per the wire spec.
+  ///
+  /// Returns true if advertising started successfully, false otherwise.
+  /// The native implementation lands in issue #41; until then this is a
+  /// no-op stub on the platform side.
+  Future<bool> startAdvertising({
+    required String sessionUuid,
+    required String displayName,
+  }) async {
+    try {
+      final result = await _methodChannel.invokeMethod('startAdvertising', {
+        'sessionUuid': sessionUuid,
+        'displayName': displayName,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('Error starting advertising: $e');
+      return false;
+    }
+  }
+
+  /// Stop LE advertising. Counterpart to [startAdvertising]; safe to call
+  /// when advertising isn't running (the native side resolves it as a
+  /// no-op rather than throwing).
+  Future<bool> stopAdvertising() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopAdvertising');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping advertising: $e');
+      return false;
+    }
+  }
+
   /// Start the GATT server for the host.
   ///
   /// Exposes REQUEST (write) and RESPONSE (notify) characteristics over
@@ -239,6 +299,49 @@ class AudioService {
     } catch (e) {
       debugPrint('Error starting GATT server: $e');
       return false;
+    }
+  }
+
+  /// Snapshot the current RSSI for each peer connected over the GATT
+  /// link. Returns one entry per neighbor `(peerId, rssi)`; `rssi` is in
+  /// dBm (negative values; closer to 0 is stronger). Empty list when no
+  /// peers are connected, the native side hasn't wired up
+  /// `BluetoothGatt.readRemoteRssi` yet, or the platform call throws.
+  ///
+  /// Used by [SignalReporter] on the guest side to build the protocol's
+  /// 10-second `SignalReport` envelope.
+  ///
+  /// **Note on `peerId`.** The native layer keys connections by Bluetooth
+  /// MAC, not by application-level `peerId`. The current contract is that
+  /// the native side returns the MAC as the `peerId` field; mapping MAC
+  /// back to the application `peerId` will land alongside the GATT-client
+  /// issue (#43) which records that mapping during the handshake. Until
+  /// then, the host side treats the value as opaque — its detection logic
+  /// keys on whatever string arrives. Reports for `peerId`s the host
+  /// can't resolve against its current roster are dropped before
+  /// surfacing a toast (see `_onSignalReport` in `FrequencySessionCubit`).
+  Future<List<({String peerId, int rssi})>> getCurrentRssi() async {
+    try {
+      final result =
+          await _methodChannel.invokeMethod<List<dynamic>>('getCurrentRssi');
+      if (result == null) return const [];
+      return result
+          .map((entry) {
+            // Type-check before casting — a non-Map element from the
+            // platform side would otherwise throw, and the outer
+            // try/catch would discard the *entire* batch (including
+            // valid samples). Drop just the bad entry instead.
+            if (entry is! Map) return null;
+            final peerId = entry['peerId'];
+            final rssi = entry['rssi'];
+            if (peerId is! String || rssi is! int) return null;
+            return (peerId: peerId, rssi: rssi);
+          })
+          .whereType<({String peerId, int rssi})>()
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('Error getting current RSSI: $e');
+      return const [];
     }
   }
 
@@ -269,6 +372,55 @@ class AudioService {
       return result == true;
     } catch (e) {
       debugPrint('Error writing notification to $deviceAddress: $e');
+      return false;
+    }
+  }
+
+  /// Start an L2CAP CoC server socket for the voice plane.
+  ///
+  /// Returns the dynamically assigned PSM (odd, in [0x0080, 0x00FF]) on
+  /// success, or null if the native layer could not open the socket (e.g.
+  /// Bluetooth is off or the OEM rejects the call). The returned PSM is
+  /// the value that should be published in the [JoinAccepted.voicePsm]
+  /// field so guests can dial the voice channel.
+  Future<int?> startVoiceServer() async {
+    try {
+      final result = await _methodChannel.invokeMethod<int>('startVoiceServer');
+      return result;
+    } catch (e) {
+      debugPrint('Error starting voice server: $e');
+      return null;
+    }
+  }
+
+  /// Connect the voice plane as a guest to [macAddress] on [psm].
+  ///
+  /// Runs on a background thread with exponential backoff (up to ~8 s total).
+  /// Returns true if the L2CAP channel was established, false if all retries
+  /// exhausted or the native layer is unavailable. A false result should be
+  /// treated as non-fatal — the control plane stays up and the user can see a
+  /// degraded-voice toast; see the known risks in issue #46.
+  Future<bool> connectVoiceClient(String macAddress, int psm) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'connectVoiceClient',
+        <String, dynamic>{'macAddress': macAddress, 'psm': psm},
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('Error connecting voice client: $e');
+      return false;
+    }
+  }
+
+  /// Tear down the L2CAP voice transport (both server and client).
+  /// Safe to call when the transport is not running.
+  Future<bool> stopVoiceTransport() async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>('stopVoiceTransport');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error stopping voice transport: $e');
       return false;
     }
   }

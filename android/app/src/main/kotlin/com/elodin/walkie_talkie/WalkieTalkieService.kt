@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -19,6 +20,11 @@ import androidx.core.app.ServiceCompat
  *
  * Audio engine lifecycle is handled separately via the startVoice / stopVoice
  * MethodChannel calls so the engine only runs while the user is in a room.
+ *
+ * The service also owns the Audio Focus request (#55): when a phone call
+ * comes in or another media app starts playing, the listener routes the
+ * focus-change events into [AudioEngineManager] so streams pause / duck
+ * instead of fighting the system for the audio path.
  */
 class WalkieTalkieService : Service() {
     companion object {
@@ -31,12 +37,15 @@ class WalkieTalkieService : Service() {
     }
 
     private var currentFreq: String? = null
+    private var audioFocusManager: AudioFocusManager? = null
+    private val audioEngineManager: AudioEngineManager by lazy { AudioEngineManager() }
 
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service created")
         createNotificationChannel()
         startForegroundWithNotification(freq = null)
+        requestAudioFocus()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -54,6 +63,63 @@ class WalkieTalkieService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Service destroyed")
+        audioFocusManager?.abandon()
+        audioFocusManager = null
+    }
+
+    /**
+     * Request audio focus and route focus-change callbacks into the
+     * native audio engine. Failure to acquire focus is non-fatal — the
+     * walkie still works, it just won't pause / duck cleanly when the
+     * system reclaims audio.
+     */
+    private fun requestAudioFocus() {
+        val mgr = AudioFocusManager(this)
+        val granted = mgr.requestFocus { focusChange ->
+            handleAudioFocusChange(focusChange)
+        }
+        audioFocusManager = mgr
+        if (!granted) {
+            Log.w(TAG, "Audio focus request denied; phone-call/Spotify clashes will not be handled")
+        }
+    }
+
+    /**
+     * Translate AudioManager focus-change codes to engine actions. Mapping
+     * is documented in [AudioFocusManager]. Per #55 we deliberately don't
+     * auto-leave the room on AUDIOFOCUS_LOSS — the user can return to a
+     * paused room rather than losing their tune-in entirely.
+     *
+     * Pause / resume return values are non-fatal but worth surfacing in
+     * logcat: an Oboe failure here means the system audio path is in an
+     * unexpected state, and the next bug report should include it.
+     */
+    private fun handleAudioFocusChange(focusChange: Int) {
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                audioEngineManager.setDuckingVolume(AudioFocusManager.FULL_VOLUME)
+                if (!audioEngineManager.resumeStreams()) {
+                    Log.w(TAG, "resumeStreams() reported failure on AUDIOFOCUS_GAIN")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (!audioEngineManager.pauseStreams()) {
+                    Log.w(TAG, "pauseStreams() reported failure on AUDIOFOCUS_LOSS_TRANSIENT")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                audioEngineManager.setDuckingVolume(AudioFocusManager.DUCK_VOLUME)
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.w(TAG, "Long-lived audio focus loss — pausing; user must re-tune to recover")
+                if (!audioEngineManager.pauseStreams()) {
+                    Log.w(TAG, "pauseStreams() reported failure on AUDIOFOCUS_LOSS")
+                }
+            }
+            else -> {
+                Log.w(TAG, "Unhandled audio focus change: $focusChange")
+            }
+        }
     }
 
     private fun createNotificationChannel() {
