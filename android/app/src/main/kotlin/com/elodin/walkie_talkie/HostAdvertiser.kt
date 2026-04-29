@@ -75,8 +75,23 @@ class HostAdvertiser(private val context: Context) {
     @Volatile
     private var savedAdapterName: String? = null
 
-    private val advertiseCallback = object : AdvertiseCallback() {
+    // The currently-active AdvertiseCallback. Each start() builds a fresh
+    // callback (see [makeCallback]) and stores it here; stop() and any
+    // failure path nulls it out. The callback's own methods compare
+    // `currentCallback === this` before mutating any state so a late
+    // event from a previous attempt — e.g. an onStartFailure that arrives
+    // after the user has already left and rejoined — can't clobber the
+    // new attempt's flags.
+    @Volatile
+    private var currentCallback: AdvertiseCallback? = null
+
+    private fun makeCallback(): AdvertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            // Drop late events from a superseded attempt. Without this guard
+            // a stale onStartSuccess could promote isAdvertising for the
+            // *current* attempt that's still in its isStarting window, or
+            // worse, after stop() already cleared everything.
+            if (currentCallback !== this) return
             // Promote isStarting → isAdvertising only when the OS confirms
             // the radio is on the air. A premature flip in start() would let
             // a fire-and-forget caller (the cubit uses unawaited) treat a
@@ -87,6 +102,12 @@ class HostAdvertiser(private val context: Context) {
         }
 
         override fun onStartFailure(errorCode: Int) {
+            if (currentCallback !== this) {
+                // Swallow stale failures silently — the new attempt owns
+                // state now. Logging the reason is fine, but only as debug.
+                Log.d(TAG, "Stale advertising failure ignored: code=$errorCode")
+                return
+            }
             // Reset both flags + clear the advertiser handle so a retry can
             // re-issue startAdvertising. The BluetoothLeAdvertiser doesn't
             // surface the error any other way; OEM-specific causes (chipset
@@ -95,6 +116,7 @@ class HostAdvertiser(private val context: Context) {
             isStarting = false
             isAdvertising = false
             advertiser = null
+            currentCallback = null
             // Best-effort restore of the user's BT name on async failure —
             // we may have set it already in the caller and the OS just
             // refused to advertise. Same SecurityException swallow as
@@ -125,11 +147,11 @@ class HostAdvertiser(private val context: Context) {
      * Returns false on any pre-flight failure: Bluetooth off, advertising
      * unsupported on the chipset, malformed [sessionUuid], or a
      * [SecurityException] from the missing BLUETOOTH_ADVERTISE permission.
-     * Async failures from the OS arrive on the [advertiseCallback] and are
-     * logged; callers see them indirectly through a quiet wire. A `true`
-     * return therefore only means *the request was accepted* — the
-     * [advertiseCallback] is the single source of truth for whether the
-     * radio is actually on the air.
+     * Async failures from the OS arrive on the per-attempt callback (built
+     * by [makeCallback]) and are logged; callers see them indirectly through
+     * a quiet wire. A `true` return therefore only means *the request was
+     * accepted* — the callback is the single source of truth for whether
+     * the radio is actually on the air.
      */
     fun start(sessionUuid: String, displayName: String): Boolean {
         if (isAdvertising || isStarting) {
@@ -190,24 +212,32 @@ class HostAdvertiser(private val context: Context) {
             .setTimeout(0)
             .build()
 
+        // Each attempt gets its own callback instance. The active marker
+        // (currentCallback) lets the AdvertiseCallback methods recognize
+        // events that belong to a superseded attempt and ignore them.
+        val cb = makeCallback()
         return try {
-            // Order matters: claim isStarting *before* the platform call so
-            // a callback that fires synchronously on the same thread sees a
-            // consistent state and the success transition lands on top.
+            // Order matters: claim isStarting + currentCallback *before* the
+            // platform call so a callback that fires synchronously on the
+            // same thread sees a consistent state and the success transition
+            // lands on top.
             isStarting = true
             advertiser = leAdvertiser
-            leAdvertiser.startAdvertising(settings, data, advertiseCallback)
+            currentCallback = cb
+            leAdvertiser.startAdvertising(settings, data, cb)
             Log.i(TAG, "Advertising start requested")
             true
         } catch (e: SecurityException) {
             isStarting = false
             advertiser = null
+            if (currentCallback === cb) currentCallback = null
             restoreAdapterName()
             Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission", e)
             false
         } catch (e: Exception) {
             isStarting = false
             advertiser = null
+            if (currentCallback === cb) currentCallback = null
             restoreAdapterName()
             Log.e(TAG, "Error starting advertising", e)
             false
@@ -224,17 +254,21 @@ class HostAdvertiser(private val context: Context) {
      */
     fun stop(): Boolean {
         val leAdvertiser = advertiser
+        val cb = currentCallback
         // Always clear local state, even if the underlying call throws or
         // there's nothing to stop — leaving stale flags would block a
-        // subsequent start().
+        // subsequent start(). Clearing currentCallback first means any
+        // late callback events for the just-stopped attempt see the
+        // identity-mismatch guard and bail without mutating state.
         advertiser = null
         isAdvertising = false
         isStarting = false
+        currentCallback = null
 
         var success = true
-        if (leAdvertiser != null) {
+        if (leAdvertiser != null && cb != null) {
             try {
-                leAdvertiser.stopAdvertising(advertiseCallback)
+                leAdvertiser.stopAdvertising(cb)
                 Log.i(TAG, "Advertising stopped")
             } catch (e: SecurityException) {
                 success = false
