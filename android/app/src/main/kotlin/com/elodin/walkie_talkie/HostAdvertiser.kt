@@ -51,20 +51,55 @@ class HostAdvertiser(private val context: Context) {
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
 
+    // The advertiser handle and state flags are touched from both the caller
+    // thread (start/stop on the platform main thread) and the OS-issued
+    // AdvertiseCallback thread. Mark them @Volatile so the callback can't
+    // observe a partially-published state and the caller can't race the
+    // callback on the success/failure transition.
+    @Volatile
     private var advertiser: BluetoothLeAdvertiser? = null
+
+    @Volatile
     private var isAdvertising = false
+
+    // Tracks the gap between issuing startAdvertising and the OS calling
+    // back with success/failure. Without it, a fast caller could observe
+    // isAdvertising=false right after a successful start() and re-issue,
+    // tripping ADVERTISE_FAILED_ALREADY_STARTED on the second call.
+    @Volatile
+    private var isStarting = false
+
+    // Captured before adapter.setName() so stop() can put the user's
+    // device-wide BT name back. Null means we never changed it (start
+    // bailed before mutating) or we already restored.
+    @Volatile
+    private var savedAdapterName: String? = null
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.i(TAG, "Advertising started: $settingsInEffect")
+            // Promote isStarting → isAdvertising only when the OS confirms
+            // the radio is on the air. A premature flip in start() would let
+            // a fire-and-forget caller (the cubit uses unawaited) treat a
+            // later onStartFailure as success and never retry.
+            isStarting = false
+            isAdvertising = true
+            Log.i(TAG, "Advertising started")
         }
 
         override fun onStartFailure(errorCode: Int) {
-            // Reset the flag so a retry can re-issue startAdvertising. The
-            // BluetoothLeAdvertiser doesn't surface the error any other way;
-            // OEM-specific causes (chipset stuck, too many advertisers) just
-            // log here and the caller observes a quiet wire.
+            // Reset both flags + clear the advertiser handle so a retry can
+            // re-issue startAdvertising. The BluetoothLeAdvertiser doesn't
+            // surface the error any other way; OEM-specific causes (chipset
+            // stuck, too many advertisers) just log here and the caller
+            // observes a quiet wire.
+            isStarting = false
             isAdvertising = false
+            advertiser = null
+            // Best-effort restore of the user's BT name on async failure —
+            // we may have set it already in the caller and the OS just
+            // refused to advertise. Same SecurityException swallow as
+            // restoreAdapterName().
+            restoreAdapterName()
             val reason = when (errorCode) {
                 ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
                 ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
@@ -80,20 +115,24 @@ class HostAdvertiser(private val context: Context) {
     /**
      * Start LE advertising the host's session.
      *
-     * Idempotent: a second call while already advertising returns true
-     * without re-issuing — the underlying [BluetoothLeAdvertiser] would
-     * reject it with [AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED]
-     * anyway, and treating that as success here matches the rest of the
-     * native surface (start GATT server, start voice server).
+     * Idempotent: a second call while already advertising (or while the
+     * first start is awaiting OS confirmation) returns true without
+     * re-issuing — the underlying [BluetoothLeAdvertiser] would reject it
+     * with [AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED] anyway,
+     * and treating that as success here matches the rest of the native
+     * surface (start GATT server, start voice server).
      *
      * Returns false on any pre-flight failure: Bluetooth off, advertising
      * unsupported on the chipset, malformed [sessionUuid], or a
      * [SecurityException] from the missing BLUETOOTH_ADVERTISE permission.
      * Async failures from the OS arrive on the [advertiseCallback] and are
-     * logged; callers see them indirectly through a quiet wire.
+     * logged; callers see them indirectly through a quiet wire. A `true`
+     * return therefore only means *the request was accepted* — the
+     * [advertiseCallback] is the single source of truth for whether the
+     * radio is actually on the air.
      */
     fun start(sessionUuid: String, displayName: String): Boolean {
-        if (isAdvertising) {
+        if (isAdvertising || isStarting) {
             Log.i(TAG, "Already advertising; ignoring start request")
             return true
         }
@@ -113,19 +152,29 @@ class HostAdvertiser(private val context: Context) {
         val payload = try {
             buildManufacturerPayload(sessionUuid)
         } catch (e: IllegalArgumentException) {
-            Log.e(TAG, "Invalid sessionUuid: $sessionUuid", e)
+            Log.e(TAG, "Invalid sessionUuid", e)
             return false
         }
 
-        // Including the device name pushes us close to the 31-byte legacy
-        // adv frame budget when the user's name is long. Set it on the
-        // adapter (the system truncates to fit) and let setIncludeDeviceName
-        // handle the rest. Failing to set the name is non-fatal — guests
-        // fall back to the manufacturer payload + host's BT MAC.
-        try {
-            adapter.setName(displayName)
+        // Setting setIncludeDeviceName(true) below pulls the *adapter* name
+        // into the adv frame; that's a system-wide setting that survives
+        // process death. Capture the current value so stop() can put it
+        // back — otherwise a Frequency host session would permanently
+        // rename the user's phone in their Bluetooth settings. Skipping
+        // the rename if it already matches avoids touching the adapter
+        // when the user's existing BT name is already their display name.
+        val previousName = try {
+            adapter.name
         } catch (e: SecurityException) {
-            Log.w(TAG, "Could not set adapter name (BLUETOOTH_CONNECT missing)", e)
+            null
+        }
+        if (previousName != displayName) {
+            try {
+                adapter.setName(displayName)
+                savedAdapterName = previousName
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Could not set adapter name (BLUETOOTH_CONNECT missing)", e)
+            }
         }
 
         val data = AdvertiseData.Builder()
@@ -142,35 +191,73 @@ class HostAdvertiser(private val context: Context) {
             .build()
 
         return try {
-            leAdvertiser.startAdvertising(settings, data, advertiseCallback)
+            // Order matters: claim isStarting *before* the platform call so
+            // a callback that fires synchronously on the same thread sees a
+            // consistent state and the success transition lands on top.
+            isStarting = true
             advertiser = leAdvertiser
-            isAdvertising = true
-            Log.i(TAG, "Advertising start requested for session=$sessionUuid name=$displayName")
+            leAdvertiser.startAdvertising(settings, data, advertiseCallback)
+            Log.i(TAG, "Advertising start requested")
             true
         } catch (e: SecurityException) {
+            isStarting = false
+            advertiser = null
+            restoreAdapterName()
             Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission", e)
             false
         } catch (e: Exception) {
+            isStarting = false
+            advertiser = null
+            restoreAdapterName()
             Log.e(TAG, "Error starting advertising", e)
             false
         }
     }
 
     /**
-     * Stop LE advertising. Safe to call when not running.
+     * Stop LE advertising and restore the user's previous Bluetooth name.
+     * Safe to call when not running.
+     *
+     * Returns true on a clean stop (or when nothing was running), false if
+     * the platform threw — letting the MethodChannel caller surface the
+     * failure to Dart instead of pretending everything went green.
      */
-    fun stop() {
-        val leAdvertiser = advertiser ?: return
+    fun stop(): Boolean {
+        val leAdvertiser = advertiser
+        // Always clear local state, even if the underlying call throws or
+        // there's nothing to stop — leaving stale flags would block a
+        // subsequent start().
+        advertiser = null
+        isAdvertising = false
+        isStarting = false
+
+        var success = true
+        if (leAdvertiser != null) {
+            try {
+                leAdvertiser.stopAdvertising(advertiseCallback)
+                Log.i(TAG, "Advertising stopped")
+            } catch (e: SecurityException) {
+                success = false
+                Log.e(TAG, "Missing Bluetooth permissions for stopAdvertising", e)
+            } catch (e: Exception) {
+                success = false
+                Log.e(TAG, "Error stopping advertising", e)
+            }
+        }
+        // Restore even if stopAdvertising threw — we don't want a stuck
+        // SecurityException to permanently keep the user's phone renamed.
+        restoreAdapterName()
+        return success
+    }
+
+    private fun restoreAdapterName() {
+        val saved = savedAdapterName ?: return
+        savedAdapterName = null
+        val adapter = bluetoothAdapter ?: return
         try {
-            leAdvertiser.stopAdvertising(advertiseCallback)
-            Log.i(TAG, "Advertising stopped")
+            adapter.setName(saved)
         } catch (e: SecurityException) {
-            Log.e(TAG, "Missing Bluetooth permissions for stopAdvertising", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping advertising", e)
-        } finally {
-            advertiser = null
-            isAdvertising = false
+            Log.w(TAG, "Could not restore adapter name", e)
         }
     }
 

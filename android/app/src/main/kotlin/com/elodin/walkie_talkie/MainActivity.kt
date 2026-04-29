@@ -187,7 +187,10 @@ class MainActivity : FlutterActivity() {
                             null
                         )
                     } else {
-                        Log.i(TAG, "Starting LE advertising: session=$sessionUuid name=$displayName")
+                        // Don't echo sessionUuid / displayName here — both
+                        // are user/session identifiers and logcat is broadly
+                        // readable on dev builds.
+                        Log.i(TAG, "Starting LE advertising")
                         if (hostAdvertiser == null) {
                             hostAdvertiser = HostAdvertiser(this)
                         }
@@ -197,8 +200,11 @@ class MainActivity : FlutterActivity() {
                 }
                 "stopAdvertising" -> {
                     Log.i(TAG, "Stopping LE advertising")
-                    hostAdvertiser?.stop()
-                    result.success(true)
+                    // Propagate the underlying boolean so a SecurityException
+                    // inside HostAdvertiser.stop() doesn't pretend to be a
+                    // clean shutdown on the Dart side.
+                    val success = hostAdvertiser?.stop() ?: true
+                    result.success(success)
                 }
                 "startGattServer" -> {
                     Log.i(TAG, "Starting GATT server")
