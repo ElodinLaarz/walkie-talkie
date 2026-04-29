@@ -471,4 +471,59 @@ class AudioService {
       debugPrint('Error writing control bytes: $e');
     }
   }
+
+  /// Connect to the host's GATT server as a guest.
+  ///
+  /// Initiates a GATT connection to [macAddress], discovers the walkie-talkie
+  /// service, and enables notifications on the RESPONSE characteristic. Once
+  /// connected, the guest can write protocol messages via [writeRequest] and
+  /// receive host responses via the [controlBytes] stream.
+  ///
+  /// Returns true if the connection attempt was initiated, false otherwise.
+  /// Actual connection state changes are reported through the audioEvents stream.
+  Future<bool> connectToHost(String macAddress) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'connectToHost',
+        <String, dynamic>{'macAddress': macAddress},
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('Error connecting to host: $e');
+      return false;
+    }
+  }
+
+  /// Disconnect from the host's GATT server.
+  ///
+  /// Tears down the GATT connection established via [connectToHost].
+  /// Safe to call when not connected (the native side resolves it as a no-op).
+  Future<bool> disconnectFromHost() async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>('disconnectFromHost');
+      return result == true;
+    } catch (e) {
+      debugPrint('Error disconnecting from host: $e');
+      return false;
+    }
+  }
+
+  /// Write bytes to the host's REQUEST characteristic.
+  ///
+  /// Used by guests to send JoinRequest, MediaCommand, Leave, etc. to the host.
+  /// The connection must be established via [connectToHost] before calling this.
+  ///
+  /// Returns true if the write was queued successfully, false otherwise.
+  Future<bool> writeRequest(Uint8List bytes) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'writeRequest',
+        <String, dynamic>{'bytes': bytes},
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('Error writing request: $e');
+      return false;
+    }
+  }
 }
