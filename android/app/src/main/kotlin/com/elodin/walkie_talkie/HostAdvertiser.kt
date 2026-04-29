@@ -188,6 +188,10 @@ class HostAdvertiser(private val context: Context) {
         val previousName = try {
             adapter.name
         } catch (e: SecurityException) {
+            // Read failure means we can't capture-then-restore — the rename
+            // path will skip and the user's adapter name stays untouched.
+            // Worth logging since silent restore-skips are otherwise invisible.
+            Log.w(TAG, "Could not read adapter name; restore will be skipped", e)
             null
         }
         if (previousName != displayName) {
@@ -199,8 +203,21 @@ class HostAdvertiser(private val context: Context) {
             }
         }
 
-        val data = AdvertiseData.Builder()
+        // The 31-byte legacy ADV_IND budget can't fit *all* of: flags (auto),
+        // 128-bit service UUID (18 bytes including header), 16-byte
+        // manufacturer payload (20 bytes including header), and the adapter
+        // device name. 18 + 20 alone overflows. Split across primary adv
+        // (service UUID — keeps passive scanners able to filter) and scan
+        // response (manufacturer payload + device name — only fetched on the
+        // SCAN_REQ that active scanners issue, which is what the Dart
+        // DiscoveryService does). The Android stack merges both records into
+        // ScanRecord, so DiscoveredSession.fromManufacturerData reassembles
+        // them transparently.
+        val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .build()
+
+        val scanResponse = AdvertiseData.Builder()
             .addManufacturerData(MANUFACTURER_ID, payload)
             .setIncludeDeviceName(true)
             .build()
@@ -224,7 +241,7 @@ class HostAdvertiser(private val context: Context) {
             isStarting = true
             advertiser = leAdvertiser
             currentCallback = cb
-            leAdvertiser.startAdvertising(settings, data, cb)
+            leAdvertiser.startAdvertising(settings, advData, scanResponse, cb)
             Log.i(TAG, "Advertising start requested")
             true
         } catch (e: SecurityException) {
@@ -286,12 +303,17 @@ class HostAdvertiser(private val context: Context) {
 
     private fun restoreAdapterName() {
         val saved = savedAdapterName ?: return
-        savedAdapterName = null
         val adapter = bluetoothAdapter ?: return
         try {
             adapter.setName(saved)
+            // Only drop the rollback value once the OS confirmed it stuck.
+            // If setName throws (e.g., BLUETOOTH_CONNECT revoked between
+            // start and stop), keep savedAdapterName so a subsequent stop()
+            // or onDestroy() can retry the restore — losing the original
+            // here would leave the user's phone permanently renamed.
+            savedAdapterName = null
         } catch (e: SecurityException) {
-            Log.w(TAG, "Could not restore adapter name", e)
+            Log.w(TAG, "Could not restore adapter name; will retry on next stop", e)
         }
     }
 

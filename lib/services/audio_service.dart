@@ -252,9 +252,18 @@ class AudioService {
   /// the host on session start; the advertiser truncates it to the low
   /// 8 bytes per the wire spec.
   ///
-  /// Returns true if advertising started successfully, false otherwise.
-  /// The native implementation lands in issue #41; until then this is a
-  /// no-op stub on the platform side.
+  /// Returns true if the native side accepted the request — i.e. the
+  /// pre-flight passed (Bluetooth on, advertiser available, sessionUuid
+  /// well-formed) and `BluetoothLeAdvertiser.startAdvertising` was issued.
+  /// A `true` does **not** confirm the radio is on the air: Android
+  /// reports actual start success / failure asynchronously through its
+  /// `AdvertiseCallback`, and we currently log those events rather than
+  /// surfacing them back to Dart. Callers therefore treat advertising
+  /// as best-effort: a `false` return is a hard "won't be visible," but
+  /// a `true` still might silently fail downstream (OEM throttling,
+  /// `ADVERTISE_FAILED_TOO_MANY_ADVERTISERS`, etc.). That's acceptable
+  /// because the host doesn't depend on advertising to function — it only
+  /// affects whether other phones can discover the room.
   Future<bool> startAdvertising({
     required String sessionUuid,
     required String displayName,
