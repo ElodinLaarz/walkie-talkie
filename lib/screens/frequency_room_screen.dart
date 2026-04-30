@@ -178,7 +178,23 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // audioEvents/controlBytes stream caches diverge and event-routing
     // bugs become very hard to trace (#129). The provider is the single
     // source of truth.
-    assert(identical(_audio, context.read<AudioService>()));
+    //
+    // Resilient form: if no RepositoryProvider<AudioService> is in scope
+    // (isolated widget tests / previews that pass `audioService` directly),
+    // the read throws and we accept the explicit injection. Production
+    // wiring always has a provider, so the identity check fires there.
+    assert(
+      () {
+        try {
+          return identical(_audio, context.read<AudioService>());
+        } catch (_) {
+          return widget.audioService != null;
+        }
+      }(),
+      'FrequencyRoomScreen.audioService must be the same instance as the '
+      'RepositoryProvider<AudioService> — divergent audioEvents/controlBytes '
+      'stream caches silently break event routing (#129).',
+    );
     // Start the foreground service first so the OS elevates process priority
     // before AudioRecord opens — avoids the mic being killed when the screen
     // turns off during the capture-engine init window. Then spin up voice and
