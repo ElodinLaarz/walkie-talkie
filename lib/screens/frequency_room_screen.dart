@@ -84,8 +84,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// Per-peer playback volume, keyed by peerId. Populated lazily —
   /// only entries the user has explicitly adjusted exist; everything
   /// else reads through [_volumeFor] which falls back to
-  /// [_kDefaultPeerVolume]. Direct subscript reads will throw on
-  /// production cubit-driven peers, so always go through the helper.
+  /// [_kDefaultPeerVolume]. Null-asserting (`_volumes[peerId]!`) on
+  /// a cubit-driven peer will throw because the entry doesn't exist
+  /// yet, so always go through the helper instead of the raw map.
   late Map<String, double> _volumes;
   static const double _kDefaultPeerVolume = 0.7;
   double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;

@@ -367,6 +367,11 @@ void main() {
         // checks, but driven through the production roster path.
         expect(find.text('Mute from your side'), findsOneWidget);
         expect(find.text('Their voice volume'), findsOneWidget);
+        // Lock the fallback contract: both the peer row's
+        // volume label (still visible behind the drawer) and the
+        // drawer's label track `_kDefaultPeerVolume` (0.7) for
+        // unknown peer ids.
+        expect(find.text('70%'), findsNWidgets(2));
         expect(tester.takeException(), isNull);
       },
     );
