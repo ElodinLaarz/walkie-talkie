@@ -3,7 +3,6 @@ package com.elodin.walkie_talkie
 import android.bluetooth.*
 import android.content.Context
 import android.util.Log
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -14,7 +13,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Leave messages to REQUEST; the host emits JoinAccepted / RosterUpdate /
  * Heartbeat messages via RESPONSE notifications.
  *
- * Per docs/protocol.md § "GATT service".
+ * Per docs/protocol.md § "GATT service". Wire-level UUIDs live in
+ * [GattConstants] — the single source of truth shared with the client side.
  */
 class GattServerManager(
     private val context: Context,
@@ -22,11 +22,6 @@ class GattServerManager(
 ) {
     companion object {
         private const val TAG = "GattServerManager"
-
-        val SERVICE_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e8e")
-        val REQUEST_CHAR_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e01")
-        val RESPONSE_CHAR_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e02")
-        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
     private var gattServer: BluetoothGattServer? = null
@@ -65,7 +60,7 @@ class GattServerManager(
         ) {
             val address = device.address
 
-            if (characteristic.uuid == REQUEST_CHAR_UUID) {
+            if (characteristic.uuid == GattConstants.REQUEST_CHAR_UUID) {
                 if (value != null && value.isNotEmpty()) {
                     Log.d(TAG, "Received ${value.size} bytes from $address")
                     onBytesReceived(address, value)
@@ -105,7 +100,7 @@ class GattServerManager(
             offset: Int,
             value: ByteArray?
         ) {
-            if (descriptor.uuid == CCCD_UUID) {
+            if (descriptor.uuid == GattConstants.CCCD_UUID) {
                 val enabled = value?.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == true
                 Log.i(TAG, "${device.address} ${if (enabled) "enabled" else "disabled"} notifications")
 
@@ -157,13 +152,13 @@ class GattServerManager(
 
             // Build the service with REQUEST and RESPONSE characteristics
             val service = BluetoothGattService(
-                SERVICE_UUID,
+                GattConstants.SERVICE_UUID,
                 BluetoothGattService.SERVICE_TYPE_PRIMARY
             )
 
             // REQUEST characteristic: write + write-no-response
             val requestChar = BluetoothGattCharacteristic(
-                REQUEST_CHAR_UUID,
+                GattConstants.REQUEST_CHAR_UUID,
                 BluetoothGattCharacteristic.PROPERTY_WRITE or
                 BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
                 BluetoothGattCharacteristic.PERMISSION_WRITE
@@ -172,14 +167,14 @@ class GattServerManager(
 
             // RESPONSE characteristic: notify
             responseCharacteristic = BluetoothGattCharacteristic(
-                RESPONSE_CHAR_UUID,
+                GattConstants.RESPONSE_CHAR_UUID,
                 BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
 
             // Add CCCD descriptor for notifications
             val cccdDescriptor = BluetoothGattDescriptor(
-                CCCD_UUID,
+                GattConstants.CCCD_UUID,
                 BluetoothGattDescriptor.PERMISSION_WRITE or
                 BluetoothGattDescriptor.PERMISSION_READ
             )
