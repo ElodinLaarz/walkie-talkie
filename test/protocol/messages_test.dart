@@ -319,6 +319,106 @@ void main() {
     });
   });
 
+  group('adaptive bitrate messages', () {
+    test('LinkQuality round-trips with all fields', () {
+      const msg = LinkQuality(
+        peerId: 'p-guest',
+        seq: 4,
+        atMs: 1234,
+        lossPct: 6.5,
+        jitterMs: 80,
+        underrunsPerSec: 0.4,
+      );
+      final json = jsonDecode(msg.encode()) as Map<String, dynamic>;
+      expect(json['kind'], 'link_quality');
+      expect(json['lossPct'], 6.5);
+      expect(json['jitterMs'], 80);
+      expect(json['underrunsPerSec'], 0.4);
+      final round = _roundTrip(msg);
+      expect(round.lossPct, 6.5);
+      expect(round.jitterMs, 80);
+      expect(round.underrunsPerSec, 0.4);
+    });
+
+    test('LinkQuality decodes integer-shaped lossPct / underrunsPerSec', () {
+      // jsonEncode of `0.0` may serialize as `0` on some encoders; the
+      // decoder must accept either shape rather than rejecting an
+      // otherwise-valid sample. (jitterMs is the only int-typed field.)
+      final wire =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":0,"jitterMs":40,"underrunsPerSec":0}';
+      final decoded = FrequencyMessage.decode(wire) as LinkQuality;
+      expect(decoded.lossPct, 0.0);
+      expect(decoded.underrunsPerSec, 0.0);
+      expect(decoded.jitterMs, 40);
+    });
+
+    test('LinkQuality rejects out-of-range values', () {
+      const base =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"jitterMs":40,"underrunsPerSec":0.1';
+      final negativeLoss = '$base,"lossPct":-1.0}';
+      final overLoss = '$base,"lossPct":150.0}';
+      final negativeJitter =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":-1,"underrunsPerSec":0.1}';
+      final negativeUnderruns =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":40,"underrunsPerSec":-0.5}';
+      expect(() => FrequencyMessage.decode(negativeLoss), throwsFormatException);
+      expect(() => FrequencyMessage.decode(overLoss), throwsFormatException);
+      expect(
+          () => FrequencyMessage.decode(negativeJitter), throwsFormatException);
+      expect(
+        () => FrequencyMessage.decode(negativeUnderruns),
+        throwsFormatException,
+      );
+    });
+
+    test('LinkQuality rejects wrong-typed numeric fields', () {
+      final stringLoss =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":"oops","jitterMs":40,"underrunsPerSec":0.1}';
+      final floatJitter =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":40.5,"underrunsPerSec":0.1}';
+      expect(() => FrequencyMessage.decode(stringLoss), throwsFormatException);
+      expect(() => FrequencyMessage.decode(floatJitter), throwsFormatException);
+    });
+
+    test('BitrateHint round-trips with target + bps', () {
+      const msg = BitrateHint(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 0,
+        target: 'p-guest-a',
+        bps: 16000,
+      );
+      final json = jsonDecode(msg.encode()) as Map<String, dynamic>;
+      expect(json['kind'], 'bitrate_hint');
+      expect(json['target'], 'p-guest-a');
+      expect(json['bps'], 16000);
+      final round = _roundTrip(msg);
+      expect(round.target, 'p-guest-a');
+      expect(round.bps, 16000);
+    });
+
+    test('BitrateHint rejects missing or wrong-typed target', () {
+      final missing =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":16000}';
+      final intTarget =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":16000,"target":42}';
+      expect(() => FrequencyMessage.decode(missing), throwsFormatException);
+      expect(() => FrequencyMessage.decode(intTarget), throwsFormatException);
+    });
+
+    test('BitrateHint rejects non-positive or non-int bps', () {
+      final negative =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":-100}';
+      final zero =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":0}';
+      final string =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":"16000"}';
+      expect(() => FrequencyMessage.decode(negative), throwsFormatException);
+      expect(() => FrequencyMessage.decode(zero), throwsFormatException);
+      expect(() => FrequencyMessage.decode(string), throwsFormatException);
+    });
+  });
+
   group('ProtocolPeer', () {
     test('JSON round-trip preserves all fields', () {
       const original = ProtocolPeer(
@@ -358,6 +458,8 @@ void main() {
           MuteState() => 'mute',
           MediaCommand() => 'media',
           SignalReport() => 'signal_report',
+          LinkQuality() => 'link_quality',
+          BitrateHint() => 'bitrate_hint',
           Heartbeat() => 'ping',
         };
 

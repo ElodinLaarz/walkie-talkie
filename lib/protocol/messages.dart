@@ -157,6 +157,8 @@ sealed class FrequencyMessage {
       'mute' => MuteState._fromJson(json),
       'media' => MediaCommand._fromJson(json),
       'signal_report' => SignalReport._fromJson(json),
+      'link_quality' => LinkQuality._fromJson(json),
+      'bitrate_hint' => BitrateHint._fromJson(json),
       'ping' => Heartbeat._fromJson(json),
       _ => throw FormatException('Unknown frequency message kind: $kind'),
     };
@@ -589,4 +591,147 @@ final class Heartbeat extends FrequencyMessage {
         seq: j['seq'] as int,
         atMs: j['atMs'] as int,
       );
+}
+
+// ── Adaptive bitrate ────────────────────────────────────────────────────────
+
+/// A peer's view of the receive-side voice link quality, sampled by the
+/// `LinkQualityReporter` from the native `PeerAudioManager` telemetry every
+/// few seconds and sent to the host. The host's `BitrateAdapter` consumes
+/// these to decide whether to step the encoder up or down for that peer.
+///
+/// Direction on the wire: guests report on the host→guest stream they're
+/// receiving. The host doesn't send `LinkQuality` over the wire — it polls
+/// its own telemetry locally and feeds the adapter directly.
+///
+/// Field semantics:
+///   * `lossPct` ∈ [0, 100] — fraction of expected frames that arrived too
+///     late to play (jitter buffer rejections), as a percentage.
+///   * `jitterMs` ≥ 0 — current jitter buffer fill in ms (depth × 20 ms).
+///     Useful as an observability field; the adapter doesn't use it.
+///   * `underrunsPerSec` ≥ 0 — rate of mixer-tick underruns in the sampled
+///     window. A non-zero rate means the buffer drained faster than the
+///     wire could refill it.
+final class LinkQuality extends FrequencyMessage {
+  final double lossPct;
+  final int jitterMs;
+  final double underrunsPerSec;
+
+  const LinkQuality({
+    required super.peerId,
+    required super.seq,
+    required super.atMs,
+    required this.lossPct,
+    required this.jitterMs,
+    required this.underrunsPerSec,
+  })  : assert(lossPct >= 0 && lossPct <= 100,
+            'lossPct must be a percentage in [0, 100]'),
+        assert(jitterMs >= 0, 'jitterMs must be non-negative'),
+        assert(underrunsPerSec >= 0, 'underrunsPerSec must be non-negative');
+
+  @override
+  String get kind => 'link_quality';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ..._envelope(),
+        'lossPct': lossPct,
+        'jitterMs': jitterMs,
+        'underrunsPerSec': underrunsPerSec,
+      };
+
+  factory LinkQuality._fromJson(Map<String, dynamic> j) {
+    final lossPctRaw = j['lossPct'];
+    final jitterMsRaw = j['jitterMs'];
+    final underrunsRaw = j['underrunsPerSec'];
+    if (lossPctRaw is! num) {
+      throw const FormatException('`lossPct` must be a number');
+    }
+    if (jitterMsRaw is! int) {
+      throw const FormatException('`jitterMs` must be an int');
+    }
+    if (underrunsRaw is! num) {
+      throw const FormatException('`underrunsPerSec` must be a number');
+    }
+    final lossPct = lossPctRaw.toDouble();
+    final underruns = underrunsRaw.toDouble();
+    if (lossPct < 0 || lossPct > 100) {
+      throw FormatException('lossPct out of range: $lossPct');
+    }
+    if (jitterMsRaw < 0) {
+      throw FormatException('jitterMs out of range: $jitterMsRaw');
+    }
+    if (underruns < 0) {
+      throw FormatException('underrunsPerSec out of range: $underruns');
+    }
+    return LinkQuality(
+      peerId: j['peerId'] as String,
+      seq: j['seq'] as int,
+      atMs: j['atMs'] as int,
+      lossPct: lossPct,
+      jitterMs: jitterMsRaw,
+      underrunsPerSec: underruns,
+    );
+  }
+}
+
+/// Host → specific-guest advisory: "guest [target], set your outbound
+/// encoder bitrate to [bps]." The recipient applies the value to its
+/// own `PeerAudioManager` for the link to the host. Out-of-range values
+/// are clamped at the native layer to the {Low, Mid, High} operating
+/// points in `audio_config.h`.
+///
+/// The host emits these in response to its own receive-side telemetry of
+/// each guest's stream — so a guest whose uplink is degraded gets nudged
+/// down before the host's jitter buffer underruns become audible.
+///
+/// **Why a target field.** The host writes via `BleControlTransport.send`,
+/// which broadcasts on the GATT RESPONSE characteristic to every
+/// subscribed guest. Without a `target` field, every guest in a
+/// multi-guest room would interpret the hint and adjust their own
+/// encoder — turning a per-link decision into a room-wide one. Mirrors
+/// the `RemovePeer` pattern: guests filter on receive by `target ==
+/// localPeerId` and ignore hints addressed to someone else.
+final class BitrateHint extends FrequencyMessage {
+  final String target;
+  final int bps;
+
+  const BitrateHint({
+    required super.peerId,
+    required super.seq,
+    required super.atMs,
+    required this.target,
+    required this.bps,
+  }) : assert(bps > 0, 'bps must be positive');
+
+  @override
+  String get kind => 'bitrate_hint';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ..._envelope(),
+        'target': target,
+        'bps': bps,
+      };
+
+  factory BitrateHint._fromJson(Map<String, dynamic> j) {
+    final bpsRaw = j['bps'];
+    final targetRaw = j['target'];
+    if (targetRaw is! String) {
+      throw const FormatException('`target` must be a string');
+    }
+    if (bpsRaw is! int) {
+      throw const FormatException('`bps` must be an int');
+    }
+    if (bpsRaw <= 0) {
+      throw FormatException('bps out of range: $bpsRaw');
+    }
+    return BitrateHint(
+      peerId: j['peerId'] as String,
+      seq: j['seq'] as int,
+      atMs: j['atMs'] as int,
+      target: targetRaw,
+      bps: bpsRaw,
+    );
+  }
 }
