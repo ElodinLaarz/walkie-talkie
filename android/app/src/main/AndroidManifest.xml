@@ -16,11 +16,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <!-- Optional: Phone audio capture (may not work with DRM-protected content) -->
-    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" 
-        tools:ignore="ProtectedPermissions" />
-    
+
     <!-- Hardware requirements -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
