@@ -1,39 +1,39 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
+import 'package:walkie_talkie/services/walkie_talkie_database.dart';
 
 void main() {
-  late Directory tempDir;
+  setUpAll(() {
+    sqfliteFfiInit();
+  });
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('recent_freqs_test_');
-    Hive.init(tempDir.path);
+    WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+      databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
+    await WalkieTalkieDatabase.resetForTesting();
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
-    await Hive.close();
-    if (await tempDir.exists()) {
-      await tempDir.delete(recursive: true);
-    }
+    await WalkieTalkieDatabase.resetForTesting();
   });
 
-  group('HiveRecentFrequenciesStore', () {
+  group('SqfliteRecentFrequenciesStore', () {
     test('returns an empty list before any record', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       expect(await store.getRecent(), isEmpty);
     });
 
     test('record + getRecent round-trips a single entry', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       expect(await store.getRecent(), ['92.4']);
     });
 
     test('most recent entry comes first', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       await store.record('100.1');
       await store.record('88.7');
@@ -44,7 +44,7 @@ void main() {
         () async {
       // Without dedupe, hosting the same channel twice would crowd out
       // older entries with copies of itself.
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       await store.record('100.1');
       await store.record('92.4');
@@ -52,45 +52,45 @@ void main() {
     });
 
     test('caps the list at maxEntries (older entries roll off)', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       // Record one more than the cap.
-      for (var i = 0; i <= HiveRecentFrequenciesStore.maxEntries; i++) {
+      for (var i = 0; i <= RecentFrequenciesStore.maxEntries; i++) {
         await store.record('${88 + i}.0');
       }
       final recent = await store.getRecent();
-      expect(recent, hasLength(HiveRecentFrequenciesStore.maxEntries));
+      expect(recent, hasLength(RecentFrequenciesStore.maxEntries));
       // The very first record (88.0) should have rolled off.
       expect(recent, isNot(contains('88.0')));
       // Most recent is at the front.
-      expect(recent.first,
-          '${88 + HiveRecentFrequenciesStore.maxEntries}.0');
+      expect(recent.first, '${88 + RecentFrequenciesStore.maxEntries}.0');
     });
 
     test('record trims whitespace', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('   92.4   ');
       expect(await store.getRecent(), ['92.4']);
     });
 
     test('record with empty / whitespace-only is a no-op', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       await store.record('');
       await store.record('   ');
       expect(await store.getRecent(), ['92.4']);
     });
 
-    test('persists across new HiveRecentFrequenciesStore instances', () async {
-      final first = HiveRecentFrequenciesStore();
+    test('persists across new SqfliteRecentFrequenciesStore instances',
+        () async {
+      final first = SqfliteRecentFrequenciesStore();
       await first.record('92.4');
       await first.record('100.1');
 
-      final second = HiveRecentFrequenciesStore();
+      final second = SqfliteRecentFrequenciesStore();
       expect(await second.getRecent(), ['100.1', '92.4']);
     });
 
     test('clear empties the list', () async {
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       await store.record('100.1');
       await store.clear();
@@ -102,7 +102,7 @@ void main() {
       // races: two callers can both read the same pre-write state and
       // last-write-wins one of them out of the list. Fire several in
       // parallel — every freq should survive.
-      final store = HiveRecentFrequenciesStore();
+      final store = SqfliteRecentFrequenciesStore();
       await Future.wait([
         store.record('92.4'),
         store.record('100.1'),
@@ -113,38 +113,11 @@ void main() {
       expect(recent.toSet(), {'92.4', '100.1', '88.7', '104.3'});
     });
 
-    test(
-      'getRecent treats a List<dynamic> with mixed types as a filtered '
-      'String list (no throw)',
-      () async {
-        // Simulate a Hive payload from a future schema migration / a
-        // direct write. `cast<String>()` would throw on the first
-        // non-String when the unmodifiable wrapper iterates it,
-        // blowing up bootstrap. `whereType<String>` filters silently.
-        final box = await Hive.openBox<dynamic>('recent_frequencies');
-        await box.put('list', <dynamic>['92.4', 42, '100.1', null, '88.7']);
-        await box.close();
-
-        final store = HiveRecentFrequenciesStore();
-        expect(await store.getRecent(), ['92.4', '100.1', '88.7']);
-      },
-    );
-
-    test('record over a malformed payload rebuilds a clean list', () async {
-      final box = await Hive.openBox<dynamic>('recent_frequencies');
-      await box.put('list', <dynamic>['92.4', 42, '100.1']);
-      await box.close();
-
-      final store = HiveRecentFrequenciesStore();
-      await store.record('104.3');
-      expect(await store.getRecent(), ['104.3', '92.4', '100.1']);
-    });
-
     test('getRecent returns an unmodifiable list', () async {
       // Callers shouldn't be able to mutate the returned list and have
       // their changes observed by anyone else (or, worse, accidentally
-      // mutate cached state inside Hive's box).
-      final store = HiveRecentFrequenciesStore();
+      // mutate cached state inside the store).
+      final store = SqfliteRecentFrequenciesStore();
       await store.record('92.4');
       final recent = await store.getRecent();
       expect(() => recent.add('100.1'), throwsUnsupportedError);

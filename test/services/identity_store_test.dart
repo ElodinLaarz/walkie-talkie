@@ -1,60 +1,60 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/walkie_talkie_database.dart';
 
 void main() {
-  late Directory tempDir;
+  setUpAll(() {
+    sqfliteFfiInit();
+  });
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('identity_store_test_');
-    Hive.init(tempDir.path);
+    WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+      databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
+    await WalkieTalkieDatabase.resetForTesting();
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
-    await Hive.close();
-    if (await tempDir.exists()) {
-      await tempDir.delete(recursive: true);
-    }
+    await WalkieTalkieDatabase.resetForTesting();
   });
 
-  group('HiveIdentityStore', () {
+  group('SqfliteIdentityStore', () {
     test('returns null before any name has been set', () async {
-      final store = HiveIdentityStore();
+      final store = SqfliteIdentityStore();
       expect(await store.getDisplayName(), isNull);
     });
 
     test('round-trips a display name', () async {
-      final store = HiveIdentityStore();
+      final store = SqfliteIdentityStore();
       await store.setDisplayName('Maya');
       expect(await store.getDisplayName(), 'Maya');
     });
 
-    test('persists across new HiveIdentityStore instances', () async {
-      final first = HiveIdentityStore();
+    test('persists across new SqfliteIdentityStore instances', () async {
+      final first = SqfliteIdentityStore();
       await first.setDisplayName('Devon');
-      // Different in-memory wrapper, same Hive path → reopens the same box.
-      final second = HiveIdentityStore();
+      // Different in-memory wrapper, same database connection → same row.
+      final second = SqfliteIdentityStore();
       expect(await second.getDisplayName(), 'Devon');
     });
 
     test('overwrites the prior name', () async {
-      final store = HiveIdentityStore();
+      final store = SqfliteIdentityStore();
       await store.setDisplayName('Maya');
       await store.setDisplayName('Maya R.');
       expect(await store.getDisplayName(), 'Maya R.');
     });
 
     test('trims whitespace on set and on get', () async {
-      final store = HiveIdentityStore();
+      final store = SqfliteIdentityStore();
       await store.setDisplayName('   Priya   ');
       expect(await store.getDisplayName(), 'Priya');
     });
 
     test('treats empty / whitespace-only as a clear', () async {
-      final store = HiveIdentityStore();
+      final store = SqfliteIdentityStore();
       await store.setDisplayName('Sam');
       await store.setDisplayName('   ');
       expect(await store.getDisplayName(), isNull);
@@ -73,27 +73,27 @@ void main() {
       );
 
       test('returns a UUID v4 string', () async {
-        final store = HiveIdentityStore();
+        final store = SqfliteIdentityStore();
         final id = await store.getPeerId();
         expect(id, matches(uuidV4Pattern));
       });
 
       test('is idempotent within a session', () async {
-        final store = HiveIdentityStore();
+        final store = SqfliteIdentityStore();
         final a = await store.getPeerId();
         final b = await store.getPeerId();
         expect(a, b);
       });
 
-      test('persists across HiveIdentityStore instances', () async {
-        final first = HiveIdentityStore();
+      test('persists across SqfliteIdentityStore instances', () async {
+        final first = SqfliteIdentityStore();
         final id = await first.getPeerId();
-        final second = HiveIdentityStore();
+        final second = SqfliteIdentityStore();
         expect(await second.getPeerId(), id);
       });
 
       test('renaming the display name does not change peerId', () async {
-        final store = HiveIdentityStore();
+        final store = SqfliteIdentityStore();
         await store.setDisplayName('Maya');
         final id = await store.getPeerId();
         await store.setDisplayName('Devon');
@@ -101,7 +101,7 @@ void main() {
       });
 
       test('clearing the display name does not clear peerId', () async {
-        final store = HiveIdentityStore();
+        final store = SqfliteIdentityStore();
         await store.setDisplayName('Maya');
         final id = await store.getPeerId();
         await store.setDisplayName(''); // clears displayName
@@ -111,27 +111,30 @@ void main() {
 
       test('concurrent first calls return the same id (no race)', () async {
         // Without the single-flight cache, multiple callers on a fresh
-        // install can each observe a missing key, generate different
-        // UUIDs, and last-write-wins on the box — leaving callers
+        // install can each observe a missing row, generate different
+        // UUIDs, and last-write-wins on the kv table — leaving callers
         // holding ids that don't match what got persisted.
-        final store = HiveIdentityStore();
+        final store = SqfliteIdentityStore();
         final ids = await Future.wait(
           List.generate(8, (_) => store.getPeerId()),
         );
         expect(ids.toSet(), hasLength(1));
         // And the persisted value matches what callers received.
-        expect(await HiveIdentityStore().getPeerId(), ids.first);
+        expect(await SqfliteIdentityStore().getPeerId(), ids.first);
       });
 
       test('a fresh install generates a new id (not a constant)', () async {
         // Guards against regressions like swapping `Random.secure()` for a
         // seedable `Random()` or hard-coding a constant — both would slip
         // past the round-trip and format tests above.
-        final firstId = await HiveIdentityStore().getPeerId();
-        // Wipe persisted state and re-init Hive at the same path.
-        await Hive.deleteFromDisk();
-        Hive.init(tempDir.path);
-        final secondId = await HiveIdentityStore().getPeerId();
+        final firstId = await SqfliteIdentityStore().getPeerId();
+        // Wipe persisted state and re-init the database at the same path.
+        await WalkieTalkieDatabase.resetForTesting();
+        WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+          databaseFactoryFfi,
+          path: inMemoryDatabasePath,
+        );
+        final secondId = await SqfliteIdentityStore().getPeerId();
         expect(secondId, isNot(equals(firstId)));
         expect(secondId, matches(uuidV4Pattern));
       });
