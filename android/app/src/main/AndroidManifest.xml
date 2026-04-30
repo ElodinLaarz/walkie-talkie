@@ -25,7 +25,12 @@
     <application
         android:label="Walkie Talkie"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:localeConfig="@xml/locales_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"
