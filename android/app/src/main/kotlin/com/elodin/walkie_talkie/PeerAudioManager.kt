@@ -77,6 +77,59 @@ class PeerAudioManager {
         nativeClear()
     }
 
+    /**
+     * Per-peer link telemetry snapshot — used by the host to drive dynamic
+     * bitrate and by the UI to expose link health. Mirrors the C++
+     * PeerAudioManager::LinkTelemetry struct (peer_audio_manager.h).
+     *
+     * `underrunCount` and `lateFrameCount` are lifetime totals; subtract
+     * snapshots to get a rate. `currentDepthFrames` vs `targetDepthFrames`
+     * tells you whether the jitter buffer is comfortably ahead of playout
+     * or running on fumes — a sustained gap is the canonical "this link is
+     * struggling" signal.
+     */
+    data class LinkTelemetry(
+        val underrunCount: Int,
+        val lateFrameCount: Int,
+        val targetDepthFrames: Int,
+        val currentDepthFrames: Int,
+        val currentBitrateBps: Int,
+    )
+
+    /**
+     * Adjust this peer's outbound encoder bitrate. The native side clamps to
+     * the {Low, Mid, High} range from audio_config.h. Returns the actual
+     * bitrate applied (after clamping), or -1 if the peer isn't registered.
+     *
+     * Intended caller: a future LinkQuality reporter that polls
+     * [getTelemetry] and steps bitrate down on sustained loss / underruns,
+     * back up on a clean window. Today no automated caller exists; this is
+     * scaffolding so the BLE control plane has a target API to wire to.
+     */
+    fun setPeerBitrate(macAddress: String, bps: Int): Int {
+        val applied = nativeSetPeerBitrate(macAddress, bps)
+        if (applied < 0) {
+            Log.w(TAG, "setPeerBitrate($macAddress, $bps) failed: peer not registered")
+        }
+        return applied
+    }
+
+    /** Returns null if the peer isn't registered. */
+    fun getTelemetry(macAddress: String): LinkTelemetry? {
+        val raw = nativeGetTelemetry(macAddress) ?: return null
+        if (raw.size != 5) {
+            Log.w(TAG, "getTelemetry returned unexpected array size ${raw.size}")
+            return null
+        }
+        return LinkTelemetry(
+            underrunCount = raw[0],
+            lateFrameCount = raw[1],
+            targetDepthFrames = raw[2],
+            currentDepthFrames = raw[3],
+            currentBitrateBps = raw[4],
+        )
+    }
+
     // Called from native code (JNI callback)
     @Suppress("unused")
     private fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
@@ -92,4 +145,6 @@ class PeerAudioManager {
     private external fun nativeSetCallback(callback: Any)
     private external fun nativeClear()
     private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long)
+    private external fun nativeSetPeerBitrate(macAddress: String, bps: Int): Int
+    private external fun nativeGetTelemetry(macAddress: String): IntArray?
 }

@@ -22,6 +22,7 @@ include_directories(${OPUS_DIR}/include)
 add_library(walkie_talkie_audio SHARED
     audio_engine.cpp
     audio_mixer.cpp
+    jitter_buffer.cpp
     opus_codec.cpp
     peer_audio_manager.cpp
 )
