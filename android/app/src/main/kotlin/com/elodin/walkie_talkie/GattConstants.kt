@@ -19,18 +19,22 @@ import java.util.UUID
  */
 object GattConstants {
     /** 128-bit primary service UUID for the walkie-talkie GATT service. */
+    @JvmField
     val SERVICE_UUID: UUID =
         UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e8e")
 
     /** Write / write-no-response characteristic — guests post requests here. */
+    @JvmField
     val REQUEST_CHAR_UUID: UUID =
         UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e01")
 
     /** Notify characteristic — hosts push responses + roster updates here. */
+    @JvmField
     val RESPONSE_CHAR_UUID: UUID =
         UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e02")
 
     /** Standard Client Characteristic Configuration Descriptor (CCCD). */
+    @JvmField
     val CCCD_UUID: UUID =
         UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
