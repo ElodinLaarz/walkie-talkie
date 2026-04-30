@@ -2,6 +2,55 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+/// Snapshot of per-peer link telemetry pulled from the native
+/// `PeerAudioManager`. All counts are **lifetime totals**; the link
+/// quality reporter subtracts two snapshots and divides by elapsed
+/// wall-clock to get the rates the protocol's `LinkQuality` carries.
+@immutable
+class LinkTelemetrySnapshot {
+  /// Lifetime mixer-tick underruns for this peer's stream.
+  final int underrunCount;
+
+  /// Lifetime jitter-buffer drops (frames that arrived too late to play).
+  final int lateFrameCount;
+
+  /// Adaptive jitter buffer target depth in 20 ms frames.
+  final int targetDepthFrames;
+
+  /// Adaptive jitter buffer current fill in 20 ms frames.
+  final int currentDepthFrames;
+
+  /// The encoder bitrate currently emitted toward this peer, in bps.
+  final int currentBitrateBps;
+
+  const LinkTelemetrySnapshot({
+    required this.underrunCount,
+    required this.lateFrameCount,
+    required this.targetDepthFrames,
+    required this.currentDepthFrames,
+    required this.currentBitrateBps,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LinkTelemetrySnapshot &&
+          underrunCount == other.underrunCount &&
+          lateFrameCount == other.lateFrameCount &&
+          targetDepthFrames == other.targetDepthFrames &&
+          currentDepthFrames == other.currentDepthFrames &&
+          currentBitrateBps == other.currentBitrateBps;
+
+  @override
+  int get hashCode => Object.hash(
+        underrunCount,
+        lateFrameCount,
+        targetDepthFrames,
+        currentDepthFrames,
+        currentBitrateBps,
+      );
+}
+
 /// Service for communicating with native Android audio layer
 class AudioService {
   static const MethodChannel _methodChannel = MethodChannel(
@@ -351,6 +400,80 @@ class AudioService {
     } catch (e) {
       if (kDebugMode) debugPrint('Error getting current RSSI: $e');
       return const [];
+    }
+  }
+
+  /// Per-peer voice-link telemetry snapshot. Mirrors the native
+  /// `PeerAudioManager.LinkTelemetry` struct (peer_audio_manager.h):
+  ///
+  ///   * `underrunCount` — lifetime mixer-tick underruns for this peer.
+  ///   * `lateFrameCount` — lifetime jitter-buffer drops (frames that
+  ///     arrived too late to play).
+  ///   * `targetDepthFrames` / `currentDepthFrames` — adaptive jitter
+  ///     buffer's target and current fill, in 20 ms frames.
+  ///   * `currentBitrateBps` — the encoder bitrate the host is currently
+  ///     emitting toward this peer (or, on the guest, the bitrate the
+  ///     guest is emitting toward the host — same field, different
+  ///     direction depending on role).
+  ///
+  /// `LinkQualityReporter` consumes back-to-back snapshots and turns
+  /// deltas into the protocol's `LinkQuality` rates (lossPct, jitterMs,
+  /// underrunsPerSec).
+  ///
+  /// All counters are lifetime totals — subtract two snapshots to get a
+  /// delta, divide by elapsed wall-clock to get a rate.
+  ///
+  /// Returns null if the platform call fails (handler not registered,
+  /// peer not in the native registry, native side unavailable). Callers
+  /// short-circuit on null rather than propagating an exception — a
+  /// missed telemetry sample is non-fatal to the link.
+  Future<LinkTelemetrySnapshot?> getLinkTelemetry(String macAddress) async {
+    try {
+      final raw = await _methodChannel.invokeMethod<List<dynamic>>(
+        'getLinkTelemetry',
+        <String, dynamic>{'macAddress': macAddress},
+      );
+      if (raw == null || raw.length != 5) return null;
+      // Native returns a 5-element int array: [underruns, late, target,
+      // current, bitrate]. Element-wise check guards against a truncated
+      // or padded response from a stale platform handler.
+      final values = raw.map((e) => e is int ? e : null).toList();
+      if (values.any((v) => v == null)) return null;
+      return LinkTelemetrySnapshot(
+        underrunCount: values[0]!,
+        lateFrameCount: values[1]!,
+        targetDepthFrames: values[2]!,
+        currentDepthFrames: values[3]!,
+        currentBitrateBps: values[4]!,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error getting link telemetry for $macAddress: $e');
+      return null;
+    }
+  }
+
+  /// Adjust the per-peer outbound encoder bitrate. The native
+  /// `PeerAudioManager` clamps to {Low=8, Mid=16, High=24} kbps from
+  /// `audio_config.h`; out-of-band values get snapped to the nearest.
+  ///
+  /// Returns the bitrate actually applied (after clamping), or `null` if
+  /// the call fails (peer not registered, native handler missing). The
+  /// bitrate adapter on the host calls this to adjust its own encoder
+  /// toward a guest; a guest receiving a `BitrateHint` calls this with
+  /// the host's MAC to throttle its uplink.
+  Future<int?> setPeerBitrate(String macAddress, int bps) async {
+    try {
+      final result = await _methodChannel.invokeMethod<int>(
+        'setPeerBitrate',
+        <String, dynamic>{'macAddress': macAddress, 'bps': bps},
+      );
+      if (result == null || result < 0) return null;
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error setting peer bitrate for $macAddress to $bps: $e');
+      }
+      return null;
     }
   }
 

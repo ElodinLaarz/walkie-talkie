@@ -8,9 +8,11 @@ import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 import '../protocol/uuid.dart';
 import '../services/audio_service.dart';
+import '../services/bitrate_adapter.dart';
 import '../services/ble_control_transport.dart';
 import '../services/heartbeat_scheduler.dart';
 import '../services/identity_store.dart';
+import '../services/link_quality_reporter.dart';
 import '../services/permission_watcher.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/reconnect_controller.dart';
@@ -104,6 +106,36 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// lifetime; cleared on `leaveRoom` and on per-peer drop / removal.
   final WeakSignalDetector _weakSignalDetector;
 
+  /// Drives the protocol's `link_quality` plane on the **guest** side.
+  /// Started on room entry, stopped on leave / close. The cubit polls
+  /// the native `PeerAudioManager` telemetry on each tick, deltas it
+  /// against the previous snapshot, and writes a `LinkQuality` to the
+  /// host. Skipped on the host side — the host is a receiver of these
+  /// reports, not a sender.
+  final LinkQualityReporter _linkQualityReporter;
+
+  /// Host-side: per-peer hysteresis state machine that consumes incoming
+  /// `LinkQuality` reports and decides when to step a peer's encoder
+  /// up or down. Cleared on `leaveRoom`.
+  final BitrateAdapter _bitrateAdapter;
+
+  /// Per-peer previous telemetry snapshot, keyed by Bluetooth MAC. Used
+  /// by the guest's link-quality tick to compute deltas. Cleared on
+  /// leave / close along with the rest of the per-session state.
+  final Map<String, LinkTelemetrySnapshot> _prevTelemetry = {};
+
+  /// Wall-clock of the previous link-quality sample, keyed by MAC.
+  /// Tracked alongside [_prevTelemetry] so a tick that's late (e.g.
+  /// because the OS suspended the timer) computes rates against actual
+  /// elapsed time rather than the nominal interval.
+  final Map<String, DateTime> _prevTelemetryAt = {};
+
+  /// Re-entrancy guard for [_sendLinkQuality]. The reporter tick is
+  /// `unawaited`-launched, so a slow telemetry round-trip plus transport
+  /// write could otherwise overlap a subsequent tick. Same rationale as
+  /// [_signalReportSendInFlight].
+  bool _linkQualitySendInFlight = false;
+
   /// Re-entrancy guard for [_sendHeartbeat]. The scheduler tick is
   /// `unawaited`-launched, so a slow GATT write could otherwise overlap
   /// the next tick and let two `send()` calls interleave on the same
@@ -159,6 +191,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     HeartbeatScheduler? heartbeats,
     SignalReporter? signalReporter,
     WeakSignalDetector? weakSignalDetector,
+    LinkQualityReporter? linkQualityReporter,
+    BitrateAdapter? bitrateAdapter,
     String Function()? mintSessionUuid,
   })  : _transport = transport,
         _audio = audio,
@@ -167,6 +201,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         _heartbeats = heartbeats ?? HeartbeatScheduler(),
         _signalReporter = signalReporter ?? SignalReporter(),
         _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
+        _linkQualityReporter = linkQualityReporter ?? LinkQualityReporter(),
+        _bitrateAdapter = bitrateAdapter ?? BitrateAdapter(),
         _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
         super(const SessionBooting());
 
@@ -269,6 +305,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           _transport?.forgetPeer(m.peerId);
           _heartbeats.forgetPeer(m.peerId);
           _weakSignalDetector.forgetPeer(m.peerId);
+          _bitrateAdapter.forgetPeer(m.peerId);
         }
       case RemovePeer m:
         // Host-broadcasted peer removal. Drop the named peer from the roster
@@ -281,12 +318,17 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         _transport?.forgetPeer(m.target);
         _heartbeats.forgetPeer(m.target);
         _weakSignalDetector.forgetPeer(m.target);
+        _bitrateAdapter.forgetPeer(m.target);
       case Heartbeat():
         // Already noted above; no further dispatch — the heartbeat plane
         // is purely a liveness signal, not a state-changing event.
         break;
       case SignalReport m:
         _onSignalReport(m);
+      case LinkQuality m:
+        _onLinkQuality(m);
+      case BitrateHint m:
+        _onBitrateHint(m);
       // These message types are handled by future issues
       // (voice-activity detection, join request flow). Silently drop.
       case TalkingState():
@@ -404,6 +446,185 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       }
     } finally {
       _signalReportSendInFlight = false;
+    }
+  }
+
+  /// Tick callback wired into [LinkQualityReporter.start] on the guest
+  /// side. Polls per-peer telemetry from the native `PeerAudioManager`,
+  /// computes deltas against the previous snapshot, and writes a
+  /// `LinkQuality` to the host.
+  ///
+  /// **Skipped paths.**
+  ///   * No transport, no audio, or local user is the host → no-op.
+  ///   * No `macAddress` recorded on the room state (unusual — guest
+  ///     entered without a discovered host MAC) → no-op.
+  ///   * First sample for this peer (no previous snapshot to delta
+  ///     against) → record the snapshot and bail; the *next* tick
+  ///     produces the first `LinkQuality`.
+  ///   * Native side returns null telemetry (peer not registered,
+  ///     handler not wired) → no-op; reset the previous snapshot so we
+  ///     re-seed on the next non-null sample.
+  ///
+  /// **Seq accounting.** Unlike `_sendSignalReport` and `_sendHeartbeat`,
+  /// this method does **not** advance the seq counter on skipped paths.
+  /// The first-sample case in particular is a normal startup transient,
+  /// not a failure path — burning a seq for it would put a permanent
+  /// gap at the top of every guest's wire log. The other skips (missing
+  /// audio / transport / host role) are static — they fire every tick
+  /// while the cubit is in that mode and would burn a seq per tick if
+  /// we incremented.
+  Future<void> _sendLinkQuality() async {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return;
+    if (current.roomIsHost) return;
+    final t = _transport;
+    final audio = _audio;
+    final mac = current.macAddress;
+    if (t == null || audio == null || mac == null) return;
+    if (_linkQualitySendInFlight) return;
+    _linkQualitySendInFlight = true;
+    try {
+      final snapshot = await audio.getLinkTelemetry(mac);
+      if (isClosed) return;
+      final now = DateTime.now();
+      if (snapshot == null) {
+        // Native side unavailable — drop any seeded snapshot so the next
+        // successful sample re-seeds rather than computing rates against
+        // ancient data.
+        _prevTelemetry.remove(mac);
+        _prevTelemetryAt.remove(mac);
+        return;
+      }
+      final prev = _prevTelemetry[mac];
+      final prevAt = _prevTelemetryAt[mac];
+      _prevTelemetry[mac] = snapshot;
+      _prevTelemetryAt[mac] = now;
+      if (prev == null || prevAt == null) {
+        // First sample — nothing to delta against. Seed and exit.
+        return;
+      }
+      final elapsed = now.difference(prevAt);
+      // Negative or zero elapsed (clock skew) — skip computation rather
+      // than throwing inside computeLinkQuality.
+      if (elapsed <= Duration.zero) return;
+      final rates = computeLinkQuality(
+        previous: prev,
+        current: snapshot,
+        elapsed: elapsed,
+      );
+      final String peerId;
+      try {
+        peerId = await identityStore.getPeerId();
+      } catch (error, stackTrace) {
+        if (kDebugMode) debugPrint('Failed to resolve peer id for link quality: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+        return;
+      }
+      if (isClosed) return;
+      final msg = LinkQuality(
+        peerId: peerId,
+        seq: ++_seq,
+        atMs: now.millisecondsSinceEpoch,
+        lossPct: rates.lossPct,
+        jitterMs: rates.jitterMs,
+        underrunsPerSec: rates.underrunsPerSec,
+      );
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        if (kDebugMode) debugPrint('LinkQuality send failed: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      _linkQualitySendInFlight = false;
+    }
+  }
+
+  /// Host-only ingress for `LinkQuality`. Feeds the per-peer
+  /// [BitrateAdapter]; if the adapter decides to step the level, sends
+  /// a `BitrateHint` to the reporting peer **and** locally calls
+  /// `setPeerBitrate` for the same peer's MAC so the host's own encoder
+  /// toward that guest also tracks the new level.
+  ///
+  /// On a guest, `LinkQuality` from a host is silently dropped — only
+  /// the host owns adapter state.
+  void _onLinkQuality(LinkQuality report) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom || !current.roomIsHost) return;
+    final newLevel = _bitrateAdapter.feed(report);
+    if (newLevel == null) return;
+    // Adjust the host's own outbound encoder toward the reporter (best
+    // effort — the audio side returns null on missing peer / handler).
+    final audio = _audio;
+    final macForPeer = _macForPeerId(report.peerId, current);
+    if (audio != null && macForPeer != null) {
+      unawaited(audio.setPeerBitrate(macForPeer, newLevel.bps));
+    }
+    unawaited(_sendBitrateHint(report.peerId, newLevel.bps));
+  }
+
+  /// Guest-only ingress for `BitrateHint`. Applies the hinted bitrate to
+  /// the local outbound encoder (toward the host). On the host, hints
+  /// are silently dropped — the host is the source of hints, not a sink.
+  void _onBitrateHint(BitrateHint hint) {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom || current.roomIsHost) return;
+    final audio = _audio;
+    final mac = current.macAddress;
+    if (audio == null || mac == null) return;
+    unawaited(audio.setPeerBitrate(mac, hint.bps));
+  }
+
+  /// Resolve a peer's BLE MAC from the current room snapshot. Returns
+  /// null when the peer isn't on the roster or has no `btDevice`
+  /// recorded — both cases are treated as "skip the local
+  /// `setPeerBitrate` call" rather than poisoning the adapter step.
+  String? _macForPeerId(String peerId, SessionRoom room) {
+    for (final p in room.roster) {
+      if (p.peerId == peerId) {
+        final mac = p.btDevice;
+        if (mac == null || mac.isEmpty) return null;
+        return mac;
+      }
+    }
+    return null;
+  }
+
+  /// Build and send a `BitrateHint` to [targetPeerId]. Best-effort:
+  /// transport-level failures are logged and swallowed so a single bad
+  /// adapter step doesn't poison the rest of the dispatch loop.
+  Future<void> _sendBitrateHint(String targetPeerId, int bps) async {
+    final t = _transport;
+    if (t == null) return;
+    final String hostPeerId;
+    try {
+      hostPeerId = await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('Failed to resolve peer id for bitrate hint: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      return;
+    }
+    if (isClosed) return;
+    // Note: BitrateHint's envelope `peerId` is the *sender's* (host's)
+    // peerId per the protocol. The recipient is implicit — the host
+    // sends the hint along the GATT link to the specific guest. The
+    // [targetPeerId] arg is recorded in debug logs but not in the wire
+    // envelope. If/when the protocol grows multi-hop, this can carry a
+    // separate target field.
+    if (kDebugMode) debugPrint('BitrateHint -> $targetPeerId: $bps bps');
+    final msg = BitrateHint(
+      peerId: hostPeerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      bps: bps,
+    );
+    try {
+      await t.send(msg);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('BitrateHint send failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -762,6 +983,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       _signalReporter.start(
         onTick: () => unawaited(_sendSignalReport()),
       );
+      // Begin the link-quality plane on the guest side. Same gating as
+      // the signal reporter — needs a transport to write to and an
+      // audio service to poll telemetry from. The host doesn't run the
+      // reporter (it consumes incoming `LinkQuality` reports instead;
+      // see [_onLinkQuality]).
+      _linkQualityReporter.start(
+        onTick: () => unawaited(_sendLinkQuality()),
+      );
     }
   }
 
@@ -799,6 +1028,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Cancel the signal reporter so a guest leaving doesn't keep pinging
     // RSSI samples at the (now disconnected) GATT link.
     _signalReporter.stop();
+    // Cancel the link-quality reporter for the same reason — and wipe
+    // the per-peer telemetry baseline so a fresh room doesn't compute
+    // bogus deltas against the previous session's last sample.
+    _linkQualityReporter.stop();
+    _prevTelemetry.clear();
+    _prevTelemetryAt.clear();
+    _bitrateAdapter.clear();
     // Wipe per-neighbor weak-signal state so a fresh room starts with a
     // clean detector — no stale rate-limit cooldowns, no inherited
     // consecutive-weak counters from the previous session.
@@ -886,6 +1122,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _reconnectController = null;
     _heartbeats.stop();
     _signalReporter.stop();
+    _linkQualityReporter.stop();
+    _prevTelemetry.clear();
+    _prevTelemetryAt.clear();
+    _bitrateAdapter.clear();
     _weakSignalDetector.clear();
     _transport?.forgetAllPeers();
     _seq = 0;
@@ -1180,6 +1420,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // tick mid-await can't reach _onSignalReport or transport.send on a
     // disposed cubit.
     _signalReporter.stop();
+    // And the link-quality reporter — same pre-close rationale.
+    _linkQualityReporter.stop();
     // Order matters. `super.close()` flips the cubit's `isClosed`; the
     // suspended `await` in `sendMediaCommand` resumes after it sees
     // `isClosed == true` and bails before touching the controller. If
