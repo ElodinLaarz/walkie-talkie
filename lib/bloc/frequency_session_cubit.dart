@@ -118,6 +118,22 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// next 10 s tick on a slow link.
   bool _signalReportSendInFlight = false;
 
+  /// Serialiser for outbound [TalkingState] writes from [_onLocalTalking].
+  /// VAD edges can flap faster than [BleControlTransport.send] completes
+  /// (each send fragments the message and awaits each fragment in turn),
+  /// and two `unawaited` sends in flight at once would let fragments —
+  /// and, on the receiver, the messages they carry — interleave on the
+  /// wire. The receiver's [SequenceFilter] then drops the older `seq` as
+  /// "out-of-order", and a TalkingState that spans multiple GATT
+  /// fragments would corrupt reassembly outright.
+  ///
+  /// Each VAD edge chains its `t.send(msg)` onto this future so writes
+  /// strictly serialise. The seq counter is still assigned synchronously
+  /// at event time (under the listener's run-to-completion) so the wire
+  /// order matches the seq order — the chain just guarantees the
+  /// transport doesn't overlap them.
+  Future<void> _talkingSendChain = Future<void>.value();
+
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   StreamSubscription<bool>? _localTalkingSubscription;
   StreamSubscription<List<AppPermission>>? _permissionSubscription;
@@ -545,6 +561,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// is absent, the seq counter still advances so messages stay monotonic once
   /// the transport connects. Uses cached [_localPeerId] to avoid async resolution
   /// and ensure sequence numbers are assigned at event time (no race).
+  ///
+  /// Sends are chained through [_talkingSendChain] rather than fired with a
+  /// bare `unawaited`: a flapping VAD detector can otherwise overlap two
+  /// `t.send` calls and let their GATT fragments (or, for single-fragment
+  /// TalkingStates, just the writes themselves) interleave on the wire.
+  /// The receiver's [SequenceFilter] drops the older seq, so a missed-edge
+  /// race surfaces as a stuck "still talking" indicator on the other end.
+  /// See [_talkingSendChain] for the full rationale.
   void _onLocalTalking(bool talking) {
     final current = state;
     if (isClosed || current is! SessionRoom) return;
@@ -552,21 +576,34 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final t = _transport;
     final peerId = _localPeerId;
 
-    // Increment seq immediately at event time to preserve order
+    // Assign seq synchronously at event time. The listener runs to
+    // completion before the next VAD edge dispatches, so seq numbers
+    // strictly track the order edges were observed.
     final seq = ++_seq;
 
     if (t == null || peerId == null) {
-      return; // seq already incremented
+      return; // seq already incremented; talking-state isn't sendable
     }
 
-    // Build and send message synchronously
     final msg = TalkingState(
       peerId: peerId,
       seq: seq,
       atMs: DateTime.now().millisecondsSinceEpoch,
       talking: talking,
     );
-    unawaited(t.send(msg));
+
+    // Chain onto the previous send so writes never overlap on the wire.
+    // Per-message errors are swallowed so a single bad send doesn't
+    // poison the chain and stall every subsequent VAD edge.
+    _talkingSendChain = _talkingSendChain.then((_) async {
+      if (isClosed) return;
+      try {
+        await t.send(msg);
+      } catch (error, stackTrace) {
+        if (kDebugMode) debugPrint('TalkingState send failed: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      }
+    });
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
