@@ -229,10 +229,10 @@ class L2capVoiceTransport(
      * finally never races ahead of the insert.
      */
     private fun startSocketIoThreads(addr: String, io: SocketIo) {
-        io.recvThread = Thread({ receiveLoop(addr, io.socket) }, "L2capRecv-$addr").apply {
+        io.recvThread = Thread({ receiveLoop(addr, io) }, "L2capRecv-$addr").apply {
             isDaemon = true; start()
         }
-        io.writerThread = Thread({ writerLoop(addr, io.socket.outputStream, io.sendQueue) }, "L2capWriter-$addr").apply {
+        io.writerThread = Thread({ writerLoop(addr, io) }, "L2capWriter-$addr").apply {
             isDaemon = true; start()
         }
     }
@@ -242,14 +242,27 @@ class L2capVoiceTransport(
      * length-prefixed payload. Exits when the writer pulls
      * [shutdownSentinel] off the queue, on I/O error, or on interrupt.
      *
-     * This is the *only* thread that touches [out] — concurrent producers
-     * push to [queue] but never write directly to the socket. That's what
-     * eliminates the torn-frame race that issue #101 reports.
+     * This is the *only* thread that touches the socket's [OutputStream]
+     * — concurrent producers push to [SocketIo.sendQueue] but never
+     * write directly to the socket. That's what eliminates the
+     * torn-frame race that issue #101 reports.
+     *
+     * The OutputStream is opened lazily here rather than at thread-spawn
+     * time because [BluetoothSocket.getOutputStream] can throw if the
+     * socket closes racily with thread start; opening inside the worker
+     * keeps that failure path inside the catch block instead of crashing
+     * the spawn site.
      */
-    private fun writerLoop(addr: String, out: OutputStream, queue: LinkedBlockingQueue<ByteArray>) {
+    private fun writerLoop(addr: String, io: SocketIo) {
+        val out = try {
+            io.socket.outputStream
+        } catch (e: IOException) {
+            Log.w(TAG, "Writer for $addr couldn't open output stream: ${e.message}")
+            return
+        }
         try {
             while (true) {
-                val frame = queue.take()
+                val frame = io.sendQueue.take()
                 if (frame === shutdownSentinel) break
                 if (frame.isEmpty()) continue
                 if (frame.size > MAX_FRAME_SIZE) {
@@ -268,7 +281,8 @@ class L2capVoiceTransport(
         }
     }
 
-    private fun receiveLoop(addr: String, socket: BluetoothSocket) {
+    private fun receiveLoop(addr: String, io: SocketIo) {
+        val socket = io.socket
         try {
             val input = DataInputStream(socket.inputStream)
             while (socket.isConnected) {
@@ -292,6 +306,13 @@ class L2capVoiceTransport(
             // racy with this thread starting.
             Log.i(TAG, "Receive loop init failed for $addr: ${e.message}")
         } finally {
+            // Signal the writer to stop *before* dropping references — if
+            // the peer disconnected silently, the writer is parked on
+            // queue.take() forever, which is the leak Copilot flagged.
+            // Clearing the queue plus offering the sentinel guarantees
+            // the writer wakes up and exits.
+            io.sendQueue.clear()
+            io.sendQueue.offer(shutdownSentinel)
             // Drop both the host-side (clientSockets) and guest-side (guestIo)
             // reference for whichever socket this loop was bound to. The
             // guest check is identity-based (socket ===) so a fresh
@@ -309,12 +330,17 @@ class L2capVoiceTransport(
      * Push [frame] onto [io]'s send queue. If the queue is full
      * (producers outpacing the link), drop the *oldest* frame — voice is
      * latency-sensitive, and stale audio is worse than missing audio.
+     *
+     * The poll+offer pair is wrapped in a `while` loop so a competing
+     * producer that refills the queue between our poll and our offer
+     * can't cause us to silently drop the *newest* frame instead of the
+     * oldest. Each loop iteration drops one and tries to add one;
+     * progress is bounded by the queue capacity.
      */
     private fun enqueueFrame(io: SocketIo, frame: ByteArray) {
         if (frame.isEmpty()) return
-        if (!io.sendQueue.offer(frame)) {
-            io.sendQueue.poll() // drop oldest
-            io.sendQueue.offer(frame)
+        while (!io.sendQueue.offer(frame)) {
+            io.sendQueue.poll() // drop oldest, retry the offer
         }
     }
 
