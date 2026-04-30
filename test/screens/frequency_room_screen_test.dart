@@ -769,10 +769,10 @@ void main() {
 }
 
 /// Minimal helper for emitting events on a Flutter `EventChannel` from a
-/// widget test. Replaces the real platform-channel handler with one that
-/// keeps the most recent listen-reply [_sink] address; calling [emit]
-/// pushes a payload through the binary messenger as if the native side
-/// had sent it. [dispose] tears the handler down.
+/// widget test. Stubs the channel's MethodCallHandler so `listen` / `cancel`
+/// are no-ops, then [emit] pushes a payload directly through the binary
+/// messenger via `handlePlatformMessage` — that's the same path the real
+/// native side would use to deliver an event. [dispose] tears the stub down.
 class _EventChannelEmitter {
   _EventChannelEmitter(this.channelName) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

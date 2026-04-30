@@ -62,14 +62,19 @@ class WalkieTalkieService : Service() {
 
         const val EXTRA_FREQ = "freq"
         const val EXTRA_ACTION = "action"
-        const val EXTRA_MUTED = "muted"
         const val ACTION_LEAVE = "leaveRoom"
         const val ACTION_PTT_TOGGLE = "pttToggle"
         const val ACTION_MUTE_TOGGLE = "muteToggle"
-        /** Service-internal: the Dart side calls `setMuted` on the engine,
-         *  and a `startService` intent with this action keeps the notification
-         *  button label in sync. Not surfaced to the activity / Flutter. */
-        const val ACTION_SYNC_MUTE = "syncMute"
+
+        /** Live reference to the running service (or null while it isn't
+         *  running). Used by [MainActivity] to dispatch UI-driven mute
+         *  changes to [setMuteState] without spawning a new FGS just to
+         *  refresh a notification label. */
+        @Volatile
+        private var instance: WalkieTalkieService? = null
+
+        /** Returns the running service instance, or `null` if no FGS is up. */
+        fun getRunning(): WalkieTalkieService? = instance
     }
 
     private var currentFreq: String? = null
@@ -84,6 +89,7 @@ class WalkieTalkieService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service created")
+        instance = this
         createNotificationChannel()
         mediaSession = createMediaSession()
         // Start in PAUSED; promoted to PLAYING when a freq lands in
@@ -97,19 +103,14 @@ class WalkieTalkieService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Internal action triggered by the MediaStyle notification buttons
-        // or by `MainActivity` syncing mute state for the action-button label.
-        // Notification-button actions are forwarded to [MainActivity] via a
-        // singleTop intent so the existing EventChannel sink can deliver the
-        // event to Dart. We use this service-routed intent (rather than
-        // putting `getActivity` directly on the notification action) so a
-        // stable, non-mutable PendingIntent can be reused across updates.
+        // (PTT / Mute). We dispatch the event into Flutter without launching
+        // the activity — pressing PTT on a lock-screen notification or a
+        // headset shouldn't unlock the phone. The activity-launch path is
+        // reserved for the "Leave" notification button (where opening the
+        // app is the user's expected outcome) via a `getActivity` intent.
         val actionExtra = intent?.getStringExtra(EXTRA_ACTION)
         if (actionExtra != null) {
-            if (actionExtra == ACTION_SYNC_MUTE) {
-                setMuteState(intent.getBooleanExtra(EXTRA_MUTED, false))
-            } else {
-                handleNotificationAction(actionExtra)
-            }
+            handleNotificationAction(actionExtra)
             return START_NOT_STICKY
         }
 
@@ -128,6 +129,7 @@ class WalkieTalkieService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Service destroyed")
+        instance = null
         audioEngineManager.stop()
         audioFocusManager?.abandon()
         audioFocusManager = null
@@ -159,26 +161,35 @@ class WalkieTalkieService : Service() {
      * service's lifetime; only the `PlaybackState` toggles between
      * STATE_PLAYING (in a room) and STATE_PAUSED (idle).
      *
-     * The callback forwards lock-screen / headset button events to Flutter
-     * through [postNotificationAction], which fires the same internal
-     * service intent the notification buttons use — single source of input.
+     * The callback dispatches lock-screen / headset button events to
+     * Flutter via [dispatchEventToFlutter] — *not* via `startActivity`,
+     * so a headset PTT press won't pull the user out of whatever they're
+     * doing.
      */
     private fun createMediaSession(): MediaSessionCompat {
         return MediaSessionCompat(this, MEDIA_SESSION_TAG).apply {
+            // Defaults on API 21+, but set explicitly so the contract is
+            // visible at the call site. Without these the OS can't route
+            // KEYCODE_MEDIA_* through to our callback.
+            @Suppress("DEPRECATION")
+            setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
                     Log.i(TAG, "MediaSession onPlay → PTT toggle")
-                    postNotificationAction(ACTION_PTT_TOGGLE)
+                    dispatchEventToFlutter(ACTION_PTT_TOGGLE)
                 }
 
                 override fun onPause() {
                     Log.i(TAG, "MediaSession onPause → PTT toggle")
-                    postNotificationAction(ACTION_PTT_TOGGLE)
+                    dispatchEventToFlutter(ACTION_PTT_TOGGLE)
                 }
 
                 override fun onStop() {
                     Log.i(TAG, "MediaSession onStop → leave")
-                    postNotificationAction(ACTION_LEAVE)
+                    dispatchEventToFlutter(ACTION_LEAVE)
                 }
             })
             isActive = true
@@ -214,32 +225,30 @@ class WalkieTalkieService : Service() {
     }
 
     /**
-     * Forward a notification-button action to [MainActivity] via the
-     * existing `EXTRA_ACTION` channel. The activity is `singleTop` so
-     * `onNewIntent` fires whether or not the activity is currently
-     * foregrounded; it then re-emits the action over the audio EventChannel
-     * to Dart. `FLAG_ACTIVITY_NEW_TASK` is required because `Service`
-     * doesn't carry a task; we still want the existing task root, so the
-     * combo of `SINGLE_TOP | NEW_TASK` resumes the running activity instead
-     * of creating a duplicate.
+     * Hand a service-side action off to Flutter without launching the
+     * activity. Calls into [MainActivity.dispatchEventFromService] when
+     * the activity is alive (i.e. the FlutterEngine is still wired up);
+     * a no-op otherwise — if Flutter is gone, room state is gone too,
+     * and the headset gesture has nothing meaningful to apply.
+     *
+     * Using a direct dispatch (vs. `startActivity`) is deliberate per
+     * the Copilot review on this PR: a headset PTT press shouldn't pop
+     * the app to the foreground.
      */
-    private fun postNotificationAction(action: String) {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-            putExtra(EXTRA_ACTION, action)
-        }
-        startActivity(intent)
+    private fun dispatchEventToFlutter(action: String) {
+        MainActivity.dispatchEventFromService(action)
     }
 
     /**
-     * Internal dispatcher for the notification-button intents that the
-     * service receives via `getService` PendingIntents. We route them
-     * through the activity (rather than acting directly here) so the cubit
-     * — the source of truth for room state — can decide what to do.
+     * Dispatcher for the notification-button intents that the service
+     * receives via `getService` PendingIntents. PTT and Mute don't
+     * require activity foregrounding — they just toggle voice state.
+     * The Leave action skips this path entirely (its PendingIntent is
+     * `getActivity`, so the system launches the activity directly).
      */
     private fun handleNotificationAction(action: String) {
         Log.i(TAG, "Notification action: $action")
-        postNotificationAction(action)
+        dispatchEventToFlutter(action)
     }
 
     /**
@@ -345,9 +354,21 @@ class WalkieTalkieService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // PTT + Mute go through the service (no activity launch). Leave
+        // explicitly opens the activity — when the user taps Leave they
+        // expect to land back in the app, on Discovery.
         val pttPi = servicePendingIntent(ACTION_REQ_PTT, ACTION_PTT_TOGGLE)
         val mutePi = servicePendingIntent(ACTION_REQ_MUTE, ACTION_MUTE_TOGGLE)
-        val leavePi = servicePendingIntent(ACTION_REQ_LEAVE, ACTION_LEAVE)
+        val leaveActivityIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_ACTION, ACTION_LEAVE)
+        }
+        val leavePi = PendingIntent.getActivity(
+            this,
+            ACTION_REQ_LEAVE,
+            leaveActivityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
         val muteLabel = if (muted) {
             getString(R.string.fgs_notification_action_unmute)
