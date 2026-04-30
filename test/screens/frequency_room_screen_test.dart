@@ -705,7 +705,101 @@ void main() {
         expect(find.text('1:31'), findsOneWidget);
       },
     );
+
+    // --- Notification / headset event handling (issue #97) ---
+
+    testWidgets(
+      'open-mic: muteToggle event from notification flips mute state',
+      (tester) async {
+        // Stub the EventChannel so we can fire a `muteToggle` from the
+        // "native" side and watch the screen react.
+        final eventEmitter = _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Initial: not muted.
+        expect(find.text('Mute'), findsOneWidget);
+        expect(find.text('Caleb · muted'), findsNothing);
+
+        eventEmitter.emit({'type': 'muteToggle'});
+        await tester.pump();
+
+        expect(find.text('Caleb · muted'), findsOneWidget);
+        expect(find.text('Unmute'), findsOneWidget);
+
+        // Toggling again returns to unmuted — confirms the handler reads
+        // the current state rather than always-mute or always-unmute.
+        eventEmitter.emit({'type': 'muteToggle'});
+        await tester.pump();
+        expect(find.text('Caleb'), findsOneWidget);
+        expect(find.text('Mute'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'pttToggle in PTT mode toggles the held state (headset PTT button)',
+      (tester) async {
+        // Wired/Bluetooth headset play buttons can't express press-and-hold,
+        // so the screen treats each `pttToggle` as a flip of the PTT-held
+        // state. Verifies the documented contract.
+        final eventEmitter = _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room(pttMode: true)));
+        await tester.pump();
+
+        // PTT mode starts muted-until-held — the me-row reads "muted".
+        expect(find.text('Caleb · muted'), findsOneWidget);
+
+        // Press once → held → unmuted.
+        eventEmitter.emit({'type': 'pttToggle'});
+        await tester.pump();
+        expect(find.text('Caleb · muted'), findsNothing);
+        expect(find.text('Caleb'), findsOneWidget);
+
+        // Press again → released → muted.
+        eventEmitter.emit({'type': 'pttToggle'});
+        await tester.pump();
+        expect(find.text('Caleb · muted'), findsOneWidget);
+      },
+    );
   });
+}
+
+/// Minimal helper for emitting events on a Flutter `EventChannel` from a
+/// widget test. Replaces the real platform-channel handler with one that
+/// keeps the most recent listen-reply [_sink] address; calling [emit]
+/// pushes a payload through the binary messenger as if the native side
+/// had sent it. [dispose] tears the handler down.
+class _EventChannelEmitter {
+  _EventChannelEmitter(this.channelName) {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(MethodChannel(channelName), (call) async {
+      if (call.method == 'listen') {
+        // The framework hands back a no-op success on the listen call.
+        return null;
+      }
+      if (call.method == 'cancel') {
+        return null;
+      }
+      return null;
+    });
+  }
+
+  final String channelName;
+
+  void emit(Map<String, Object?> payload) {
+    final encoded = const StandardMethodCodec().encodeSuccessEnvelope(payload);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(channelName, encoded, (_) {});
+  }
+
+  void dispose() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(MethodChannel(channelName), null);
+  }
 }
 
 class _MemoryStore implements IdentityStore {

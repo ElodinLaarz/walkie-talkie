@@ -75,6 +75,11 @@ android {
 }
 
 dependencies {
+    // androidx.media gives us MediaSessionCompat + NotificationCompat.MediaStyle.
+    // Pulled in for issue #97: an active MediaSession with STATE_PLAYING is what
+    // tells Android 11+ FGS audio policy that we're "actively engaging" the user
+    // so the mic stream isn't suppressed when the screen is off.
+    implementation("androidx.media:media:1.7.0")
     testImplementation("junit:junit:4.13.2")
 }
 

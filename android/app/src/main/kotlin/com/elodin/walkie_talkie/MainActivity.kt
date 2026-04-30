@@ -171,7 +171,26 @@ class MainActivity : FlutterActivity() {
                     val muted = call.argument<Boolean>("muted")
                     if (muted != null) {
                         Log.i(TAG, "Setting mute state: $muted")
-                        // Placeholder - will be implemented when native voice pipeline is ready
+                        // Forward to the foreground service so the MediaStyle
+                        // notification's "Mute" / "Unmute" label tracks the
+                        // engine state. Sent as a startService intent — if the
+                        // service isn't running we don't need a label sync
+                        // anyway, so a `START_NOT_STICKY` return is correct.
+                        val syncIntent = Intent(this, WalkieTalkieService::class.java).apply {
+                            putExtra(WalkieTalkieService.EXTRA_ACTION, WalkieTalkieService.ACTION_SYNC_MUTE)
+                            putExtra(WalkieTalkieService.EXTRA_MUTED, muted)
+                        }
+                        try {
+                            startService(syncIntent)
+                        } catch (e: IllegalStateException) {
+                            // Background-launch restrictions can throw on some OEMs
+                            // when the activity isn't foregrounded. Non-fatal —
+                            // the engine still gets the mute via the native call.
+                            Log.w(TAG, "Mute sync intent rejected: ${e.message}")
+                        }
+                        // Native engine `setMuted` will be implemented when the
+                        // native voice pipeline lands; for now this is a no-op
+                        // beyond the notification label sync above.
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
@@ -453,14 +472,29 @@ class MainActivity : FlutterActivity() {
         ))
     }
 
-    // Called when the notification's Leave action brings this activity back to
-    // the foreground (singleTop launchMode prevents a new instance). The action
-    // extra is forwarded to Flutter so the room screen can call leaveRoom().
+    // Called when a notification action (or MediaSession headset button)
+    // routes back into this activity via a singleTop intent. The action
+    // extra is forwarded to Flutter so the room screen can apply it.
+    // Per #97 we handle three actions: leave, ptt-toggle, mute-toggle.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
-            Log.i(TAG, "Leave action received via notification intent")
-            sendEventToFlutter(mapOf("type" to "leaveRoom"))
+        when (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION)) {
+            WalkieTalkieService.ACTION_LEAVE -> {
+                Log.i(TAG, "Leave action received via notification intent")
+                sendEventToFlutter(mapOf("type" to "leaveRoom"))
+            }
+            WalkieTalkieService.ACTION_PTT_TOGGLE -> {
+                Log.i(TAG, "PTT toggle received via notification / headset")
+                sendEventToFlutter(mapOf("type" to "pttToggle"))
+            }
+            WalkieTalkieService.ACTION_MUTE_TOGGLE -> {
+                Log.i(TAG, "Mute toggle received via notification")
+                sendEventToFlutter(mapOf("type" to "muteToggle"))
+            }
+            else -> {
+                // No-op: not every singleTop intent carries an EXTRA_ACTION
+                // (e.g. plain launcher resumes).
+            }
         }
     }
     override fun onDestroy() {

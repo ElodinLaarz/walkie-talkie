@@ -14,4 +14,10 @@
     <!-- %1$s: frequency display string, e.g. "92.5 MHz" -->
     <string name="fgs_notification_text_on_freq">On %1$s · Tap to return</string>
     <string name="fgs_notification_action_leave">Leave</string>
+    <!-- Media-style notification controls (#97): visible on the lock screen
+         and bound to MediaSession callbacks so wired/Bluetooth headset
+         play/pause buttons toggle PTT for free. -->
+    <string name="fgs_notification_action_ptt">Talk</string>
+    <string name="fgs_notification_action_mute">Mute</string>
+    <string name="fgs_notification_action_unmute">Unmute</string>
 </resources>

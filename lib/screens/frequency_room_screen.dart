@@ -214,6 +214,20 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         }
       } else if (type == 'leaveRoom') {
         widget.onLeave();
+      } else if (type == 'pttToggle' || type == 'muteToggle') {
+        // Notification action button or wired/Bluetooth headset
+        // play/pause. PTT and Mute on the lock screen both flip the
+        // user's *effective* voice state (issue #97):
+        //   - PTT mode → toggle the held flag (a single hardware
+        //     button can't express press-and-hold).
+        //   - Open-mic mode → toggle the persistent mute.
+        // Distinct labels in the notification are for affordance only;
+        // either button reaches the same toggle.
+        if (widget.pttMode) {
+          _setPttHolding(!_holdingPtt);
+        } else {
+          _setOpenMicMuted(!_meMuted);
+        }
       }
     });
 
