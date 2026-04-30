@@ -26,16 +26,25 @@ void testMixMinus() {
         audio3[i] = 300;
     }
 
-    mixer.updateDeviceAudio(1, audio1, numFrames);
-    mixer.updateDeviceAudio(2, audio2, numFrames);
-    mixer.updateDeviceAudio(3, audio3, numFrames);
-
     int16_t out1[numFrames];
     int16_t out2[numFrames];
     int16_t out3[numFrames];
 
+    // Production mixer consumes data from ring buffers on read, so we need to
+    // re-feed before each getMixedAudioForDevice call.
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(1, out1, numFrames);
+
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(2, out2, numFrames);
+
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(3, out3, numFrames);
 
     // Device 1 should hear (2 + 3) = 200 + 300 = 500
@@ -79,6 +88,10 @@ void testClipping() {
     mixer.addDevice(3);
     int16_t audio3[numFrames];
     for (int i = 0; i < numFrames; i++) audio3[i] = 30000;
+
+    // Re-feed all devices since the first getMixedAudioForDevice consumed the buffers
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
     mixer.updateDeviceAudio(3, audio3, numFrames);
 
     mixer.getMixedAudioForDevice(1, out1, numFrames);
