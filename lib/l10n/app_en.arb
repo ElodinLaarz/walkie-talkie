@@ -6,11 +6,12 @@
         "description": "MaterialApp title — surfaces in OS task switcher / recents."
     },
 
-    "onboardingStepIndicator": "{step}/03",
+    "onboardingStepIndicator": "{step}/{total}",
     "@onboardingStepIndicator": {
-        "description": "Step counter in the onboarding chrome (e.g. 01/03).",
+        "description": "Step counter in the onboarding chrome (e.g. 01/03). Both numbers are zero-padded by the caller; passing them as placeholders avoids hard-coding the total in every locale's ARB.",
         "placeholders": {
-            "step": { "type": "String", "example": "01" }
+            "step": { "type": "String", "example": "01" },
+            "total": { "type": "String", "example": "03" }
         }
     },
 
@@ -158,15 +159,11 @@
     "@discoveryStartFrequency": {
         "description": "Primary button — host a brand-new channel."
     },
-    "discoveryNewFreqHintPrefix": "A fresh channel will be broadcast at ",
-    "@discoveryNewFreqHintPrefix": {
-        "description": "Plain-text prefix to the auto-generated MHz value under the create button. The MHz value is rendered in the mono font and not localized."
-    },
-    "discoveryNewFreqUnit": "{freq} MHz",
-    "@discoveryNewFreqUnit": {
-        "description": "Frequency + unit string. Mono-styled.",
+    "discoveryNewFreqHint": "A fresh channel will be broadcast at {freq}",
+    "@discoveryNewFreqHint": {
+        "description": "Hint copy under the create-card button. {freq} is the freshly-minted frequency including its unit (e.g. \"92.5 MHz\") and is rendered mono-styled. The full sentence is one ARB entry so translators can reorder the placeholder relative to the surrounding copy.",
         "placeholders": {
-            "freq": { "type": "String", "example": "92.5" }
+            "freq": { "type": "String", "example": "92.5 MHz" }
         }
     },
     "discoverySectionRecent": "Recent",
@@ -201,17 +198,12 @@
     "@discoveryUnknownHost": {
         "description": "Fallback host name when the discovered session advertised an empty name."
     },
-    "discoveryNearbyRowSubtitle": "Frequency Session",
+    "discoveryNearbyRowSubtitle": "Frequency Session  ·  On {freq}",
     "@discoveryNearbyRowSubtitle": {
-        "description": "Subtitle on a discovered nearby session row."
-    },
-    "discoveryNearbyRowOnPrefix": "On ",
-    "@discoveryNearbyRowOnPrefix": {
-        "description": "Prefix before the mono-styled MHz on a nearby row (the \"On 92.5\" half)."
-    },
-    "discoveryRowSeparator": "  ·  ",
-    "@discoveryRowSeparator": {
-        "description": "Middle-dot separator between subtitle pieces on a discovered-session row."
+        "description": "Subtitle on a discovered nearby session row. {freq} is the host's display frequency (e.g. \"92.5\") and is rendered mono-styled. Single ARB entry so translators can reorder the placeholder, separator, and prefix together.",
+        "placeholders": {
+            "freq": { "type": "String", "example": "92.5" }
+        }
     },
     "discoveryTuneIn": "Tune in",
     "@discoveryTuneIn": {
@@ -221,13 +213,12 @@
     "@discoveryRecentRowTitle": {
         "description": "Title on a row in the Recent (re-host) list."
     },
-    "discoveryRecentRowHostPrefix": "Host on ",
-    "@discoveryRecentRowHostPrefix": {
-        "description": "Prefix before the mono freq on a recent-host row (e.g. \"Host on 92.5 MHz\")."
-    },
-    "discoveryRecentRowMhzSuffix": " MHz",
-    "@discoveryRecentRowMhzSuffix": {
-        "description": "Suffix after the mono freq on a recent-host row."
+    "discoveryRecentRowHostFreq": "Host on {freq} MHz",
+    "@discoveryRecentRowHostFreq": {
+        "description": "Subtitle on a recent-host row. {freq} is the previously-hosted frequency (e.g. \"92.5\") and is rendered mono-styled. Single ARB entry so translators can reorder the placeholder relative to the surrounding text.",
+        "placeholders": {
+            "freq": { "type": "String", "example": "92.5" }
+        }
     },
     "discoveryRecentRowResume": "Resume",
     "@discoveryRecentRowResume": {

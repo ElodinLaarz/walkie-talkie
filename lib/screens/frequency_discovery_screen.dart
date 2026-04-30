@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/discovery_cubit.dart';
 import '../bloc/discovery_state.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
@@ -225,18 +226,16 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             onPressed: () => widget.onPick(DiscoveryResult(freq: _newFreq, isHost: true)),
           ),
           const SizedBox(height: 10),
-          RichText(
-            textAlign: TextAlign.center,
-            text: TextSpan(
+          Text.rich(
+            TextSpan(
               style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
-              children: [
-                TextSpan(text: l10n.discoveryNewFreqHintPrefix),
-                TextSpan(
-                  text: l10n.discoveryNewFreqUnit(_newFreq),
-                  style: kMonoStyle.copyWith(fontSize: 12, color: c.ink2),
-                ),
-              ],
+              children: styledTemplate(
+                template: l10n.discoveryNewFreqHint,
+                value: '$_newFreq MHz',
+                valueStyle: kMonoStyle.copyWith(fontSize: 12, color: c.ink2),
+              ),
             ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -434,22 +433,21 @@ class _NearbyRow extends StatelessWidget {
                         color: c.ink,
                       ),
                     ),
-                    DefaultTextStyle.merge(
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              l10n.discoveryNearbyRowSubtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(l10n.discoveryRowSeparator),
-                          Text(l10n.discoveryNearbyRowOnPrefix),
-                          Text(s.mhzDisplay, style: kMonoStyle.copyWith(fontSize: 12)),
-                        ],
+                    Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink3,
+                        ),
+                        children: styledTemplate(
+                          template: l10n.discoveryNearbyRowSubtitle,
+                          value: s.mhzDisplay,
+                          valueStyle: kMonoStyle.copyWith(fontSize: 12),
+                        ),
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -547,14 +545,11 @@ class _RecentRow extends StatelessWidget {
                           fontSize: 12,
                           color: c.ink3,
                         ),
-                        children: [
-                          TextSpan(text: l10n.discoveryRecentRowHostPrefix),
-                          TextSpan(
-                            text: freq,
-                            style: kMonoStyle.copyWith(fontSize: 12),
-                          ),
-                          TextSpan(text: l10n.discoveryRecentRowMhzSuffix),
-                        ],
+                        children: styledTemplate(
+                          template: l10n.discoveryRecentRowHostFreq,
+                          value: freq,
+                          valueStyle: kMonoStyle.copyWith(fontSize: 12),
+                        ),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

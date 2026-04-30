@@ -7,6 +7,11 @@ import '../services/onboarding_permission_gateway.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 
+/// Total number of steps in the onboarding flow. Surfaces in the chrome
+/// indicator (e.g. "01/03"); kept here so adding a step does not require
+/// updating the ARB or every locale's translation.
+const int _kOnboardingTotalSteps = 3;
+
 /// 3-step onboarding: welcome → permissions → display name.
 class FrequencyOnboardingScreen extends StatefulWidget {
   final ValueChanged<String> onDone;
@@ -83,6 +88,7 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
                 Text(
                   l10n.onboardingStepIndicator(
                     (_step + 1).toString().padLeft(2, '0'),
+                    _kOnboardingTotalSteps.toString().padLeft(2, '0'),
                   ),
                   style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3),
                 ),
