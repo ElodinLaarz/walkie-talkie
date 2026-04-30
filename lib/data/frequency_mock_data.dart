@@ -16,22 +16,6 @@ class Person {
   });
 }
 
-class NearbyPhone {
-  final String id;
-  final String name;
-  final int rssi;
-  final String device;
-  final String? freq;
-
-  const NearbyPhone({
-    required this.id,
-    required this.name,
-    required this.rssi,
-    required this.device,
-    this.freq,
-  });
-}
-
 enum MediaKind { music, podcast }
 
 class Track {
@@ -73,14 +57,6 @@ const List<Person> kPeople = [
   Person(id: 'p9', name: 'Noor', initials: 'NO', hue: 110, btDevice: 'Soundcore'),
   Person(id: 'pA', name: 'Kai', initials: 'KA', hue: 55, btDevice: 'AirPods Max'),
   Person(id: 'pB', name: 'Remy', initials: 'RE', hue: 220, btDevice: 'Nothing Ear'),
-];
-
-const List<NearbyPhone> kNearby = [
-  NearbyPhone(id: 'n1', name: "Maya's Pixel", rssi: -48, device: 'Pixel 8 Pro'),
-  NearbyPhone(id: 'n2', name: "Devon's phone", rssi: -56, device: 'Galaxy S24', freq: '104.3'),
-  NearbyPhone(id: 'n3', name: "Priya's Pixel", rssi: -62, device: 'Pixel 7', freq: '104.3'),
-  NearbyPhone(id: 'n4', name: 'Jules (OnePlus)', rssi: -71, device: 'OnePlus 12'),
-  NearbyPhone(id: 'n5', name: "Sam's Android", rssi: -78, device: 'Nothing Phone', freq: '88.1'),
 ];
 
 final Map<String, MediaSourceLib> kMedia = {

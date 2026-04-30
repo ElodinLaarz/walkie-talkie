@@ -121,9 +121,9 @@ class BleControlTransport {
       if (!_filter.accept(peerId: msg.peerId, seq: msg.seq)) return;
       if (!_incoming.isClosed) _incoming.add(msg);
     } on FragmentError catch (e) {
-      debugPrint('drop fragment from ${event.endpointId}: $e');
+      if (kDebugMode) debugPrint('drop fragment from ${event.endpointId}: $e');
     } on FormatException catch (e) {
-      debugPrint('drop message from ${event.endpointId}: $e');
+      if (kDebugMode) debugPrint('drop message from ${event.endpointId}: $e');
     }
   }
 }

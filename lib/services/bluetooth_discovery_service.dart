@@ -6,12 +6,19 @@ import '../protocol/discovery.dart';
 
 /// DiscoveryService scans for nearby Frequency hosts using Bluetooth LE.
 class DiscoveryService {
+  /// How long a host can go un-advertised before it's considered out of range
+  /// and pruned from the emitted list. Hosts advertise on the order of
+  /// 100-1000 ms, so 10 s tolerates a couple of dropped windows without
+  /// blanking a still-present session.
+  static const Duration freshnessWindow = Duration(seconds: 10);
+
   final StreamController<List<DiscoveredSession>> _resultsController =
       StreamController<List<DiscoveredSession>>.broadcast();
 
   Stream<List<DiscoveredSession>> get results => _resultsController.stream;
 
-  final Map<String, DiscoveredSession> _discovered = {};
+  final Map<String, ({DiscoveredSession session, DateTime lastSeen})>
+      _discovered = {};
   StreamSubscription? _scanSubscription;
 
   /// Starts scanning for Frequency advertisements.
@@ -41,10 +48,14 @@ class DiscoveryService {
       for (ScanResult r in results) {
         final session = _parseResult(r);
         if (session != null) {
-          _discovered[session.sessionUuidLow8] = session;
-          _emit();
+          _discovered[session.sessionUuidLow8] =
+              (session: session, lastSeen: DateTime.now());
         }
       }
+      // Emit unconditionally so the freshness window prunes stale entries
+      // even when this tick has no new sessions (e.g. every host went out
+      // of range — the listener still needs to see the empty list).
+      _emit();
     });
 
     // 3. Start scanning.
@@ -64,7 +75,11 @@ class DiscoveryService {
   }
 
   void _emit() {
-    _resultsController.add(_discovered.values.toList());
+    final cutoff = DateTime.now().subtract(freshnessWindow);
+    _discovered.removeWhere((_, entry) => entry.lastSeen.isBefore(cutoff));
+    _resultsController.add(
+      _discovered.values.map((e) => e.session).toList(),
+    );
   }
 
   DiscoveredSession? _parseResult(ScanResult r) {
