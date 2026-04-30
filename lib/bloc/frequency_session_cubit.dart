@@ -174,16 +174,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       _localPeerId = await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      debugPrint('Failed to load peer ID: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to load peer ID: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
 
     String? persisted;
     try {
       persisted = await identityStore.getDisplayName();
     } catch (error, stackTrace) {
-      debugPrint('Failed to load persisted display name: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to load persisted display name: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
     if (persisted == null) {
@@ -323,8 +323,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         samples = await audio.getCurrentRssi();
       } catch (error, stackTrace) {
-        debugPrint('Failed to sample RSSI: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) debugPrint('Failed to sample RSSI: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         _seq++;
         return;
       }
@@ -339,8 +339,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         peerId = await identityStore.getPeerId();
       } catch (error, stackTrace) {
-        debugPrint('Failed to resolve peer id for signal report: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) debugPrint('Failed to resolve peer id for signal report: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         _seq++;
         return;
       }
@@ -357,8 +357,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         await t.send(msg);
       } catch (error, stackTrace) {
-        debugPrint('SignalReport send failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) debugPrint('SignalReport send failed: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       }
     } finally {
       _signalReportSendInFlight = false;
@@ -391,8 +391,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         peerId = await identityStore.getPeerId();
       } catch (error, stackTrace) {
-        debugPrint('Failed to resolve peer id for heartbeat: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) debugPrint('Failed to resolve peer id for heartbeat: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         _seq++;
         return;
       }
@@ -408,8 +408,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // Transport-layer failures are already logged inside
         // BleControlTransport; swallow here so a single bad tick doesn't
         // poison the timer.
-        debugPrint('Heartbeat send failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) debugPrint('Heartbeat send failed: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       }
     } finally {
       _heartbeatSendInFlight = false;
@@ -481,8 +481,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       peerId = await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      debugPrint('Failed to resolve peer id for roster update: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to resolve peer id for roster update: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return;
     }
     if (isClosed) return;
@@ -533,8 +533,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       await identityStore.setDisplayName(name);
     } catch (error, stackTrace) {
-      debugPrint('Failed to persist display name: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to persist display name: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
     final recent = await _loadRecentFrequencies();
@@ -555,8 +555,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       await identityStore.setDisplayName(name);
     } catch (error, stackTrace) {
-      debugPrint('Failed to persist display name: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to persist display name: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
     switch (state) {
@@ -636,8 +636,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           hostPeerId = await identityStore.getPeerId();
           _localPeerId = hostPeerId;
         } catch (error, stackTrace) {
-          debugPrint('Failed to load peerId for host bootstrap: $error');
-          debugPrintStack(stackTrace: stackTrace);
+          if (kDebugMode) debugPrint('Failed to load peerId for host bootstrap: $error');
+          if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
           return;
         }
       }
@@ -684,8 +684,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       }
     } else {
       if (freq == null) {
-        debugPrint(
-            'joinRoom guest path requires a freq; refusing to enter the room.');
+        if (kDebugMode) debugPrint('joinRoom guest path requires a freq; refusing to enter the room.');
         return;
       }
       room = SessionRoom(
@@ -779,8 +778,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       return await recentFrequenciesStore.getRecent();
     } catch (error, stackTrace) {
-      debugPrint('Failed to load recent frequencies: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to load recent frequencies: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return const [];
     }
   }
@@ -789,8 +788,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       await recentFrequenciesStore.record(freq);
     } catch (error, stackTrace) {
-      debugPrint('Failed to record recent frequency: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to record recent frequency: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -895,8 +894,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // Callers from the room screen fire-and-forget, so an exception
       // here would surface as an unhandled async error. Log and bail —
       // the user re-tapping is a fine recovery path.
-      debugPrint('Failed to resolve peer id for media command: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to resolve peer id for media command: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return;
     }
     // Re-check both gates after the await: a `close()` racing with this
@@ -965,8 +964,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       peerId = await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      debugPrint('Failed to resolve peer id for mute broadcast: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      if (kDebugMode) debugPrint('Failed to resolve peer id for mute broadcast: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       _seq++;
       return;
     }

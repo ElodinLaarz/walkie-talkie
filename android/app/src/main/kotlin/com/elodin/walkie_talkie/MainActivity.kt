@@ -1,5 +1,7 @@
 package com.elodin.walkie_talkie
 
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -191,15 +193,14 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "getCurrentRssi" -> {
-                    // Per issue #53: returns one (peerId, rssi) entry per
-                    // peer connected over the GATT link. The full
-                    // implementation requires BluetoothGatt.readRemoteRssi,
-                    // which only the GATT *client* (issue #43) exposes —
-                    // the GATT server side cannot read remote RSSI on its
-                    // accepted connections. Until #43 lands we return an
-                    // empty list rather than fabricating values; the Dart
-                    // side already short-circuits a send when the list is
-                    // empty, so the wire stays quiet.
+                    // Returns one (peerId, rssi) entry per peer connected
+                    // over the GATT link. Full implementation requires
+                    // BluetoothGatt.readRemoteRssi on the client side
+                    // (gattClientManager); the server side cannot read
+                    // remote RSSI on its accepted connections. Until that
+                    // sampling is wired we return an empty list rather
+                    // than fabricating values; the Dart side already
+                    // short-circuits a send when the list is empty.
                     result.success(emptyList<Map<String, Any>>())
                 }
                 "writeNotification" -> {
@@ -248,7 +249,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "startVoiceServer" -> {
                     Log.i(TAG, "Starting L2CAP voice server")
-                    val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                    val bt = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
                     if (bt == null) {
                         result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
                     } else {
@@ -279,7 +280,7 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "macAddress and psm are required", null)
                     } else {
                         Log.i(TAG, "Connecting L2CAP voice client to $mac PSM 0x${psm.toString(16)}")
-                        val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                        val bt = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
                         if (bt == null) {
                             result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
                         } else {

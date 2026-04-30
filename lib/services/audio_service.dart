@@ -27,7 +27,7 @@ class AudioService {
       );
       return result as bool;
     } catch (e) {
-      debugPrint('Error starting service: $e');
+      if (kDebugMode) debugPrint('Error starting service: $e');
       return false;
     }
   }
@@ -38,7 +38,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('stopService');
       return result as bool;
     } catch (e) {
-      debugPrint('Error stopping service: $e');
+      if (kDebugMode) debugPrint('Error stopping service: $e');
       return false;
     }
   }
@@ -49,7 +49,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('scanDevices');
       return result as bool;
     } catch (e) {
-      debugPrint('Error scanning devices: $e');
+      if (kDebugMode) debugPrint('Error scanning devices: $e');
       return false;
     }
   }
@@ -59,7 +59,7 @@ class AudioService {
     try {
       await _methodChannel.invokeMethod('stopScan');
     } catch (e) {
-      debugPrint('Error stopping scan: $e');
+      if (kDebugMode) debugPrint('Error stopping scan: $e');
     }
   }
 
@@ -71,7 +71,7 @@ class AudioService {
       });
       return result as bool;
     } catch (e) {
-      debugPrint('Error connecting to device: $e');
+      if (kDebugMode) debugPrint('Error connecting to device: $e');
       return false;
     }
   }
@@ -84,7 +84,7 @@ class AudioService {
       });
       return result as bool;
     } catch (e) {
-      debugPrint('Error disconnecting from device: $e');
+      if (kDebugMode) debugPrint('Error disconnecting from device: $e');
       return false;
     }
   }
@@ -108,7 +108,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('startVoice');
       return result == true;
     } catch (e) {
-      debugPrint('Error starting voice: $e');
+      if (kDebugMode) debugPrint('Error starting voice: $e');
       return false;
     }
   }
@@ -121,7 +121,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('stopVoice');
       return result == true;
     } catch (e) {
-      debugPrint('Error stopping voice: $e');
+      if (kDebugMode) debugPrint('Error stopping voice: $e');
       return false;
     }
   }
@@ -143,7 +143,7 @@ class AudioService {
       });
       return result == true;
     } catch (e) {
-      debugPrint('Error setting mute state: $e');
+      if (kDebugMode) debugPrint('Error setting mute state: $e');
       return false;
     }
   }
@@ -167,7 +167,7 @@ class AudioService {
       });
       return result == true;
     } catch (e) {
-      debugPrint('Error setting audio output to $output: $e');
+      if (kDebugMode) debugPrint('Error setting audio output to $output: $e');
       return false;
     }
   }
@@ -185,7 +185,7 @@ class AudioService {
         };
       }).toList();
     } catch (e) {
-      debugPrint('Error getting connected devices: $e');
+      if (kDebugMode) debugPrint('Error getting connected devices: $e');
       return [];
     }
   }
@@ -199,7 +199,7 @@ class AudioService {
           return Map<String, dynamic>.from(event as Map);
         })
         .handleError((error) {
-          debugPrint('Audio event stream error: $error');
+          if (kDebugMode) debugPrint('Audio event stream error: $error');
           return <String, dynamic>{};
         });
     return _eventStream!;
@@ -266,7 +266,7 @@ class AudioService {
       });
       return result == true;
     } catch (e) {
-      debugPrint('Error starting advertising: $e');
+      if (kDebugMode) debugPrint('Error starting advertising: $e');
       return false;
     }
   }
@@ -279,7 +279,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('stopAdvertising');
       return result == true;
     } catch (e) {
-      debugPrint('Error stopping advertising: $e');
+      if (kDebugMode) debugPrint('Error stopping advertising: $e');
       return false;
     }
   }
@@ -297,7 +297,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('startGattServer');
       return result == true;
     } catch (e) {
-      debugPrint('Error starting GATT server: $e');
+      if (kDebugMode) debugPrint('Error starting GATT server: $e');
       return false;
     }
   }
@@ -340,7 +340,7 @@ class AudioService {
           .whereType<({String peerId, int rssi})>()
           .toList(growable: false);
     } catch (e) {
-      debugPrint('Error getting current RSSI: $e');
+      if (kDebugMode) debugPrint('Error getting current RSSI: $e');
       return const [];
     }
   }
@@ -351,7 +351,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod('stopGattServer');
       return result == true;
     } catch (e) {
-      debugPrint('Error stopping GATT server: $e');
+      if (kDebugMode) debugPrint('Error stopping GATT server: $e');
       return false;
     }
   }
@@ -371,7 +371,7 @@ class AudioService {
       });
       return result == true;
     } catch (e) {
-      debugPrint('Error writing notification to $deviceAddress: $e');
+      if (kDebugMode) debugPrint('Error writing notification to $deviceAddress: $e');
       return false;
     }
   }
@@ -388,7 +388,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod<int>('startVoiceServer');
       return result;
     } catch (e) {
-      debugPrint('Error starting voice server: $e');
+      if (kDebugMode) debugPrint('Error starting voice server: $e');
       return null;
     }
   }
@@ -408,7 +408,7 @@ class AudioService {
       );
       return result == true;
     } catch (e) {
-      debugPrint('Error connecting voice client: $e');
+      if (kDebugMode) debugPrint('Error connecting voice client: $e');
       return false;
     }
   }
@@ -420,7 +420,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod<bool>('stopVoiceTransport');
       return result == true;
     } catch (e) {
-      debugPrint('Error stopping voice transport: $e');
+      if (kDebugMode) debugPrint('Error stopping voice transport: $e');
       return false;
     }
   }
@@ -442,7 +442,7 @@ class AudioService {
           return Map<String, dynamic>.from(event as Map);
         })
         .handleError((error) {
-          debugPrint('Control bytes event stream error: $error');
+          if (kDebugMode) debugPrint('Control bytes event stream error: $error');
           return <String, dynamic>{};
         });
     return _controlBytesStream!
@@ -468,7 +468,7 @@ class AudioService {
         <String, dynamic>{'bytes': bytes},
       );
     } catch (e) {
-      debugPrint('Error writing control bytes: $e');
+      if (kDebugMode) debugPrint('Error writing control bytes: $e');
     }
   }
 
@@ -489,7 +489,7 @@ class AudioService {
       );
       return result == true;
     } catch (e) {
-      debugPrint('Error connecting to host: $e');
+      if (kDebugMode) debugPrint('Error connecting to host: $e');
       return false;
     }
   }
@@ -503,7 +503,7 @@ class AudioService {
       final result = await _methodChannel.invokeMethod<bool>('disconnectFromHost');
       return result == true;
     } catch (e) {
-      debugPrint('Error disconnecting from host: $e');
+      if (kDebugMode) debugPrint('Error disconnecting from host: $e');
       return false;
     }
   }
@@ -522,7 +522,7 @@ class AudioService {
       );
       return result == true;
     } catch (e) {
-      debugPrint('Error writing request: $e');
+      if (kDebugMode) debugPrint('Error writing request: $e');
       return false;
     }
   }

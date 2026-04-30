@@ -47,10 +47,16 @@ class DiscoveredSession {
     return (tenths / 10.0).toStringAsFixed(1);
   }
 
+  /// Parses a hex string into bytes. Returns an empty list on any malformed
+  /// input (odd length, non-hex characters) — callers fall back to the
+  /// default value rather than crashing on a bad UUID payload from the wire.
   static Uint8List _hexToBytes(String hex) {
+    if (hex.length.isOdd) return Uint8List(0);
     final result = Uint8List(hex.length ~/ 2);
     for (var i = 0; i < hex.length; i += 2) {
-      result[i ~/ 2] = int.parse(hex.substring(i, i + 2), radix: 16);
+      final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
+      if (byte == null) return Uint8List(0);
+      result[i ~/ 2] = byte;
     }
     return result;
   }

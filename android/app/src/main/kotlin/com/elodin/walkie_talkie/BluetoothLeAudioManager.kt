@@ -162,14 +162,11 @@ class BluetoothLeAudioManager(private val context: Context) {
         // 1. Add all bonded (paired) devices that have names
         try {
             val bondedDevices = bluetoothAdapter.bondedDevices ?: emptySet()
-            Log.i(TAG, "Found ${bondedDevices.size} bonded devices")
-            
             bondedDevices.forEach { device ->
                 val deviceName = device.name
                 if (deviceName != null && deviceName.isNotBlank()) {
                     val deviceAddress = device.address
                     discoveredDevices[deviceAddress] = device
-                    Log.i(TAG, "Added bonded device: $deviceName ($deviceAddress)")
                     onDeviceDiscovered?.invoke(deviceAddress, deviceName)
                 }
             }
@@ -194,7 +191,6 @@ class BluetoothLeAudioManager(private val context: Context) {
         try {
             // Start scan
             bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
-            Log.i(TAG, "Started BLE scan to update device status")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start scan", e)
@@ -333,7 +329,6 @@ class BluetoothLeAudioManager(private val context: Context) {
         // Return devices that have been added to the app
         return connectedDevices.map { (address, device) ->
             val deviceName = device.name ?: "Unknown Device"
-            Log.i(TAG, "App device: $deviceName ($address)")
             Pair(address, deviceName)
         }
     }

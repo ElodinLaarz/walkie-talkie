@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -199,7 +200,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // device when _output is bluetooth), keep the UI selection but log it.
       final routed = await _audio.setAudioOutput(_output.name);
       if (!routed) {
-        debugPrint('Failed to route to ${_output.name}, device may be unavailable');
+        if (kDebugMode) debugPrint('Failed to route to ${_output.name}, device may be unavailable');
       }
     }());
 
@@ -331,9 +332,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     if (_appliedSnapshot == snapshot) return;
     final lib = kMedia[snapshot.source];
     if (lib == null) {
-      debugPrint(
-        'Ignoring media snapshot for unknown source "${snapshot.source}"',
-      );
+      if (kDebugMode) debugPrint('Ignoring media snapshot for unknown source "${snapshot.source}"');
       return;
     }
     _appliedSnapshot = snapshot;
@@ -438,7 +437,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             // Anchor scrub seeks to peer clocks
             final deltaMs = DateTime.now().millisecondsSinceEpoch - cmd.atMs;
             final effectiveMs = cmd.positionMs! + (deltaMs > 0 ? deltaMs : 0);
-            _progress = (effectiveMs / 1000).round();
+            _progress = (effectiveMs / 1000)
+                .round()
+                .clamp(0, _track.durationSeconds);
             _lastAction = _LastAction(by: senderName, action: 'scrubbed', when: 'just now');
           }
           break;
@@ -1002,7 +1003,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         // the current selection and optionally show a toast. For now, we
         // silently keep the previous output rather than updating the UI
         // to a non-functional state.
-        debugPrint('Failed to route audio to $outputStr, keeping current output');
+        if (kDebugMode) debugPrint('Failed to route audio to $outputStr, keeping current output');
       }
     }
   }
