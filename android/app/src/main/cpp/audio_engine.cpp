@@ -37,11 +37,114 @@ static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
 static jobject g_mainActivity = nullptr;
 
+// Forward declaration for the error callback class
+class AudioEngineErrorCallback;
+
+// Emit audio error event to Flutter via JNI.
+// Called from Oboe's error callback when a stream error occurs (e.g., permission
+// revoked, device disconnected). Maps Oboe error codes to human-readable reasons
+// and sends them to the Dart side so the UI can transition to an error state.
+static void emitAudioErrorEvent(oboe::Result error) {
+    JavaVM* jvm = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_jniMutex);
+        jvm = g_jvm;
+        if (jvm == nullptr || g_mainActivity == nullptr) return;
+    }
+
+    JNIEnv* env = nullptr;
+    bool needDetach = false;
+    if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return;
+        }
+        needDetach = true;
+    }
+
+    jobject activity = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_jniMutex);
+        if (g_mainActivity != nullptr) {
+            activity = env->NewLocalRef(g_mainActivity);
+        }
+    }
+    if (activity == nullptr) {
+        if (needDetach) jvm->DetachCurrentThread();
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method = env->GetMethodID(activityClass,
+                                            "sendAudioError", "(Ljava/lang/String;)V");
+        if (method != nullptr) {
+            // Map Oboe error codes to reason strings
+            const char* reason = "UNKNOWN";
+            switch (error) {
+                case oboe::Result::ErrorDisconnected:
+                    reason = "DISCONNECTED";
+                    break;
+                case oboe::Result::ErrorInternal:
+                    reason = "INTERNAL";
+                    break;
+                case oboe::Result::ErrorInvalidState:
+                    reason = "INVALID_STATE";
+                    break;
+                case oboe::Result::ErrorClosed:
+                    reason = "CLOSED";
+                    break;
+                default:
+                    reason = "AUDIO_ERROR";
+                    break;
+            }
+
+            jstring reasonStr = env->NewStringUTF(reason);
+            if (reasonStr != nullptr) {
+                env->CallVoidMethod(activity, method, reasonStr);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                }
+                env->DeleteLocalRef(reasonStr);
+            }
+        }
+        env->DeleteLocalRef(activityClass);
+    }
+    env->DeleteLocalRef(activity);
+
+    if (needDetach) {
+        jvm->DetachCurrentThread();
+    }
+}
+
+// Error callback for Oboe streams. Emits structured events to Flutter rather
+// than crashing the foreground service. Handles permission revocation (which
+// presents as ErrorDisconnected or ErrorInternal) and other stream errors.
+//
+// Note: Oboe invokes both onErrorBeforeClose and onErrorAfterClose for the same
+// failure. We emit only in onErrorBeforeClose to avoid duplicate Flutter events.
+class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
+public:
+    void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
+        LOGE("Oboe stream error: %s", oboe::convertToText(error));
+        emitAudioErrorEvent(error);
+    }
+
+    void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override {
+        LOGE("Oboe stream error after close: %s (event already emitted)",
+             oboe::convertToText(error));
+        // Do not emit — onErrorBeforeClose already sent the event.
+    }
+};
+
 class AudioEngine : public oboe::AudioStreamDataCallback {
 private:
     std::shared_ptr<oboe::AudioStream> recordingStream;
     std::shared_ptr<oboe::AudioStream> playbackStream;
     std::mutex audioMutex;
+
+    // Error callback shared between recording and playback streams
+    std::shared_ptr<AudioEngineErrorCallback> errorCallback;
 
     // Audio configuration — Oboe runs at 48 kHz; the codec/mixer rate is
     // 16 kHz; the resamplers below bridge the two.
@@ -157,7 +260,7 @@ private:
     }
 
 public:
-    AudioEngine() {}
+    AudioEngine() : errorCallback(std::make_shared<AudioEngineErrorCallback>()) {}
 
     ~AudioEngine() { stop(); }
 
@@ -172,7 +275,8 @@ public:
             ->setFormat(kFormat)
             ->setChannelCount(kChannelCount)
             ->setSampleRate(kSampleRate)
-            ->setDataCallback(this);
+            ->setDataCallback(this)
+            ->setErrorCallback(errorCallback.get());
 
         oboe::Result result = recordingBuilder.openStream(recordingStream);
         if (result != oboe::Result::OK) {
@@ -187,7 +291,8 @@ public:
             ->setSharingMode(oboe::SharingMode::Exclusive)
             ->setFormat(kFormat)
             ->setChannelCount(kChannelCount)
-            ->setSampleRate(kSampleRate);
+            ->setSampleRate(kSampleRate)
+            ->setErrorCallback(errorCallback.get());
 
         result = playbackBuilder.openStream(playbackStream);
         if (result != oboe::Result::OK) {

@@ -19,10 +19,13 @@ import android.util.Log
  */
 class GattClientManager(
     private val context: Context,
-    private val onResponseBytes: (bytes: ByteArray) -> Unit
+    private val onResponseBytes: (bytes: ByteArray) -> Unit,
+    private val onError: ((String) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "GattClientManager"
+        private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
+        private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
     }
 
     private var gatt: BluetoothGatt? = null
@@ -43,6 +46,20 @@ class GattClientManager(
             status: Int,
             newState: Int
         ) {
+            // Check for authorization/authentication failures
+            if (status == GATT_INSUFFICIENT_AUTHORIZATION || status == GATT_INSUFFICIENT_AUTHENTICATION) {
+                Log.e(TAG, "GATT authorization failure: status=$status")
+                onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                negotiatedMtus.remove(gatt.device.address)
+                if (this@GattClientManager.gatt === gatt) {
+                    this@GattClientManager.gatt = null
+                }
+                gatt.close()
+                requestCharacteristic = null
+                responseCharacteristic = null
+                return
+            }
+
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to GATT server: ${gatt.device.address}")
@@ -187,6 +204,7 @@ class GattClientManager(
             return gatt != null
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing Bluetooth permissions for connectGatt", e)
+            onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
             return false
         } catch (e: IllegalArgumentException) {
             Log.e(TAG, "Invalid MAC address: $macAddress", e)
@@ -226,6 +244,7 @@ class GattClientManager(
             return success
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing Bluetooth permissions for writeCharacteristic", e)
+            onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
             return false
         } catch (e: Exception) {
             Log.e(TAG, "Error writing REQUEST characteristic", e)

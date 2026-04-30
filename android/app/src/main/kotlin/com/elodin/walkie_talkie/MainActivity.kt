@@ -209,9 +209,18 @@ class MainActivity : FlutterActivity() {
                 "startGattServer" -> {
                     Log.i(TAG, "Starting GATT server")
                     if (gattServerManager == null) {
-                        gattServerManager = GattServerManager(this) { deviceAddress, bytes ->
-                            sendControlBytesToFlutter(deviceAddress, bytes)
-                        }
+                        gattServerManager = GattServerManager(
+                            context = this,
+                            onBytesReceived = { deviceAddress, bytes ->
+                                sendControlBytesToFlutter(deviceAddress, bytes)
+                            },
+                            onError = { reason ->
+                                sendEventToFlutter(mapOf(
+                                    "type" to "gattError",
+                                    "reason" to reason
+                                ))
+                            }
+                        )
                     }
                     val success = gattServerManager?.start() ?: false
                     result.success(success)
@@ -251,11 +260,20 @@ class MainActivity : FlutterActivity() {
                     } else {
                         Log.i(TAG, "Connecting to host GATT server at $macAddress")
                         if (gattClientManager == null) {
-                            gattClientManager = GattClientManager(this) { bytes ->
-                                // Forward RESPONSE bytes to Flutter via controlBytes stream
-                                // Use the MAC address as the endpointId (host identifier)
-                                sendControlBytesToFlutter(macAddress, bytes)
-                            }
+                            gattClientManager = GattClientManager(
+                                context = this,
+                                onResponseBytes = { bytes ->
+                                    // Forward RESPONSE bytes to Flutter via controlBytes stream
+                                    // Use the MAC address as the endpointId (host identifier)
+                                    sendControlBytesToFlutter(macAddress, bytes)
+                                },
+                                onError = { reason ->
+                                    sendEventToFlutter(mapOf(
+                                        "type" to "gattError",
+                                        "reason" to reason
+                                    ))
+                                }
+                            )
                         }
                         val success = gattClientManager?.connectToHost(macAddress) ?: false
                         result.success(success)
@@ -423,6 +441,15 @@ class MainActivity : FlutterActivity() {
         sendEventToFlutter(mapOf(
             "type" to "localTalking",
             "talking" to talking
+        ))
+    }
+
+    // Called from JNI when an Oboe audio error occurs (e.g., permission revoked)
+    fun sendAudioError(reason: String) {
+        Log.e(TAG, "Audio error from native: $reason")
+        sendEventToFlutter(mapOf(
+            "type" to "audioError",
+            "reason" to reason
         ))
     }
 
