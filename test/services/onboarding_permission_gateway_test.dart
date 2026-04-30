@@ -3,12 +3,9 @@ import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:walkie_talkie/services/onboarding_permission_gateway.dart';
 
 void main() {
-  group('OnboardingPermissionGateway._reduce', () {
-    /// Direct test of the _reduce static method.
-    /// Since it's a static method on DefaultOnboardingPermissionGateway,
-    /// we can't call it directly without reflection or making it public.
-    /// Instead, we verify the reduction logic through the expected behavior
-    /// documented in the method and test it via the public API.
+  group('OnboardingPermissionGateway.reduce', () {
+    /// Direct test of the reduce static method.
+    /// The method is marked @visibleForTesting to allow unit testing.
     ///
     /// The reduction logic is:
     /// - If ANY permission is permanentlyDenied → permanentlyDenied
@@ -24,7 +21,7 @@ void main() {
       ];
 
       // Expected behavior: any permanentlyDenied → permanentlyDenied
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
@@ -35,7 +32,7 @@ void main() {
         ph.PermissionStatus.permanentlyDenied,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
@@ -46,7 +43,7 @@ void main() {
         ph.PermissionStatus.granted,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.granted);
     });
 
@@ -56,7 +53,7 @@ void main() {
         ph.PermissionStatus.limited,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.granted);
     });
 
@@ -68,7 +65,7 @@ void main() {
         ph.PermissionStatus.limited,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.granted);
     });
 
@@ -79,7 +76,7 @@ void main() {
         ph.PermissionStatus.granted,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
     });
 
@@ -89,7 +86,7 @@ void main() {
         ph.PermissionStatus.denied,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
     });
 
@@ -101,7 +98,7 @@ void main() {
         ph.PermissionStatus.granted,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
     });
 
@@ -111,7 +108,7 @@ void main() {
         ph.PermissionStatus.restricted,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
     });
 
@@ -122,7 +119,7 @@ void main() {
         ph.PermissionStatus.denied,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
@@ -133,35 +130,35 @@ void main() {
         ph.PermissionStatus.permanentlyDenied,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
     test('single granted permission results in granted', () {
       final statuses = [ph.PermissionStatus.granted];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.granted);
     });
 
     test('single denied permission results in denied', () {
       final statuses = [ph.PermissionStatus.denied];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
     });
 
     test('single permanentlyDenied permission results in permanentlyDenied', () {
       final statuses = [ph.PermissionStatus.permanentlyDenied];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
     test('empty list results in granted (edge case - vacuous truth)', () {
       final statuses = <ph.PermissionStatus>[];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       // When there are no permissions, .any() returns false (no permanently denied),
       // and .every() returns true (vacuous truth - all zero permissions satisfy
       // the condition). So the logic flows to granted.
@@ -179,7 +176,7 @@ void main() {
         ph.PermissionStatus.provisional,
       ];
 
-      final result = _reduce(statuses);
+      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       // provisional is not .isGranted and not .isLimited in the permission_handler API,
       // but the current logic only checks .isGranted and .isLimited.
       // If provisional is not covered by either, it falls to denied.
@@ -192,17 +189,4 @@ void main() {
       expect(result, OnboardingPermissionStatus.denied);
     });
   });
-}
-
-/// Helper that replicates the _reduce logic from DefaultOnboardingPermissionGateway.
-/// This is a test helper to verify the reduction behavior without making the
-/// private method public or using reflection.
-OnboardingPermissionStatus _reduce(Iterable<ph.PermissionStatus> values) {
-  if (values.any((s) => s.isPermanentlyDenied)) {
-    return OnboardingPermissionStatus.permanentlyDenied;
-  }
-  if (values.every((s) => s.isGranted || s.isLimited)) {
-    return OnboardingPermissionStatus.granted;
-  }
-  return OnboardingPermissionStatus.denied;
 }
