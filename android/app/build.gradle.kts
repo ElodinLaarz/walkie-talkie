@@ -86,7 +86,11 @@ android {
         release {
             // Fail fast if release build is requested but no signing config is available
             val envKeystorePath = System.getenv("KEYSTORE_PATH")
-            val hasEnvConfig = envKeystorePath != null
+            val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val envKeyAlias = System.getenv("KEY_ALIAS")
+            val envKeyPassword = System.getenv("KEY_PASSWORD")
+            val hasEnvConfig = envKeystorePath != null && envKeystorePassword != null &&
+                               envKeyAlias != null && envKeyPassword != null
             val hasFileConfig = rootProject.file("key.properties").exists()
 
             if (!hasEnvConfig && !hasFileConfig) {

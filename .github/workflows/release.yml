@@ -51,12 +51,12 @@ jobs:
             echo "Error: KEYSTORE_BASE64 secret is not set"
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > $HOME/walkie-talkie.jks
-          echo "Keystore decoded to $HOME/walkie-talkie.jks"
+          echo "$KEYSTORE_BASE64" | base64 -d > ${{ runner.temp }}/walkie-talkie.jks
+          echo "Keystore decoded to ${{ runner.temp }}/walkie-talkie.jks"
 
       - name: Build release AAB
         env:
-          KEYSTORE_PATH: ${{ format('{0}/walkie-talkie.jks', env.HOME) }}
+          KEYSTORE_PATH: ${{ runner.temp }}/walkie-talkie.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -77,4 +77,4 @@ jobs:
 
       - name: Clean up keystore
         if: always()
-        run: rm -f $HOME/walkie-talkie.jks
+        run: rm -f ${{ runner.temp }}/walkie-talkie.jks
