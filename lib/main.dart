@@ -10,11 +10,14 @@ import 'bloc/frequency_session_state.dart';
 import 'data/frequency_mock_data.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
+import 'screens/frequency_permission_denied_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/audio_service.dart';
 import 'services/ble_control_transport.dart';
 import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
+import 'services/onboarding_permission_gateway.dart';
+import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
@@ -25,7 +28,7 @@ void main() async {
   runApp(const WalkieTalkieApp());
 }
 
-class WalkieTalkieApp extends StatelessWidget {
+class WalkieTalkieApp extends StatefulWidget {
   /// Override for tests; defaults to the Hive-backed implementation.
   final IdentityStore? identityStore;
 
@@ -39,39 +42,93 @@ class WalkieTalkieApp extends StatelessWidget {
   /// the native MethodChannel/EventChannel.
   final AudioService? audioService;
 
+  /// Override for tests; defaults to [DefaultPermissionWatcher] which polls
+  /// permissions on app resume + every 5 s. Tests inject a fake to drive
+  /// the revocation flow without permission_handler's platform channel.
+  final PermissionWatcher? permissionWatcher;
+
   const WalkieTalkieApp({
     super.key,
     this.identityStore,
     this.recentFrequenciesStore,
     this.discoveryService,
     this.audioService,
+    this.permissionWatcher,
   });
 
   @override
+  State<WalkieTalkieApp> createState() => _WalkieTalkieAppState();
+}
+
+class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
+  /// Owned by this State so [PermissionWatcher.dispose] runs deterministically
+  /// when the app widget is unmounted (hot restart, tests, embedded usage).
+  /// `flutter_bloc` 8.1.6's [RepositoryProvider] suppresses the underlying
+  /// `dispose:` parameter, so we own the lifecycle here and inject the
+  /// instance into the provider below — only test-supplied watchers (whose
+  /// owner is the test) are skipped.
+  PermissionWatcher? _ownedWatcher;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.permissionWatcher == null) {
+      _ownedWatcher = DefaultPermissionWatcher();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant WalkieTalkieApp old) {
+    super.didUpdateWidget(old);
+    // Reconcile [permissionWatcher] across parent rebuilds: if the caller
+    // flips between supplying a watcher and asking us to own one (rare in
+    // production, but reachable from a test that switches fakes), make
+    // sure we either dispose what we owned or stand up a fresh default.
+    final wasOwning = old.permissionWatcher == null;
+    final stillOwning = widget.permissionWatcher == null;
+    if (wasOwning && !stillOwning) {
+      // We owned it; the caller is now supplying one. Release ours.
+      unawaited(_ownedWatcher?.dispose());
+      _ownedWatcher = null;
+    } else if (!wasOwning && stillOwning) {
+      // The caller dropped the supplied watcher; mint a default so build()
+      // never sees a null on both sides.
+      _ownedWatcher = DefaultPermissionWatcher();
+    }
+  }
+
+  @override
+  void dispose() {
+    // Only dispose if we created it; a caller-supplied watcher is the
+    // caller's responsibility to release.
+    unawaited(_ownedWatcher?.dispose());
+    _ownedWatcher = null;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // If the service is not provided, we create it here. Since RepositoryProvider
-    // doesn't have a dispose callback like Provider, it's safer to provide it via
-    // a StatefulWidget if we need to manage its lifecycle, but for the global
-    // app scope it's okay to just let it live.
+    final watcher = widget.permissionWatcher ?? _ownedWatcher!;
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<IdentityStore>(
-          create: (_) => identityStore ?? HiveIdentityStore(),
+          create: (_) => widget.identityStore ?? HiveIdentityStore(),
         ),
         RepositoryProvider<RecentFrequenciesStore>(
           create: (_) =>
-              recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
+              widget.recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
         ),
         RepositoryProvider<DiscoveryService>(
-          create: (_) => discoveryService ?? DiscoveryService(),
+          create: (_) => widget.discoveryService ?? DiscoveryService(),
         ),
         RepositoryProvider<AudioService>(
-          create: (_) => audioService ?? AudioService(),
+          create: (_) => widget.audioService ?? AudioService(),
         ),
         RepositoryProvider<BleControlTransport>(
           create: (context) =>
               BleControlTransport(context.read<AudioService>()),
         ),
+        RepositoryProvider<PermissionWatcher>.value(value: watcher),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -82,6 +139,7 @@ class WalkieTalkieApp extends StatelessWidget {
                   context.read<RecentFrequenciesStore>(),
               transport: context.read<BleControlTransport>(),
               audio: context.read<AudioService>(),
+              permissionWatcher: context.read<PermissionWatcher>(),
             )..bootstrap(),
           ),
           BlocProvider(
@@ -184,6 +242,13 @@ class FrequencyApp extends StatelessWidget {
           onLeave: () {
             unawaited(cubit.leaveRoom());
           },
+        ),
+      SessionPermissionDenied(:final missing) =>
+        FrequencyPermissionDeniedScreen(
+          missing: missing,
+          onOpenSettings: const DefaultOnboardingPermissionGateway()
+              .openAppSettings,
+          onRetry: cubit.recheckPermissions,
         ),
     };
   }
