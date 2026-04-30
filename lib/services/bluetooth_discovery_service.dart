@@ -45,16 +45,17 @@ class DiscoveryService {
     // 2. Listen for scan results.
     await _scanSubscription?.cancel();
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      var changed = false;
       for (ScanResult r in results) {
         final session = _parseResult(r);
         if (session != null) {
           _discovered[session.sessionUuidLow8] =
               (session: session, lastSeen: DateTime.now());
-          changed = true;
         }
       }
-      if (changed) _emit();
+      // Emit unconditionally so the freshness window prunes stale entries
+      // even when this tick has no new sessions (e.g. every host went out
+      // of range — the listener still needs to see the empty list).
+      _emit();
     });
 
     // 3. Start scanning.
