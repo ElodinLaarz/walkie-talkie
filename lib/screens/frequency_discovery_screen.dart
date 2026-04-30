@@ -11,6 +11,7 @@ import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
+import 'frequency_explainer_screen.dart';
 
 class DiscoveryResult {
   final String freq;
@@ -334,12 +335,14 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   Widget _buildNearbyList(BuildContext context) {
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
-        final sessions = state is DiscoveryScanning 
-            ? state.sessions 
+        final sessions = state is DiscoveryScanning
+            ? state.sessions
             : (state is DiscoveryStopped ? state.sessions : const <DiscoveredSession>[]);
-        
+
         if (sessions.isEmpty) {
-          return const SizedBox.shrink();
+          return _EmptyState(
+            onShowExplainer: _openExplainer,
+          );
         }
 
         return FreqCard(
@@ -367,6 +370,16 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _openExplainer() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FrequencyExplainerScreen(
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
     );
   }
 }
@@ -728,6 +741,75 @@ class _RenameSheetState extends State<_RenameSheet> {
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,
             onPressed: hasName ? _submit : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final VoidCallback onShowExplainer;
+  const _EmptyState({required this.onShowExplainer});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
+    return FreqCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: c.surface2,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.search_off,
+              size: 28,
+              color: c.ink3,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            l10n.discoveryEmptyHeadline,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: c.ink,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.discoveryEmptyBody,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: c.ink2,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: onShowExplainer,
+            child: Text(
+              l10n.discoveryEmptyHowItWorks,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: c.accent,
+                fontWeight: FontWeight.w500,
+                decoration: TextDecoration.underline,
+                decorationColor: c.accent,
+              ),
+            ),
           ),
         ],
       ),

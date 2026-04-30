@@ -28,6 +28,47 @@
         "description": "Primary button on step 1 of onboarding."
     },
 
+    "explainerSkip": "Skip",
+    "@explainerSkip": {
+        "description": "Skip button on explainer pages 1 and 2."
+    },
+    "explainerPage1Headline": "Voice walkie-talkie\nfor nearby friends",
+    "@explainerPage1Headline": {
+        "description": "Explainer page 1 headline. \\n preserved for two-line layout."
+    },
+    "explainerPage1Body": "Frequency lets you create a voice channel that friends nearby can join — like a private walkie-talkie just for your group.",
+    "@explainerPage1Body": {
+        "description": "Explainer page 1 body copy."
+    },
+    "explainerPage2Headline": "Works through\nBluetooth only",
+    "@explainerPage2Headline": {
+        "description": "Explainer page 2 headline. \\n preserved for two-line layout."
+    },
+    "explainerPage2Body": "This app connects phones over Bluetooth, not Wi-Fi or cellular. Everyone needs to be within Bluetooth range (about 30 feet) to stay connected.",
+    "@explainerPage2Body": {
+        "description": "Explainer page 2 body copy."
+    },
+    "explainerPage3Headline": "No internet,\nno account",
+    "@explainerPage3Headline": {
+        "description": "Explainer page 3 headline. \\n preserved for two-line layout."
+    },
+    "explainerPage3Body": "Your voice never leaves the devices. There's no server, no login, and no internet required — just Bluetooth and your microphone.",
+    "@explainerPage3Body": {
+        "description": "Explainer page 3 body copy."
+    },
+    "explainerBack": "Back",
+    "@explainerBack": {
+        "description": "Back button on explainer screen."
+    },
+    "explainerNext": "Next",
+    "@explainerNext": {
+        "description": "Next button on explainer screen."
+    },
+    "explainerGetStarted": "Get started",
+    "@explainerGetStarted": {
+        "description": "Final button on explainer page 3 — advances to permissions."
+    },
+
     "onboardingPermissionsEyebrow": "STEP 2 · PERMISSIONS",
     "@onboardingPermissionsEyebrow": {
         "description": "All-caps eyebrow label above the permissions step heading."
@@ -193,6 +234,18 @@
     "discoveryFooter": "Using Bluetooth LE Audio · No internet required for voice",
     "@discoveryFooter": {
         "description": "Reassurance line at the bottom of the discovery list."
+    },
+    "discoveryEmptyHeadline": "No frequencies nearby",
+    "@discoveryEmptyHeadline": {
+        "description": "Empty state headline when no sessions are discovered."
+    },
+    "discoveryEmptyBody": "No one around you is broadcasting right now. Try starting your own frequency above, or ask a friend to open the app.",
+    "@discoveryEmptyBody": {
+        "description": "Empty state body copy."
+    },
+    "discoveryEmptyHowItWorks": "How does this work?",
+    "@discoveryEmptyHowItWorks": {
+        "description": "Link in empty state that reopens the explainer screen."
     },
     "discoveryUnknownHost": "Unknown Host",
     "@discoveryUnknownHost": {

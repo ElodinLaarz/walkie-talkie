@@ -64,6 +64,18 @@ void main() {
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
+      // Explainer step — skip through the 3 pages
+      expect(find.text('Voice walkie-talkie\nfor nearby friends'), findsOneWidget);
+      // Navigate to the last page of the explainer
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      // Click Get started on the last explainer page
+      expect(find.text('No internet,\nno account'), findsOneWidget);
+      await tester.tap(find.text('Get started'));
+      await tester.pumpAndSettle();
+
       // Permissions step — Continue is disabled until both granted.
       expect(find.text('Continue'), findsOneWidget);
       expect(gateway.btRequests, 0);
@@ -103,6 +115,14 @@ void main() {
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
+      // Skip through explainer
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Get started'));
+      await tester.pumpAndSettle();
+
       // First request: denied → button should still say Allow.
       await tester.tap(find.text('Allow').first);
       await tester.pumpAndSettle();
@@ -128,6 +148,14 @@ void main() {
           onDone: (_) {},
         ),
       ));
+      await tester.tap(find.text('Get started'));
+      await tester.pumpAndSettle();
+
+      // Skip through explainer
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
@@ -157,6 +185,14 @@ void main() {
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
+      // Skip through explainer
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Get started'));
+      await tester.pumpAndSettle();
+
       // Grant only Bluetooth.
       await tester.tap(find.text('Allow').first);
       await tester.pumpAndSettle();
@@ -178,6 +214,14 @@ void main() {
           onDone: (_) {},
         ),
       ));
+      await tester.tap(find.text('Get started'));
+      await tester.pumpAndSettle();
+
+      // Skip through explainer
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
