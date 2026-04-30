@@ -16,11 +16,15 @@ PeerAudioManager::PeerAudioManager() { LOGI("PeerAudioManager created"); }
 PeerAudioManager::~PeerAudioManager() {
     stopMixerThread();
     clear();
-    if (callbackObject_ && jvm_) {
-        JNIEnv* env = nullptr;
-        if (jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) ==
-            JNI_OK) {
-            env->DeleteGlobalRef(callbackObject_);
+    if (jvm_) {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (callbackObject_) {
+            JNIEnv* env = nullptr;
+            if (jvm_->GetEnv(reinterpret_cast<void**>(&env),
+                             JNI_VERSION_1_6) == JNI_OK) {
+                env->DeleteGlobalRef(callbackObject_);
+            }
+            callbackObject_ = nullptr;
         }
     }
 }
@@ -97,6 +101,9 @@ bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
         }
         state = it->second;  // shared_ptr keeps state alive past unlock.
     }
+    // JitterBuffer is not thread-safe; we serialize against the mixer
+    // thread's tick/pop here.
+    std::lock_guard<std::mutex> stateLock(state->mutex);
     return state->jitterBuffer->push(seq, opusData,
                                      static_cast<size_t>(opusSize));
 }
@@ -111,7 +118,13 @@ int PeerAudioManager::setPeerBitrate(const std::string& macAddress, int bps) {
         }
         state = it->second;
     }
-    int applied = state->encoder->setBitrate(bps);
+    // OpusEncoder is not safe to ctl while another thread calls encode();
+    // serialize against the mixer-thread encode pass via the per-peer mutex.
+    int applied;
+    {
+        std::lock_guard<std::mutex> stateLock(state->mutex);
+        applied = state->encoder->setBitrate(bps);
+    }
     state->bitrate.store(applied, std::memory_order_relaxed);
     return applied;
 }
@@ -128,14 +141,18 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
         }
         state = it->second;
     }
-    t.underrunCount =
-        static_cast<uint32_t>(state->jitterBuffer->underrunCount());
-    t.lateFrameCount =
-        static_cast<uint32_t>(state->jitterBuffer->lateFrameCount());
-    t.jitterTargetDepth =
-        static_cast<uint32_t>(state->jitterBuffer->targetDepth());
-    t.jitterCurrentDepth =
-        static_cast<uint32_t>(state->jitterBuffer->currentDepth());
+    // JitterBuffer counters are non-atomic; lock to read them coherently.
+    {
+        std::lock_guard<std::mutex> stateLock(state->mutex);
+        t.underrunCount =
+            static_cast<uint32_t>(state->jitterBuffer->underrunCount());
+        t.lateFrameCount =
+            static_cast<uint32_t>(state->jitterBuffer->lateFrameCount());
+        t.jitterTargetDepth =
+            static_cast<uint32_t>(state->jitterBuffer->targetDepth());
+        t.jitterCurrentDepth =
+            static_cast<uint32_t>(state->jitterBuffer->currentDepth());
+    }
     t.currentBitrate = state->bitrate.load(std::memory_order_relaxed);
     t.valid = true;
     return t;
@@ -167,6 +184,26 @@ void PeerAudioManager::mixerTickLoop() {
     LOGI("Mixer tick loop started");
 
     constexpr int kFrameSize = audio_config::kCodecFrameSize;
+
+    // Attach this thread to the JVM once. sendAudioToPeer fires every tick
+    // per peer; per-call AttachCurrentThread / DetachCurrentThread on a
+    // 50 Hz × N-peer cadence is wasteful and adds jitter to the mixer loop.
+    // We attach at thread start, hand the same JNIEnv to sendAudioToPeer,
+    // and detach exactly once on loop exit.
+    JNIEnv* env = nullptr;
+    bool attached = false;
+    if (jvm_) {
+        if (jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) !=
+            JNI_OK) {
+            if (jvm_->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            } else {
+                LOGE("mixerTickLoop: AttachCurrentThread failed; outbound "
+                     "audio will be dropped");
+                env = nullptr;
+            }
+        }
+    }
 
     // Pre-allocate scratch — the mixer thread runs every 20 ms, so the cost
     // of a tick matters more than memory.
@@ -209,20 +246,30 @@ void PeerAudioManager::mixerTickLoop() {
         // ---- Decode pass: drain each peer's jitter buffer by one frame and
         // feed the decoded PCM into the mixer's per-peer ring. Underruns
         // produce one frame of PLC instead of stalling.
+        //
+        // We hand the BLE-arrived audio to AudioMixer::updateDeviceAudio
+        // rather than AudioMixer::onVoiceFrame: the jitter buffer already
+        // enforces in-order, deduped delivery, so the mixer's seq-based
+        // stuck-producer poison logic would never fire. Skipping it avoids
+        // duplicating the gap detection that the buffer + this loop's PLC
+        // path already handle.
         for (size_t i = 0; i < peerSnapshot.size(); ++i) {
             auto& state = peerSnapshot[i];
+            int decoded = -1;
+            // Hold the per-peer lock across jitter-buffer + decoder use.
+            // The decoder is touched only on this thread, so the lock is
+            // really there to serialize the jitter buffer (push side runs
+            // on the BLE thread).
+            std::lock_guard<std::mutex> stateLock(state->mutex);
             state->jitterBuffer->tick();
 
             auto frame = state->jitterBuffer->pop();
-            int decoded = -1;
-            uint32_t debugSeq = 0;
             if (frame.has_value()) {
                 decoded = state->decoder->decode(
                     frame->opusData.data(),
                     static_cast<int>(frame->opusData.size()),
                     decodedBuffer.data(),
                     audio_config::kCodecMaxFrameSize);
-                debugSeq = frame->seq;
                 state->consecutiveUnderruns = 0;
             } else {
                 // Underrun. PLC for one frame; if we've already PLC'd twice in
@@ -235,7 +282,6 @@ void PeerAudioManager::mixerTickLoop() {
                             static_cast<int>(any->opusData.size()),
                             decodedBuffer.data(),
                             audio_config::kCodecMaxFrameSize);
-                        debugSeq = any->seq;
                         state->consecutiveUnderruns = 0;
                     }
                 }
@@ -250,7 +296,6 @@ void PeerAudioManager::mixerTickLoop() {
                 g_audioMixer->updateDeviceAudio(state->deviceId,
                                                 decodedBuffer.data(), decoded);
             }
-            (void)debugSeq;  // kept for future log gating; unused today.
         }
 
         // ---- Mix-minus + encode pass: produce one outbound frame per peer.
@@ -265,12 +310,18 @@ void PeerAudioManager::mixerTickLoop() {
                 std::fill(mixedBuffer.begin(), mixedBuffer.end(), 0);
             }
 
-            int encodedSize = state->encoder->encode(
-                mixedBuffer.data(), kFrameSize, opusBuffer.data(),
-                static_cast<int>(opusBuffer.size()));
-            if (encodedSize > 0) {
+            // Encoder ctl (`setBitrate`) and encode() race on the OpusEncoder
+            // handle; the per-peer mutex serializes them.
+            int encodedSize;
+            {
+                std::lock_guard<std::mutex> stateLock(state->mutex);
+                encodedSize = state->encoder->encode(
+                    mixedBuffer.data(), kFrameSize, opusBuffer.data(),
+                    static_cast<int>(opusBuffer.size()));
+            }
+            if (encodedSize > 0 && env != nullptr) {
                 uint32_t seq = outboundSeq[state->deviceId]++;
-                sendAudioToPeer(mac, opusBuffer.data(), encodedSize, seq);
+                sendAudioToPeer(env, mac, opusBuffer.data(), encodedSize, seq);
             }
         }
 
@@ -291,28 +342,38 @@ void PeerAudioManager::mixerTickLoop() {
         }
     }
 
+    if (attached && jvm_) {
+        jvm_->DetachCurrentThread();
+    }
+
     LOGI("Mixer tick loop ended");
 }
 
-void PeerAudioManager::sendAudioToPeer(const std::string& macAddress,
+void PeerAudioManager::sendAudioToPeer(JNIEnv* env,
+                                        const std::string& macAddress,
                                         const uint8_t* opusData, int opusSize,
                                         uint32_t seq) {
-    if (!jvm_ || !callbackObject_) {
+    if (!env) {
         return;
     }
 
-    JNIEnv* env = nullptr;
-    bool needDetach = false;
-    if (jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) !=
-        JNI_OK) {
-        if (jvm_->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            LOGE("Failed to attach thread for audio send callback");
-            return;
+    // Snapshot the global ref under callbackMutex_ into a local ref. This
+    // rules out the race where setCallback (JNI thread) calls
+    // DeleteGlobalRef while we're mid-CallVoidMethod on the mixer thread.
+    // The local ref is independent of the global; it survives even if the
+    // global is concurrently swapped or deleted.
+    jobject callback = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (callbackObject_) {
+            callback = env->NewLocalRef(callbackObject_);
         }
-        needDetach = true;
+    }
+    if (!callback) {
+        return;
     }
 
-    jclass callbackClass = env->GetObjectClass(callbackObject_);
+    jclass callbackClass = env->GetObjectClass(callback);
     if (callbackClass) {
         jmethodID method = env->GetMethodID(callbackClass, "onMixedAudioReady",
                                             "(Ljava/lang/String;[BI)V");
@@ -322,7 +383,7 @@ void PeerAudioManager::sendAudioToPeer(const std::string& macAddress,
             env->SetByteArrayRegion(jData, 0, opusSize,
                                     reinterpret_cast<const jbyte*>(opusData));
 
-            env->CallVoidMethod(callbackObject_, method, jMac, jData,
+            env->CallVoidMethod(callback, method, jMac, jData,
                                 static_cast<jint>(seq));
 
             // Defensive: clear any pending exception from the Java callback
@@ -340,20 +401,18 @@ void PeerAudioManager::sendAudioToPeer(const std::string& macAddress,
         }
         env->DeleteLocalRef(callbackClass);
     }
-
-    if (needDetach) {
-        jvm_->DetachCurrentThread();
-    }
+    env->DeleteLocalRef(callback);
 }
 
 void PeerAudioManager::setCallback(JNIEnv* env, jobject callback) {
+    if (!jvm_) {
+        env->GetJavaVM(&jvm_);
+    }
+    std::lock_guard<std::mutex> lock(callbackMutex_);
     if (callbackObject_) {
         env->DeleteGlobalRef(callbackObject_);
     }
     callbackObject_ = env->NewGlobalRef(callback);
-    if (!jvm_) {
-        env->GetJavaVM(&jvm_);
-    }
     LOGI("JNI callback set");
 }
 

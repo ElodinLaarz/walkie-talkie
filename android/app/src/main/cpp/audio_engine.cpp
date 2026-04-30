@@ -101,12 +101,12 @@ private:
     // workstream. Tracked for follow-up.
     void emitTalkingEvent(bool talking) {
         JavaVM* jvm = nullptr;
-        jobject activity = nullptr;
         {
             std::lock_guard<std::mutex> lock(g_jniMutex);
-            if (g_jvm == nullptr || g_mainActivity == nullptr) return;
             jvm = g_jvm;
-            activity = g_mainActivity;
+            // Defer the activity reference to a NewLocalRef *under* the lock
+            // (after we attach the thread) — see below.
+            if (jvm == nullptr || g_mainActivity == nullptr) return;
         }
 
         JNIEnv* env = nullptr;
@@ -116,6 +116,24 @@ private:
                 return;
             }
             needDetach = true;
+        }
+
+        // Snapshot the global ref into a local ref while holding g_jniMutex.
+        // This rules out the race where nativeUnregisterCallbacks runs
+        // DeleteGlobalRef between our earlier null-check and the
+        // GetObjectClass below — the local ref keeps the underlying jobject
+        // alive across the JNI calls regardless of what happens to the
+        // global. Outside the lock, we do all the JNI work on the local ref.
+        jobject activity = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_jniMutex);
+            if (g_mainActivity != nullptr) {
+                activity = env->NewLocalRef(g_mainActivity);
+            }
+        }
+        if (activity == nullptr) {
+            if (needDetach) jvm->DetachCurrentThread();
+            return;
         }
 
         jclass activityClass = env->GetObjectClass(activity);
@@ -131,6 +149,7 @@ private:
             }
             env->DeleteLocalRef(activityClass);
         }
+        env->DeleteLocalRef(activity);
 
         if (needDetach) {
             jvm->DetachCurrentThread();
@@ -174,6 +193,10 @@ public:
         if (result != oboe::Result::OK) {
             LOGE("Failed to create playback stream: %s",
                  oboe::convertToText(result));
+            // Don't leave the (already-opened) recording stream dangling — in
+            // exclusive mode that blocks the next start() attempt until the
+            // engine is destroyed. stop() handles both streams idempotently.
+            stop();
             return false;
         }
 
@@ -182,8 +205,20 @@ public:
         micResampler_.reset();
         playbackResampler_.reset();
 
-        recordingStream->requestStart();
-        playbackStream->requestStart();
+        result = recordingStream->requestStart();
+        if (result != oboe::Result::OK) {
+            LOGE("Failed to start recording stream: %s",
+                 oboe::convertToText(result));
+            stop();
+            return false;
+        }
+        result = playbackStream->requestStart();
+        if (result != oboe::Result::OK) {
+            LOGE("Failed to start playback stream: %s",
+                 oboe::convertToText(result));
+            stop();
+            return false;
+        }
 
         LOGI("Audio engine started successfully");
         return true;
@@ -340,7 +375,20 @@ public:
 
             if (playbackStream &&
                 playbackStream->getState() == oboe::StreamState::Started) {
-                playbackStream->write(playoutScratch_, playoutFrames, 0);
+                // Non-blocking write (timeout=0). The result is a
+                // ResultWithValue<int32_t>: a positive value is the count of
+                // frames written, a negative value is an error. We don't
+                // bubble the error up to the caller (we're inside the
+                // input-direction callback), but we log it so a stuck
+                // playback stream is visible in logcat. A persistent
+                // negative result here indicates the stream needs to be
+                // restarted by the engine owner — that's tracked separately
+                // and isn't fixable from inside the callback.
+                auto wr = playbackStream->write(playoutScratch_, playoutFrames, 0);
+                if (!wr) {
+                    LOGE("playbackStream->write failed: %s",
+                         oboe::convertToText(wr.error()));
+                }
             }
         }
 

@@ -1,164 +1,12 @@
 #include <iostream>
-#include <vector>
-#include <map>
-#include <mutex>
 #include <cstdio>
-#include <cstring>
 #include <cassert>
-#include <algorithm>
 
-// Mock Android logging for standalone testing
-#define LOGI(...) printf(__VA_ARGS__); printf("\n")
-
-/**
- * AudioMixer implements the "Mix-Minus" routing logic.
- * Each device hears all other devices except themselves.
- *
- * Standalone CI mirror of android/app/src/main/cpp/audio_mixer.{cpp,h}.
- * Keep the [onVoiceFrame] / poison logic in lock-step with production —
- * this file is what CI exercises (production needs the Android NDK).
- */
-class AudioMixer {
-public:
-    // Mirrors production AudioMixer::kPoisonThreshold (audio_mixer.h).
-    static constexpr uint32_t kPoisonThreshold = 16;
-
-private:
-    struct DeviceState {
-        std::vector<int16_t> buffer;
-        bool poisoned = false;
-        bool hasSeenSeq = false;  // separate flag — wrap to seq=0 is legitimate
-        uint32_t lastSeq = 0;
-    };
-
-    std::mutex mixerMutex;
-
-    // Map of device ID to their per-peer state
-    std::map<int, DeviceState> devices;
-
-    // Maximum number of simultaneous devices
-    static constexpr int kMaxDevices = 3;
-
-public:
-    // Add a device to the mixer
-    bool addDevice(int deviceId) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-
-        if (devices.size() >= kMaxDevices) {
-            LOGI("Maximum devices reached (%d)", kMaxDevices);
-            return false;
-        }
-
-        devices[deviceId] = DeviceState{};
-        LOGI("Device %d added to mixer", deviceId);
-        return true;
-    }
-
-    // Remove a device from the mixer
-    void removeDevice(int deviceId) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-        devices.erase(deviceId);
-        LOGI("Device %d removed from mixer", deviceId);
-    }
-
-    // Update audio data for a device (local-mic style, no seq).
-    // The peer-receive path goes through [onVoiceFrame] instead.
-    void updateDeviceAudio(int deviceId, const int16_t* audioData, int numFrames) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-
-        auto it = devices.find(deviceId);
-        if (it != devices.end()) {
-            it->second.buffer.assign(audioData, audioData + numFrames);
-        }
-    }
-
-    // Feed a peer-arrived voice frame with its over-the-wire seq. Mirrors the
-    // production stuck-producer prune: a frame whose forward delta from the
-    // last accepted seq exceeds [kPoisonThreshold] is dropped and the peer is
-    // marked poisoned; the next valid frame within the threshold recovers.
-    // Out-of-order / duplicate frames (delta <= 0) are silently dropped without
-    // affecting the watermark or the poison flag. Wrap-safe via signed int32
-    // delta (matches production audio_mixer.cpp).
-    void onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, int numFrames) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-
-        auto it = devices.find(deviceId);
-        if (it == devices.end()) {
-            return;
-        }
-        DeviceState& s = it->second;
-
-        const uint32_t prevSeq = s.lastSeq;
-        if (s.hasSeenSeq) {
-            const int32_t diff = static_cast<int32_t>(seq - prevSeq);
-
-            if (diff <= 0) {
-                // Out-of-order or duplicate — silently drop.
-                return;
-            }
-
-            if (diff > static_cast<int32_t>(kPoisonThreshold)) {
-                s.poisoned = true;
-                // Advance lastSeq so the next within-threshold frame recovers.
-                // Drop the current frame's audio (do not write to s.buffer) —
-                // production also avoids clearing the in-flight ring buffer
-                // here (SPSC contract).
-                s.lastSeq = seq;
-                LOGI("Device %d poisoned: seq jump %u -> %u (gap %d)", deviceId, prevSeq, seq, diff);
-                return;
-            }
-        }
-
-        if (s.poisoned) {
-            s.poisoned = false;
-            LOGI("Device %d recovered at seq %u", deviceId, seq);
-        }
-        s.buffer.assign(pcm, pcm + numFrames);
-        s.lastSeq = seq;
-        s.hasSeenSeq = true;
-    }
-
-    bool isPoisoned(int deviceId) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-        auto it = devices.find(deviceId);
-        return it != devices.end() && it->second.poisoned;
-    }
-
-    // Get mixed audio for a specific device (all others except this device)
-    void getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames) {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-
-        // Initialize output buffer to zero
-        std::memset(outputBuffer, 0, numFrames * sizeof(int16_t));
-
-        // Mix all devices except the target device
-        for (const auto& [id, state] : devices) {
-            if (id != deviceId && !state.buffer.empty()) {
-                int framesToMix = std::min(numFrames, static_cast<int>(state.buffer.size()));
-                for (int i = 0; i < framesToMix; i++) {
-                    // Simple mixing with clipping prevention
-                    int32_t mixed = outputBuffer[i] + state.buffer[i];
-                    outputBuffer[i] = static_cast<int16_t>(
-                        std::max<int32_t>(-32768, std::min<int32_t>(32767, mixed))
-                    );
-                }
-            }
-        }
-    }
-
-    // Clear all device buffers
-    void clear() {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-        devices.clear();
-        LOGI("Mixer cleared");
-    }
-
-    // Helper for testing: get number of devices
-    size_t getDeviceCount() {
-        std::lock_guard<std::mutex> lock(mixerMutex);
-        return devices.size();
-    }
-};
+// Include the production audio_mixer header. The build script compiles this
+// test with `-I test/cpp` before `-I android/app/src/main/cpp`, so both this
+// test and the production audio_mixer.cpp will pick up the stub jni.h and
+// android/log.h from test/cpp/ instead of the real Android NDK headers.
+#include "../../android/app/src/main/cpp/audio_mixer.h"
 
 void testMixMinus() {
     AudioMixer mixer;
@@ -178,16 +26,25 @@ void testMixMinus() {
         audio3[i] = 300;
     }
 
-    mixer.updateDeviceAudio(1, audio1, numFrames);
-    mixer.updateDeviceAudio(2, audio2, numFrames);
-    mixer.updateDeviceAudio(3, audio3, numFrames);
-
     int16_t out1[numFrames];
     int16_t out2[numFrames];
     int16_t out3[numFrames];
 
+    // Production mixer consumes data from ring buffers on read, so we need to
+    // re-feed before each getMixedAudioForDevice call.
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(1, out1, numFrames);
+
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(2, out2, numFrames);
+
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
+    mixer.updateDeviceAudio(3, audio3, numFrames);
     mixer.getMixedAudioForDevice(3, out3, numFrames);
 
     // Device 1 should hear (2 + 3) = 200 + 300 = 500
@@ -231,6 +88,10 @@ void testClipping() {
     mixer.addDevice(3);
     int16_t audio3[numFrames];
     for (int i = 0; i < numFrames; i++) audio3[i] = 30000;
+
+    // Re-feed all devices since the first getMixedAudioForDevice consumed the buffers
+    mixer.updateDeviceAudio(1, audio1, numFrames);
+    mixer.updateDeviceAudio(2, audio2, numFrames);
     mixer.updateDeviceAudio(3, audio3, numFrames);
 
     mixer.getMixedAudioForDevice(1, out1, numFrames);
@@ -247,8 +108,14 @@ void testMaxDevices() {
     assert(mixer.addDevice(1) == true);
     assert(mixer.addDevice(2) == true);
     assert(mixer.addDevice(3) == true);
-    assert(mixer.addDevice(4) == false); // kMaxDevices is 3
-    assert(mixer.getDeviceCount() == 3);
+    assert(mixer.addDevice(4) == true);
+    assert(mixer.addDevice(5) == true);
+    assert(mixer.addDevice(6) == true);
+    assert(mixer.addDevice(7) == true);
+    assert(mixer.addDevice(8) == true);
+    // Production kMaxDevices is 8 (was 3 in the old fork).
+    assert(mixer.addDevice(9) == false);
+    assert(mixer.getActiveDevices().size() == 8);
 
     std::cout << "Test Max Devices: PASSED" << std::endl;
 }

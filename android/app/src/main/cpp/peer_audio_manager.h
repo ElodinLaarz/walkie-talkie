@@ -88,28 +88,37 @@ public:
     void clear();
 
 private:
-    // Per-peer state. The codecs and jitter buffer are accessed only from
-    // the mixer thread (decode side) and the L2CAP receive path (push side);
-    // peerStateMutex_ serializes the two. The `bitrate` field is read on
-    // the mixer thread and written from JNI; it's atomic to avoid the
-    // mutex on every mixer tick.
+    // Per-peer state. `mutex` serializes access from the BLE receive thread
+    // (push side via `onVoiceFramePushed`) and the mixer thread (pop/decode
+    // and encode sides) — neither `JitterBuffer` nor the Opus codec wrappers
+    // are internally thread-safe, so all access to those three fields must
+    // happen with `mutex` held.
+    //
+    // `bitrate` is `std::atomic<int>` so a JNI caller can publish a hint
+    // without contending the mixer-tick lock. The applied bitrate value
+    // also passes through `OpusEncoder::setBitrate`, which is itself called
+    // under `mutex`.
+    //
+    // `consecutiveUnderruns` is touched only on the mixer thread.
     struct PeerState {
+        std::mutex mutex;
         int deviceId{-1};
         std::unique_ptr<OpusEncoder> encoder;
         std::unique_ptr<OpusDecoder> decoder;
         std::unique_ptr<JitterBuffer> jitterBuffer;
         std::atomic<int> bitrate{audio_config::kDefaultBitrate};
-        // Tracks whether decodeMissing has been the last action on the
-        // decoder. Two consecutive PLC frames sound increasingly mechanical;
-        // we use this to bias toward popAny() on the second underrun.
+        // Two consecutive PLC frames sound increasingly mechanical; we use
+        // this to bias toward popAny() on the third underrun in a row.
         int consecutiveUnderruns{0};
     };
 
     void mixerTickLoop();
 
     // Send a freshly-encoded mix-minus frame to a peer via the JNI callback.
-    void sendAudioToPeer(const std::string& macAddress, const uint8_t* opusData,
-                         int opusSize, uint32_t seq);
+    // `env` must be valid for the calling (mixer) thread — see mixerTickLoop
+    // for the once-per-thread Attach.
+    void sendAudioToPeer(JNIEnv* env, const std::string& macAddress,
+                         const uint8_t* opusData, int opusSize, uint32_t seq);
 
     std::mutex peerRegistryMutex_;
     std::map<std::string, std::shared_ptr<PeerState>> peers_;
@@ -120,6 +129,13 @@ private:
     std::atomic<bool> mixerRunning_{false};
 
     JavaVM* jvm_{nullptr};
+
+    // Guards `callbackObject_` against the race between the JNI thread's
+    // `setCallback` (which deletes + replaces the global ref) and the
+    // mixer thread's `sendAudioToPeer` (which reads and uses the global
+    // ref). The lock is held only across the snapshot — JNI calls happen
+    // on the snapshotted local reference outside the lock.
+    std::mutex callbackMutex_;
     jobject callbackObject_{nullptr};
 };
 

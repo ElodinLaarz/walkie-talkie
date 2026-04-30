@@ -18,6 +18,18 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
         playheadInit_ = true;
     }
 
+    // Bounded memory + bounded playout latency. If we're already at the cap,
+    // the consumer is stalled (e.g. mixer tick stuck) or the producer is
+    // flooding (out-of-spec peer). Drop the new frame and count it: the
+    // link-quality reporter sees the overflow and may decide to step bitrate
+    // down. We could equivalently drop the oldest queued frame, but dropping
+    // the newest preserves decoder context (PLC works better when contiguous
+    // audio is preserved) and keeps the playhead's chronology intact.
+    if (frames_.size() >= audio_config::kJitterMaxDepth) {
+        ++lateCount_;
+        return false;
+    }
+
     // Insert in modular-sorted order. Working window is small (<= kMaxDepth
     // = 10 frames) so a linear scan is faster than a tree.
     auto it = frames_.begin();
@@ -25,8 +37,8 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
         ++it;
     }
     if (it != frames_.end() && it->seq == seq) {
-        // Duplicate — first arrival wins (a re-transmit would be older or
-        // the same payload; either way we don't gain by replacing).
+        // Duplicate — first arrival wins. Don't count as late: a dup is a
+        // transport retransmit, not actual ordering trouble.
         return false;
     }
 
@@ -39,8 +51,20 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
 
 std::optional<JitterBuffer::Frame> JitterBuffer::pop() {
     if (frames_.size() < targetDepth_) {
-        ++underrunCount_;
-        ++underrunsThisInterval_;
+        // Underrun semantics: count only after priming, and only on the
+        // *transition* into starvation. This prevents two failure modes:
+        //   1. Cold-start: pop() loops on an empty buffer for many ticks
+        //      before the first frame arrives — we shouldn't ratchet the
+        //      target depth up because of those, since they're a fact of
+        //      the link starting, not a sign of network jitter.
+        //   2. Talkspurt gap: a peer goes silent (DTX) for several ticks;
+        //      every tick is technically an underrun but it's one episode,
+        //      so it counts once.
+        if (primed_ && !inUnderrun_) {
+            ++underrunCount_;
+            ++underrunsThisInterval_;
+            inUnderrun_ = true;
+        }
         return std::nullopt;
     }
     Frame f = std::move(frames_.front());
@@ -49,6 +73,8 @@ std::optional<JitterBuffer::Frame> JitterBuffer::pop() {
     // ("next expected seq") even if the popped frame was non-contiguous —
     // the gap was already absorbed by whatever PLC ran during the underrun.
     playhead_ = f.seq + 1;
+    primed_ = true;
+    inUnderrun_ = false;
     return f;
 }
 
@@ -59,6 +85,9 @@ std::optional<JitterBuffer::Frame> JitterBuffer::popAny() {
     Frame f = std::move(frames_.front());
     frames_.pop_front();
     playhead_ = f.seq + 1;
+    // popAny still counts as primed — the consumer got real audio out.
+    primed_ = true;
+    inUnderrun_ = false;
     return f;
 }
 
@@ -107,6 +136,8 @@ void JitterBuffer::reset() {
     playheadInit_ = false;
     playhead_ = 0;
     targetDepth_ = audio_config::kJitterInitialDepth;
+    primed_ = false;
+    inUnderrun_ = false;
     resetAdaptCounters();
     // Lifetime counters intentionally retained for telemetry continuity
     // across a peer re-register.

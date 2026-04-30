@@ -24,19 +24,30 @@
 // caller runs PLC on the decoder. Late frames (seq before the current
 // playhead) are dropped and counted.
 //
-// **Adaptive target depth.** `adapt()` is called on a fixed cadence (once per
-// `kJitterAdaptIntervalTicks` ticks) by the mixer thread. It looks at the
-// recent underrun count: if any underruns occurred in the window, target
-// depth grows by one frame (capped at `kJitterMaxDepth`). If no underruns
-// happened for `kJitterShrinkAfterStableTicks`, target depth shrinks by one
-// (floored at `kJitterMinDepth`). Result: the buffer rides the smallest
-// depth that doesn't glitch on the current link.
+// **Adaptive target depth.** `tick()` is called every mixer tick by the
+// consumer; once per `kJitterAdaptIntervalTicks` it acts on the recent
+// underrun count: if any underruns occurred in the window, target depth
+// grows by one frame (capped at `kJitterMaxDepth`). If no underruns happened
+// for `kJitterShrinkAfterStableTicks`, target depth shrinks by one (floored
+// at `kJitterMinDepth`). Result: the buffer rides the smallest depth that
+// doesn't glitch on the current link.
 //
-// **Threading.** Single-consumer (mixer thread) / single-producer (BLE
-// receive thread) is the intended pattern. The buffer is *not* lock-free —
-// the caller must serialize push/pop/adapt against each other (the existing
-// PeerAudioManager already does, via its codecsMutex/peerRegistryMutex).
-// We document that here so a future caller doesn't assume otherwise.
+// **Cold-start handling.** Underruns are counted only after the buffer has
+// been "primed" — i.e. has successfully released at least one frame to the
+// consumer. Pre-priming pop()s return nullopt without touching the underrun
+// counter. Post-priming, a continuous starvation episode counts as exactly
+// one underrun (not one per tick), so an idle peer or a long talkspurt gap
+// doesn't ratchet target depth upward in the absence of real network jitter.
+//
+// **Bounded memory.** `push()` enforces `kJitterMaxDepth`: if the buffer is
+// already at the cap, the new frame is dropped (with a `lateFrameCount` bump
+// for telemetry). This caps both memory and worst-case playout latency.
+//
+// **Threading.** This class is **not** thread-safe on its own. The caller
+// must serialize all `push`/`pop`/`popAny`/`tick`/`reset` calls — typically
+// via a per-peer mutex on the `PeerAudioManager::PeerState`. Stat-getter
+// methods (`underrunCount`, etc.) read non-atomic counters and likewise
+// require the same lock to be held by the caller.
 //
 // **Wraparound.** `seq` is uint32 and wraps. All ordering uses signed-int32
 // modular arithmetic — `seqLess(a, b) := static_cast<int32_t>(a - b) < 0` —
@@ -52,10 +63,14 @@ public:
 
     JitterBuffer() = default;
 
-    // Insert a peer-arrived frame. Returns true if accepted (or replaced an
-    // older queued copy of the same seq), false if dropped because it's
-    // older than the current playhead. Duplicates of an already-queued seq
-    // are silently dropped (returning false) — the first arrival wins.
+    // Insert a peer-arrived frame. Returns true if accepted, false if dropped:
+    //   - older than the current playhead (counts toward `lateFrameCount`),
+    //   - exact duplicate of an already-queued seq (first arrival wins; not
+    //     counted as late, since this is a transport retransmit, not actual
+    //     packet ordering trouble),
+    //   - buffer already at `kJitterMaxDepth` (counts toward `lateFrameCount`
+    //     so the link-quality reporter sees the overflow as a sustained
+    //     mismatch between produce and consume rates).
     bool push(uint32_t seq, const uint8_t* data, size_t size);
 
     // Pop the next in-order frame for playback. Returns nullopt and
@@ -73,9 +88,10 @@ public:
     std::optional<Frame> popAny();
 
     // Periodic adaptation. Call once per mixer tick. Internally counts ticks
-    // and only performs depth changes every kJitterAdaptIntervalTicks.
-    // No-op for the first interval so initial cold-start underruns don't
-    // immediately balloon the target.
+    // and only performs depth changes every kJitterAdaptIntervalTicks. The
+    // primed/inUnderrun gating in `pop()` prevents pre-priming starvation
+    // from biasing the first adapt() decision, so this is safe to call from
+    // tick zero.
     void tick();
 
     // Stats — read by the host's link-quality reporter (future PR will wire
@@ -108,6 +124,14 @@ private:
     uint32_t playhead_{0};   // next-expected seq
 
     size_t targetDepth_{audio_config::kJitterInitialDepth};
+
+    // Priming + episode tracking. `primed_` flips to true on the first
+    // successful `pop()` and never resets (a real client doesn't unprime
+    // mid-session; on `reset()` we explicitly clear it). `inUnderrun_` flips
+    // true when a primed pop misses, and false when a pop succeeds — so a
+    // multi-tick starvation episode counts as exactly one underrun.
+    bool primed_{false};
+    bool inUnderrun_{false};
 
     // Lifetime stats.
     size_t underrunCount_{0};

@@ -29,14 +29,78 @@ void seedAtDepth(JitterBuffer& jb, uint32_t startSeq, size_t count) {
     }
 }
 
-void testColdStartUnderruns() {
+void testColdStartDoesNotCountUnderruns() {
     JitterBuffer jb;
-    // Empty buffer, no frames pushed. pop() must underrun.
-    auto f = jb.pop();
-    assert(!f.has_value());
-    assert(jb.underrunCount() == 1);
+    // Empty buffer, no frames pushed. pop() returns nullopt but MUST NOT
+    // count this as an underrun: the buffer hasn't been primed yet, so
+    // we're not telling the adapter that the link is glitchy.
+    for (int i = 0; i < 10; ++i) {
+        auto f = jb.pop();
+        assert(!f.has_value());
+    }
+    assert(jb.underrunCount() == 0);
     assert(jb.currentDepth() == 0);
-    std::cout << "Test Cold Start Underruns: PASSED" << std::endl;
+    std::cout << "Test Cold Start Does Not Count Underruns: PASSED" << std::endl;
+}
+
+// Once playout has been primed, a continuous starvation episode counts as
+// exactly one underrun — not one per tick. A peer that goes silent during
+// a talkspurt gap shouldn't ratchet the target depth on every empty tick.
+void testStarvationEpisodeCountsOnce() {
+    JitterBuffer jb;
+    // Prime the buffer.
+    seedAtDepth(jb, 1, audio_config::kJitterInitialDepth);
+    auto first = jb.pop();
+    assert(first.has_value());
+    assert(jb.underrunCount() == 0);
+
+    // Drain everything else.
+    while (jb.pop().has_value()) {
+    }
+    // The pop()s after the buffer drained were tracking starvation; they
+    // should produce exactly one underrun, not one per call.
+    assert(jb.underrunCount() == 1);
+
+    // Continued empty pops while still in the same episode: still 1.
+    for (int i = 0; i < 5; ++i) {
+        auto f = jb.pop();
+        assert(!f.has_value());
+    }
+    assert(jb.underrunCount() == 1);
+
+    // New episode: feed the buffer back to target, drain, then starve again.
+    seedAtDepth(jb, audio_config::kJitterInitialDepth + 1,
+                audio_config::kJitterInitialDepth);
+    while (jb.pop().has_value()) {
+    }
+    // Starvation re-armed; second episode increments the counter once.
+    assert(jb.underrunCount() == 2);
+
+    std::cout << "Test Starvation Episode Counts Once: PASSED" << std::endl;
+}
+
+// push() must enforce kJitterMaxDepth. A stalled consumer or flooding
+// producer can't grow the buffer without bound.
+void testPushCapsAtMaxDepth() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x42};
+    // Fill to exactly the cap.
+    for (size_t i = 0; i < audio_config::kJitterMaxDepth; ++i) {
+        bool ok = jb.push(static_cast<uint32_t>(100 + i), data, 1);
+        assert(ok);
+    }
+    assert(jb.currentDepth() == audio_config::kJitterMaxDepth);
+
+    // Next push must be rejected (counts as late so telemetry sees the
+    // overflow signal).
+    bool ok = jb.push(
+        static_cast<uint32_t>(100 + audio_config::kJitterMaxDepth),
+        data, 1);
+    assert(!ok);
+    assert(jb.currentDepth() == audio_config::kJitterMaxDepth);
+    assert(jb.lateFrameCount() == 1);
+
+    std::cout << "Test Push Caps At Max Depth: PASSED" << std::endl;
 }
 
 void testNormalFlowAfterFilling() {
@@ -110,9 +174,20 @@ void testAdaptGrowsOnUnderrun() {
     const size_t initial = jb.targetDepth();
     assert(initial == audio_config::kJitterInitialDepth);
 
-    // Force an underrun, then drive enough ticks to span an adapt interval.
-    auto f = jb.pop();
-    assert(!f.has_value());
+    // Prime the buffer: underruns are only counted post-priming. Otherwise
+    // the cold-start underruns we deliberately create below would be
+    // ignored by the adapter (which is the desired behavior, but the test
+    // here is exercising the post-priming path).
+    seedAtDepth(jb, 1, audio_config::kJitterInitialDepth);
+    auto primer = jb.pop();
+    assert(primer.has_value());
+
+    // Drain to cause a real underrun.
+    while (jb.pop().has_value()) {
+    }
+    auto starve = jb.pop();
+    assert(!starve.has_value());
+
     for (size_t i = 0; i < audio_config::kJitterAdaptIntervalTicks; ++i) {
         jb.tick();
     }
@@ -124,14 +199,25 @@ void testAdaptGrowsOnUnderrun() {
 
 void testAdaptShrinksAfterStability() {
     JitterBuffer jb;
-    // Bump target up first.
-    auto f = jb.pop();  // underrun
-    (void)f;
+    // Prime, then force a counted underrun, so the adapter grows targetDepth.
+    seedAtDepth(jb, 1, audio_config::kJitterInitialDepth);
+    auto primer = jb.pop();
+    assert(primer.has_value());
+    while (jb.pop().has_value()) {
+    }
+    auto starve = jb.pop();
+    assert(!starve.has_value());
+
     for (size_t i = 0; i < audio_config::kJitterAdaptIntervalTicks; ++i) {
         jb.tick();
     }
     const size_t grownTarget = jb.targetDepth();
     assert(grownTarget > audio_config::kJitterInitialDepth);
+
+    // Drain whatever stale frames remain from the priming phase so the
+    // re-fill below doesn't run into the new max-depth cap.
+    while (jb.popAny().has_value()) {
+    }
 
     // Now drive enough underrun-free intervals to trigger a shrink. Keep the
     // buffer always above target so pop() never underruns.
@@ -232,7 +318,9 @@ void testResetClearsQueueAndState() {
 
 int main() {
     try {
-        testColdStartUnderruns();
+        testColdStartDoesNotCountUnderruns();
+        testStarvationEpisodeCountsOnce();
+        testPushCapsAtMaxDepth();
         testNormalFlowAfterFilling();
         testLateFrameDropped();
         testDuplicateRejected();

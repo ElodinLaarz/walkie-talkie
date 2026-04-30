@@ -125,7 +125,11 @@ public:
         std::fill(std::begin(history_), std::end(history_), 0.0f);
         // historyIdx_ starts at -1 so the first push lands at slot 0.
         historyIdx_ = kNumTaps - 1;
-        phase_ = audio_config::kResampleRatio - 1;  // first push triggers an output? No — we want the FIRST sample to be phase 0.
+        // Start phase at 0; the first L pushes (3 here) are absorbed into
+        // history and the L-th push emits the first output. This matches the
+        // header-doc claim that a 7-sample burst at 48 kHz produces 2 samples
+        // at 16 kHz (samples 3 and 6).
+        phase_ = 0;
     }
 
 private:

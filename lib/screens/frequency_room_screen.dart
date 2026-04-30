@@ -81,7 +81,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   bool _meMuted = false;
   bool _holdingPtt = false;
+  /// Per-peer playback volume, keyed by peerId. Populated lazily —
+  /// only entries the user has explicitly adjusted exist; everything
+  /// else reads through [_volumeFor] which falls back to
+  /// [_kDefaultPeerVolume]. Null-asserting (`_volumes[peerId]!`) on
+  /// a cubit-driven peer will throw because the entry doesn't exist
+  /// yet, so always go through the helper instead of the raw map.
   late Map<String, double> _volumes;
+  static const double _kDefaultPeerVolume = 0.7;
+  double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;
   final Set<String> _peerMuted = {};
   final Set<String> _removed = {};
 
@@ -153,7 +161,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // Only populate mock roster when debugDemoTimers is true (for tests)
     if (widget.debugDemoTimers) {
       _roster = [_me, ...kPeople.skip(1).take(widget.groupSize - 1)];
-      _volumes = {for (final p in _roster) p.id: 0.7};
+      _volumes = {for (final p in _roster) p.id: _kDefaultPeerVolume};
     } else {
       _volumes = {}; // Volumes populated dynamically as peers join
     }
@@ -686,7 +694,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                                         first: i == 0,
                                         talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
                                         muted: _peerMuted.contains(peers[i].id),
-                                        volume: _volumes[peers[i].id] ?? 0.7,
+                                        volume: _volumeFor(peers[i].id),
                                         onTap: () => _showPeerDrawer(peers[i]),
                                       ),
                                   ],
@@ -911,7 +919,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         return _PeerDrawer(
           person: person,
           isHost: widget.isHost,
-          initialVolume: _volumes[person.id]!,
+          initialVolume: _volumeFor(person.id),
           initialMuted: _peerMuted.contains(person.id),
           onChanged: (vol, muted) {
             setState(() {

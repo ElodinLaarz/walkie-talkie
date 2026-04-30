@@ -189,6 +189,9 @@ std::vector<int> AudioMixer::getActiveDevices() {
 // Global mixer instance
 AudioMixer* g_audioMixer = nullptr;
 
+#ifdef __ANDROID__
+// JNI wrappers — only compiled on Android. Host CI tests link the mixer
+// directly via the C++ API above.
 extern "C" {
 
 JNIEXPORT void JNICALL
@@ -251,3 +254,4 @@ Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeClear(JNIEnv *env, jobjec
 }
 
 } // extern "C"
+#endif // __ANDROID__

@@ -9,6 +9,7 @@ import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
 import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/data/frequency_mock_data.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
+import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
@@ -300,6 +301,80 @@ void main() {
 
       expect(find.text('Remove from frequency'), findsOneWidget);
     });
+
+    testWidgets(
+      'opening peer drawer on a cubit-driven roster does not crash on missing volume entry',
+      // Regression for #103: in production `debugDemoTimers: false`,
+      // `_volumes` is empty until the user adjusts a slider, so reading
+      // `_volumes[person.id]!` for any cubit-driven peer threw a null
+      // dereference. The drawer must read through `_volumeFor`, which
+      // falls back to the default volume for unknown peer ids.
+      (tester) async {
+        final cubit = FrequencySessionCubit(
+          identityStore: _MemoryStore(),
+          recentFrequenciesStore: _NullRecentFrequenciesStore(),
+        );
+        addTearDown(cubit.close);
+
+        cubit
+          ..emit(const SessionDiscovery(myName: 'Caleb'))
+          ..joinRoom(freq: '104.3', isHost: false);
+
+        // Non-demo room screen — `debugDemoTimers: false` exercises the
+        // cubit-driven roster path and the production `_volumes`
+        // initialization (empty map).
+        await tester.pumpWidget(_wrap(
+          FrequencyRoomScreen(
+            freq: '104.3',
+            isHost: false,
+            myName: 'Caleb',
+            groupSize: 5,
+            mediaKind: MediaKind.music,
+            pttMode: false,
+            onLeave: () {},
+          ),
+          cubit: cubit,
+        ));
+        // Pump twice: first to settle initState's post-frame
+        // microtasks (startVoice + the identity-store read inside
+        // _resolveMyPeerId), second to drain the resulting setStates.
+        await tester.pump();
+        await tester.pump();
+
+        // Land a roster with a single non-self peer. Different peerId
+        // from the identity store's `'me-peer-id'` so the screen
+        // doesn't filter it out as the local user.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ],
+        ));
+        await tester.pump();
+
+        expect(find.text('Devon'), findsOneWidget);
+
+        // Tap the cubit-driven peer row — pre-fix this threw because
+        // `_volumes['p-host']` was null and the bang operator
+        // dereferenced it.
+        await tester.tap(find.text('Devon'));
+        await tester.pump(_settle);
+
+        // Drawer rendered — same content the demo-roster test
+        // checks, but driven through the production roster path.
+        expect(find.text('Mute from your side'), findsOneWidget);
+        expect(find.text('Their voice volume'), findsOneWidget);
+        // Lock the fallback contract: both the peer row's
+        // volume label (still visible behind the drawer) and the
+        // drawer's label track `_kDefaultPeerVolume` (0.7) for
+        // unknown peer ids.
+        expect(find.text('70%'), findsNWidgets(2));
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     // testWidgets.skip is bool-only; wrap in a group so the runner records
     // a reason instead of a silent skip count.
