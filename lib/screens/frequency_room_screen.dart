@@ -46,11 +46,12 @@ class FrequencyRoomScreen extends StatefulWidget {
   final String myName;
   final VoidCallback onLeave;
 
-  /// Native audio bridge. Optional so widget tests that don't care about the
-  /// MethodChannel can omit it (the catch-blocks inside [AudioService]
-  /// swallow `MissingPluginException`); production wiring constructs the
-  /// default instance. Tests that *do* assert on audio engine calls can
-  /// pass an instance whose channel handler they've registered.
+  /// Native audio bridge. Optional so widget tests that want to inject a
+  /// mock or fake can pass one explicitly; production wiring should pass
+  /// `context.read<AudioService>()` so the screen shares the singleton the
+  /// rest of the app sees (see #129). When omitted, the screen falls back
+  /// to `context.read<AudioService>()` — never a fresh instance — to
+  /// guarantee one `AudioService` per process at runtime.
   final AudioService? audioService;
 
   /// When true, demo timers fire fake BLE events for design previews.
@@ -170,7 +171,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _lib = kMedia[_source]!;
     _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
 
-    _audio = widget.audioService ?? AudioService();
+    _audio = widget.audioService ?? context.read<AudioService>();
+    // Guard against a future caller silently constructing a second
+    // AudioService and passing it through `widget.audioService` while a
+    // different instance is also wired into the provider — their
+    // audioEvents/controlBytes stream caches diverge and event-routing
+    // bugs become very hard to trace (#129). The provider is the single
+    // source of truth.
+    assert(identical(_audio, context.read<AudioService>()));
     // Start the foreground service first so the OS elevates process priority
     // before AudioRecord opens — avoids the mic being killed when the screen
     // turns off during the capture-engine init window. Then spin up voice and
