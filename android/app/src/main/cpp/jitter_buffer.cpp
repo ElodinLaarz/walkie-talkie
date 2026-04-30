@@ -18,6 +18,22 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
         playheadInit_ = true;
     }
 
+    // Insert in modular-sorted order. Working window is small (<= kMaxDepth
+    // = 10 frames) so a linear scan is faster than a tree. We do the dup
+    // check BEFORE the cap check so a retransmit of an already-queued seq
+    // doesn't incorrectly bump lateCount_ — that counter signals "buffer
+    // overflow" to the link-quality reporter, and a benign retransmit isn't
+    // an overflow.
+    auto it = frames_.begin();
+    while (it != frames_.end() && seqLess(it->seq, seq)) {
+        ++it;
+    }
+    if (it != frames_.end() && it->seq == seq) {
+        // Duplicate — first arrival wins. Don't count as late: a dup is a
+        // transport retransmit, not actual ordering trouble.
+        return false;
+    }
+
     // Bounded memory + bounded playout latency. If we're already at the cap,
     // the consumer is stalled (e.g. mixer tick stuck) or the producer is
     // flooding (out-of-spec peer). Drop the new frame and count it: the
@@ -27,18 +43,6 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
     // audio is preserved) and keeps the playhead's chronology intact.
     if (frames_.size() >= audio_config::kJitterMaxDepth) {
         ++lateCount_;
-        return false;
-    }
-
-    // Insert in modular-sorted order. Working window is small (<= kMaxDepth
-    // = 10 frames) so a linear scan is faster than a tree.
-    auto it = frames_.begin();
-    while (it != frames_.end() && seqLess(it->seq, seq)) {
-        ++it;
-    }
-    if (it != frames_.end() && it->seq == seq) {
-        // Duplicate — first arrival wins. Don't count as late: a dup is a
-        // transport retransmit, not actual ordering trouble.
         return false;
     }
 

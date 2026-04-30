@@ -153,9 +153,9 @@ void testOutOfOrderInsertion() {
     JitterBuffer jb;
     const uint8_t data[1] = {0xa5};
     // Push 10, 12, 11 — must end up sorted 10, 11, 12.
-    jb.push(10, data, 1);
-    jb.push(12, data, 1);
-    jb.push(11, data, 1);
+    assert(jb.push(10, data, 1));
+    assert(jb.push(12, data, 1));
+    assert(jb.push(11, data, 1));
 
     seedAtDepth(jb, 13, audio_config::kJitterInitialDepth);  // top up
 
@@ -220,9 +220,14 @@ void testAdaptShrinksAfterStability() {
     }
 
     // Now drive enough underrun-free intervals to trigger a shrink. Keep the
-    // buffer always above target so pop() never underruns.
-    const size_t shrinkAfter = audio_config::kJitterShrinkAfterStableTicks /
-                               audio_config::kJitterAdaptIntervalTicks;
+    // buffer always above target so pop() never underruns. Ceil-divide so a
+    // future bump to kJitterShrinkAfterStableTicks that isn't an exact
+    // multiple of kJitterAdaptIntervalTicks doesn't quietly under-tick the
+    // shrink threshold and fail the test for the wrong reason.
+    const size_t shrinkAfter =
+        (audio_config::kJitterShrinkAfterStableTicks +
+         audio_config::kJitterAdaptIntervalTicks - 1) /
+        audio_config::kJitterAdaptIntervalTicks;
     // Each tick before the next pop attempt: keep buffer above target depth.
     uint32_t nextSeq = 1000;
     seedAtDepth(jb, nextSeq, audio_config::kJitterMaxDepth);
@@ -247,8 +252,8 @@ void testWraparoundOrdering() {
     JitterBuffer jb;
     const uint8_t data[1] = {0x00};
     // Cold-start the playhead near the rollover.
-    jb.push(0xFFFFFFF0u, data, 1);
-    jb.push(0xFFFFFFF1u, data, 1);
+    assert(jb.push(0xFFFFFFF0u, data, 1));
+    assert(jb.push(0xFFFFFFF1u, data, 1));
     // Forward-wrap: seq 0x00000000 is "next" after 0xFFFFFFFF.
     bool ok = jb.push(0x00000000u, data, 1);
     assert(ok);

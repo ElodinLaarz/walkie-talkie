@@ -185,25 +185,17 @@ void PeerAudioManager::mixerTickLoop() {
 
     constexpr int kFrameSize = audio_config::kCodecFrameSize;
 
-    // Attach this thread to the JVM once. sendAudioToPeer fires every tick
-    // per peer; per-call AttachCurrentThread / DetachCurrentThread on a
-    // 50 Hz × N-peer cadence is wasteful and adds jitter to the mixer loop.
-    // We attach at thread start, hand the same JNIEnv to sendAudioToPeer,
-    // and detach exactly once on loop exit.
+    // Per-thread JVM attachment. The thread runs at 50 Hz × N peers, so we
+    // do the attach once and reuse the JNIEnv — per-call attach/detach is
+    // wasteful and adds jitter to the mixer loop.
+    //
+    // **Lazy:** if startMixerThread() runs before setCallback() publishes
+    // jvm_, we'd otherwise stay unattached forever. We retry the attach on
+    // each tick where `env` is still null AND `jvm_` is now available.
+    // Once attached, the JNIEnv is stable for the thread's lifetime; we
+    // detach exactly once on loop exit if we attached at all.
     JNIEnv* env = nullptr;
     bool attached = false;
-    if (jvm_) {
-        if (jvm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) !=
-            JNI_OK) {
-            if (jvm_->AttachCurrentThread(&env, nullptr) == JNI_OK) {
-                attached = true;
-            } else {
-                LOGE("mixerTickLoop: AttachCurrentThread failed; outbound "
-                     "audio will be dropped");
-                env = nullptr;
-            }
-        }
-    }
 
     // Pre-allocate scratch — the mixer thread runs every 20 ms, so the cost
     // of a tick matters more than memory.
@@ -231,6 +223,25 @@ void PeerAudioManager::mixerTickLoop() {
         if (now < nextTick) {
             std::this_thread::sleep_for(nextTick - now);
             continue;
+        }
+
+        // Lazy JNI attach. If setCallback() hadn't yet been called when the
+        // thread started, jvm_ was null and we couldn't attach. Try again
+        // on each tick until we succeed; before that, encoded frames are
+        // produced but `sendAudioToPeer` skips the JNI call (no callback to
+        // hand them to anyway). On a healthy boot sequence this branch
+        // succeeds on the very first tick.
+        if (env == nullptr && jvm_ != nullptr) {
+            if (jvm_->GetEnv(reinterpret_cast<void**>(&env),
+                             JNI_VERSION_1_6) != JNI_OK) {
+                if (jvm_->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                    attached = true;
+                } else {
+                    LOGE("mixerTickLoop: AttachCurrentThread failed; will "
+                         "retry next tick");
+                    env = nullptr;
+                }
+            }
         }
 
         peerSnapshot.clear();
@@ -435,11 +446,20 @@ void PeerAudioManager::clear() {
 
 PeerAudioManager* g_peerAudioManager = nullptr;
 
+// Serializes JNI entrypoints against `nativeClear`, which can delete the
+// singleton from one thread while another is mid-call. Mirrors the
+// g_engineMutex pattern in audio_engine.cpp. The mixer thread itself runs
+// without taking this mutex — it only ever uses snapshots of the manager's
+// internal state, so once the manager is alive long enough to start the
+// thread, the thread can safely outlive any JNI race.
+static std::mutex g_peerManagerMutex;
+
 extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeInit(JNIEnv* env,
                                                             jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (g_peerAudioManager == nullptr) {
         g_peerAudioManager = new PeerAudioManager();
         LOGI("PeerAudioManager native initialized");
@@ -449,6 +469,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeInit(JNIEnv* env,
 JNIEXPORT jint JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeRegisterPeer(
     JNIEnv* env, jobject thiz, jstring macAddress) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return -1;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
     int id = g_peerAudioManager->registerPeer(std::string(mac));
@@ -459,6 +480,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeRegisterPeer(
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeUnregisterPeer(
     JNIEnv* env, jobject thiz, jstring macAddress) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
     g_peerAudioManager->unregisterPeer(std::string(mac));
@@ -468,6 +490,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeUnregisterPeer(
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeStartMixerThread(
     JNIEnv* env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return JNI_FALSE;
     return g_peerAudioManager->startMixerThread() ? JNI_TRUE : JNI_FALSE;
 }
@@ -475,6 +498,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeStartMixerThread(
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeStopMixerThread(
     JNIEnv* env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (g_peerAudioManager) {
         g_peerAudioManager->stopMixerThread();
     }
@@ -483,6 +507,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeStopMixerThread(
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetCallback(
     JNIEnv* env, jobject thiz, jobject callback) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (g_peerAudioManager) {
         g_peerAudioManager->setCallback(env, callback);
     }
@@ -491,6 +516,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetCallback(
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeClear(JNIEnv* env,
                                                              jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (g_peerAudioManager) {
         g_peerAudioManager->clear();
         delete g_peerAudioManager;
@@ -507,6 +533,7 @@ JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
     JNIEnv* env, jobject thiz, jstring macAddress, jbyteArray opusData,
     jlong seq) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
     jsize size = env->GetArrayLength(opusData);
@@ -523,6 +550,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
 JNIEXPORT jint JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     JNIEnv* env, jobject thiz, jstring macAddress, jint bps) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return -1;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
     int applied = g_peerAudioManager->setPeerBitrate(std::string(mac), bps);
@@ -538,6 +566,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
 JNIEXPORT jintArray JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     JNIEnv* env, jobject thiz, jstring macAddress) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return nullptr;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
     auto t = g_peerAudioManager->getTelemetry(std::string(mac));
