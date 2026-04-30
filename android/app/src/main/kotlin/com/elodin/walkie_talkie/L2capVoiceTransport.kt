@@ -292,7 +292,15 @@ class L2capVoiceTransport(
             // racy with this thread starting.
             Log.i(TAG, "Receive loop init failed for $addr: ${e.message}")
         } finally {
+            // Drop both the host-side (clientSockets) and guest-side (guestIo)
+            // reference for whichever socket this loop was bound to. The
+            // guest check is identity-based (socket ===) so a fresh
+            // connection that races a stale receiveLoop's finally can't
+            // accidentally null out the new guestIo.
             synchronized(clientSockets) { clientSockets.remove(addr) }
+            synchronized(this) {
+                if (guestIo?.socket === socket) guestIo = null
+            }
             try { socket.close() } catch (_: IOException) {}
         }
     }
@@ -391,14 +399,14 @@ internal fun writeFramed(out: OutputStream, frame: ByteArray) {
     require(frame.size <= L2capVoiceTransport.MAX_FRAME_SIZE) {
         "Frame size ${frame.size} exceeds MAX_FRAME_SIZE ${L2capVoiceTransport.MAX_FRAME_SIZE}"
     }
-    val prefix = ByteArray(L2capVoiceTransport.LENGTH_PREFIX_SIZE)
-    prefix[0] = ((frame.size ushr 8) and 0xff).toByte()
-    prefix[1] = (frame.size and 0xff).toByte()
     // Single buffer + single write avoids interleaving prefix and payload
-    // if a future caller ever shares the OutputStream across threads
-    // (the writer thread doesn't, but the API leaves no foot-gun).
+    // if a future caller ever shares the OutputStream across threads (the
+    // writer thread doesn't, but the API leaves no foot-gun). Writing the
+    // length bytes directly into the head of `buf` saves a per-frame
+    // ByteArray allocation + arraycopy, which matters at 50 fps voice.
     val buf = ByteArray(L2capVoiceTransport.LENGTH_PREFIX_SIZE + frame.size)
-    System.arraycopy(prefix, 0, buf, 0, L2capVoiceTransport.LENGTH_PREFIX_SIZE)
+    buf[0] = ((frame.size ushr 8) and 0xff).toByte()
+    buf[1] = (frame.size and 0xff).toByte()
     System.arraycopy(frame, 0, buf, L2capVoiceTransport.LENGTH_PREFIX_SIZE, frame.size)
     out.write(buf)
     out.flush()
