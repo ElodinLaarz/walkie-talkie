@@ -1,10 +1,12 @@
 package com.elodin.walkie_talkie
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.os.Build
@@ -12,6 +14,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 
 /**
  * Foreground service that keeps the walkie-talkie session alive when the
@@ -55,7 +58,7 @@ class WalkieTalkieService : Service() {
             updateNotification(freq)
         }
         Log.i(TAG, "Service started, freq=$freq")
-        return START_STICKY
+        return START_REDELIVER_INTENT
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -63,6 +66,7 @@ class WalkieTalkieService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Service destroyed")
+        audioEngineManager.stop()
         audioFocusManager?.abandon()
         audioFocusManager = null
     }
@@ -169,20 +173,42 @@ class WalkieTalkieService : Service() {
             .build()
     }
 
+    /**
+     * Check if Bluetooth permissions are granted. On Android 12+ we need
+     * BLUETOOTH_CONNECT to use FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE.
+     */
+    private fun hasBluetoothPermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            // On older APIs, BLUETOOTH permission is install-time, not runtime
+            true
+        }
+    }
+
     private fun startForegroundWithNotification(freq: String?) {
         val notification = buildNotification(freq)
+        val serviceType = if (hasBluetoothPermissions()) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceCompat.startForeground(
                 this,
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                serviceType,
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                serviceType,
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
