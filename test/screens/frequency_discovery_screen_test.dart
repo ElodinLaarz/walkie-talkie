@@ -215,10 +215,11 @@ void main() {
         expect(find.text('RECENT'), findsOneWidget);
         // One Resume button per row.
         expect(find.text('Resume'), findsNWidgets(2));
-        // Each row's freq is rendered inside a Text.rich span, so match
-        // by substring rather than exact text.
-        expect(find.textContaining('100.1'), findsOneWidget);
-        expect(find.textContaining('92.4'), findsOneWidget);
+        // Each row's freq is rendered inside a Text.rich span ("Host on X MHz"),
+        // so match by substring. Use "Host on" prefix to avoid matching the
+        // "Start new" hint which may also contain the frequency.
+        expect(find.textContaining('Host on 100.1'), findsOneWidget);
+        expect(find.textContaining('Host on 92.4'), findsOneWidget);
       },
     );
 
