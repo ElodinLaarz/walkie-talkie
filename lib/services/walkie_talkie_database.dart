@@ -22,8 +22,11 @@ class WalkieTalkieDatabase {
   static Future<Database>? _opening;
 
   /// Returns the cached open [Database], opening (and creating tables) on
-  /// first call. Callers from any isolate can `await` this without racing —
-  /// the in-flight open is shared.
+  /// first call. Callers within the same isolate can `await` this without
+  /// racing — the in-flight open is shared. Note the static state isn't
+  /// shared across isolates, and `package:sqflite` itself isn't generally
+  /// safe to use from background isolates, so don't rely on cross-isolate
+  /// sharing here.
   static Future<Database> open() {
     final existing = _db;
     if (existing != null && existing.isOpen) return Future.value(existing);
@@ -60,8 +63,11 @@ class WalkieTalkieDatabase {
         value TEXT NOT NULL
       )
     ''');
-    // recorded_at is millisSinceEpoch; we order DESC and cap by deleting
-    // entries whose freq isn't in the top-N by recorded_at.
+    // recorded_at is a sortable composite, `(epochMs << 16) + seqWithinMs`,
+    // produced by SqfliteRecentFrequenciesStore — NOT raw epoch ms. We
+    // order DESC and cap by deleting entries whose freq isn't in the top-N
+    // by recorded_at; the intra-ms sequence is what keeps two records
+    // submitted in the same millisecond ordered by submission.
     await db.execute('''
       CREATE TABLE recent_frequencies (
         freq TEXT PRIMARY KEY NOT NULL,

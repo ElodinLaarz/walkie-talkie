@@ -34,9 +34,11 @@ abstract class RecentFrequenciesStore {
 }
 
 /// sqflite-backed [RecentFrequenciesStore]. Schema: one row per freq with
-/// a millisecond `recorded_at`; ordering is by `recorded_at DESC`. We
-/// dedupe on `freq` (PRIMARY KEY) so re-recording the same channel just
-/// bumps its timestamp instead of inserting a duplicate.
+/// a sortable `recorded_at` derived from epoch milliseconds (see
+/// [_nextOrderingTimestamp] — it's `(epochMs << 16) + seqWithinMs`, not raw
+/// epoch ms); ordering is by `recorded_at DESC`. We dedupe on `freq`
+/// (PRIMARY KEY) so re-recording the same channel just bumps its ordering
+/// timestamp instead of inserting a duplicate.
 class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
   static const String _table = 'recent_frequencies';
 
@@ -115,8 +117,14 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   int _nextOrderingTimestamp() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now == _lastEpochMs) {
+    var now = DateTime.now().millisecondsSinceEpoch;
+    // Clock skew (NTP step, daylight-saving rollback, manual clock change)
+    // can make `now < _lastEpochMs`. Without the `<=` branch a record taken
+    // a few ms after a backward jump would land *before* prior records and
+    // re-shuffle the recents order. Pin to the last seen epoch and bump
+    // the sequence so the wall-clock tick is irrelevant to ordering.
+    if (now <= _lastEpochMs) {
+      now = _lastEpochMs;
       _seqWithinMs += 1;
     } else {
       _lastEpochMs = now;

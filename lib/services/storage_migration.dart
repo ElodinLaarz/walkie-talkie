@@ -9,9 +9,15 @@ import 'walkie_talkie_database.dart';
 /// launches skip the Hive code path entirely so we don't pay
 /// `Hive.initFlutter()` for installs that were never on Hive.
 ///
-/// Best-effort: if Hive can't open a box (corruption, missing files,
-/// concurrent access), we log and continue with whatever data made it
-/// through. The marker is still written so we don't loop on a corrupt box.
+/// Best-effort, but with a deliberate split:
+///   * **Per-box errors are caught and the marker is still written.**
+///     Box corruption is permanent — retry-looping on it would just brick
+///     bootstrap. We log the failure and move on; whatever data made it
+///     through is what the user has.
+///   * **sqflite-side errors propagate.** If we can't write the marker
+///     because SQLite itself is sick, the call throws and the next
+///     bootstrap retries the whole migration — which is what addresses
+///     transient (DB-locked, disk-full) failures naturally.
 Future<void> migrateHiveToSqliteIfNeeded({
   Future<void> Function()? hiveInit,
 }) async {
@@ -25,24 +31,49 @@ Future<void> migrateHiveToSqliteIfNeeded({
   );
   if (marker.isNotEmpty) return;
 
+  // hiveInit override exists so unit tests can stub the Flutter-only
+  // `Hive.initFlutter()` (it pulls the app documents dir via path_provider,
+  // which the Dart-side suite doesn't have access to). If init itself fails
+  // there's no legacy data we can read anyway — write the marker and stop.
   try {
-    // hiveInit override exists so unit tests can stub the Flutter-only
-    // `Hive.initFlutter()` (it pulls the app documents dir via
-    // path_provider, which the Dart-side suite doesn't have access to).
     await (hiveInit ?? Hive.initFlutter)();
-    await _migrateIdentity(db);
-    await _migrateRecents(db);
   } catch (e, st) {
-    // Don't crash app startup on a migration failure. Surface to logs and
-    // mark migrated anyway so we don't retry in a loop on a corrupt box.
-    debugPrint('Hive→sqflite migration: failed best-effort path: $e\n$st');
-  } finally {
-    await db.insert(
-      'kv',
-      {'key': _markerKey, 'value': 'done'},
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    debugPrint(
+      'Hive→sqflite: Hive init failed; nothing to migrate: $e\n$st',
+    );
+    await _writeMarker(db);
+    return;
+  }
+
+  // Each box's migration is independent — one corrupt box must not stop
+  // the other from migrating.
+  try {
+    await _migrateIdentity(db);
+  } catch (e, st) {
+    debugPrint(
+      'Hive→sqflite: identity box migration failed (best effort): $e\n$st',
     );
   }
+  try {
+    await _migrateRecents(db);
+  } catch (e, st) {
+    debugPrint(
+      'Hive→sqflite: recents box migration failed (best effort): $e\n$st',
+    );
+  }
+
+  // The marker write is intentionally NOT in a try/catch: if SQLite itself
+  // throws here, the call throws out and the next bootstrap retries — which
+  // is the right behavior for transient sqflite failures.
+  await _writeMarker(db);
+}
+
+Future<void> _writeMarker(Database db) {
+  return db.insert(
+    'kv',
+    {'key': _markerKey, 'value': 'done'},
+    conflictAlgorithm: ConflictAlgorithm.replace,
+  );
 }
 
 const String _markerKey = 'migrated_from_hive_v1';
