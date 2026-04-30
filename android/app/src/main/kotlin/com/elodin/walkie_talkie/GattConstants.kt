@@ -46,9 +46,12 @@ object GattConstants {
     const val TARGET_ATT_MTU: Int = 247
 
     /**
-     * L2CAP CoC voice plane: every `sendToClient` / `sendToHost` write is one
-     * VoiceFrame (<=128 bytes) so receive-side reads stay aligned without a
-     * length prefix. Mirrors `kVoiceMtu` in `lib/protocol/voice_frame.dart`.
+     * L2CAP CoC voice plane: maximum VoiceFrame payload size. Each frame on
+     * the wire is preceded by a 2-byte big-endian length prefix (see
+     * `L2capVoiceTransport`'s class doc + `docs/protocol.md § Voice frame
+     * format`), so the on-the-wire L2CAP write is up to `VOICE_MTU + 2`
+     * bytes; the SDU MTU must be sized accordingly. Mirrors `kVoiceMtu` in
+     * `lib/protocol/voice_frame.dart`.
      */
     const val VOICE_MTU: Int = 128
 }

@@ -406,13 +406,22 @@ Comfortably under L2CAP throughput on any LE 4.2+ device.
 
 ### Voice frame format
 
-Each L2CAP write is a single Opus frame prefixed with an 8-byte header (MTU **MUST** be ≥ 128 bytes):
+Each L2CAP write is one VoiceFrame, framed by a 2-byte big-endian length
+prefix so the receiver can recover frame boundaries even when the kernel
+coalesces multiple SDUs into a single userspace `read` (observed on some
+Samsung and Pixel kernels). MTU **MUST** be ≥ 130 bytes (128 voice + 2
+prefix):
 
 | offset | bytes | meaning                                                       |
 | ------ | ----- | ------------------------------------------------------------- |
-| 0      | 4     | `seq` — per-link monotonic uint32, big-endian                 |
-| 4      | 4     | `senderTsMs` — sender's ms-since-epoch low 32 bits, big-endian |
-| 8      | N     | Opus frame payload                                            |
+| 0      | 2     | `frameLen` — uint16, big-endian; size of the VoiceFrame that follows (does **not** include this prefix) |
+| 2      | 4     | `seq` — per-link monotonic uint32, big-endian                 |
+| 6      | 4     | `senderTsMs` — sender's ms-since-epoch low 32 bits, big-endian |
+| 10     | N     | Opus frame payload                                            |
+
+`frameLen` is the size of the inner VoiceFrame (`seq` + `senderTsMs` +
+payload). Receivers that observe a `frameLen` of 0 or > 4096 close the
+channel — both indicate a malformed peer.
 
 `peerId` is **not** in the header — each L2CAP CoC is dedicated to a single
 peer (the connection identifies the sender). On the receive side, the host
