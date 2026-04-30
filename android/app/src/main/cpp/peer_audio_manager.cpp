@@ -16,12 +16,13 @@ PeerAudioManager::PeerAudioManager() { LOGI("PeerAudioManager created"); }
 PeerAudioManager::~PeerAudioManager() {
     stopMixerThread();
     clear();
-    if (jvm_) {
+    JavaVM* jvm = jvm_.load(std::memory_order_acquire);
+    if (jvm) {
         std::lock_guard<std::mutex> lock(callbackMutex_);
         if (callbackObject_) {
             JNIEnv* env = nullptr;
-            if (jvm_->GetEnv(reinterpret_cast<void**>(&env),
-                             JNI_VERSION_1_6) == JNI_OK) {
+            if (jvm->GetEnv(reinterpret_cast<void**>(&env),
+                            JNI_VERSION_1_6) == JNI_OK) {
                 env->DeleteGlobalRef(callbackObject_);
             }
             callbackObject_ = nullptr;
@@ -231,10 +232,15 @@ void PeerAudioManager::mixerTickLoop() {
         // produced but `sendAudioToPeer` skips the JNI call (no callback to
         // hand them to anyway). On a healthy boot sequence this branch
         // succeeds on the very first tick.
-        if (env == nullptr && jvm_ != nullptr) {
-            if (jvm_->GetEnv(reinterpret_cast<void**>(&env),
-                             JNI_VERSION_1_6) != JNI_OK) {
-                if (jvm_->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+        //
+        // jvm_ is std::atomic; the acquire load pairs with the release
+        // store in setCallback() to give us happens-before with whatever
+        // setCallback() did before publishing.
+        JavaVM* jvm = jvm_.load(std::memory_order_acquire);
+        if (env == nullptr && jvm != nullptr) {
+            if (jvm->GetEnv(reinterpret_cast<void**>(&env),
+                            JNI_VERSION_1_6) != JNI_OK) {
+                if (jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
                     attached = true;
                 } else {
                     LOGE("mixerTickLoop: AttachCurrentThread failed; will "
@@ -353,8 +359,11 @@ void PeerAudioManager::mixerTickLoop() {
         }
     }
 
-    if (attached && jvm_) {
-        jvm_->DetachCurrentThread();
+    if (attached) {
+        JavaVM* jvm = jvm_.load(std::memory_order_acquire);
+        if (jvm) {
+            jvm->DetachCurrentThread();
+        }
     }
 
     LOGI("Mixer tick loop ended");
@@ -389,26 +398,41 @@ void PeerAudioManager::sendAudioToPeer(JNIEnv* env,
         jmethodID method = env->GetMethodID(callbackClass, "onMixedAudioReady",
                                             "(Ljava/lang/String;[BI)V");
         if (method) {
+            // Either alloc can return null and leave a pending OOM
+            // exception. Check both before passing them to JNI calls that
+            // would crash on null (SetByteArrayRegion in particular). On
+            // failure we clear the pending exception so the next JNI call
+            // on this thread doesn't assert, and bail.
             jstring jMac = env->NewStringUTF(macAddress.c_str());
             jbyteArray jData = env->NewByteArray(opusSize);
-            env->SetByteArrayRegion(jData, 0, opusSize,
-                                    reinterpret_cast<const jbyte*>(opusData));
+            if (jMac != nullptr && jData != nullptr) {
+                env->SetByteArrayRegion(
+                    jData, 0, opusSize,
+                    reinterpret_cast<const jbyte*>(opusData));
 
-            env->CallVoidMethod(callback, method, jMac, jData,
-                                static_cast<jint>(seq));
+                env->CallVoidMethod(callback, method, jMac, jData,
+                                    static_cast<jint>(seq));
 
-            // Defensive: clear any pending exception from the Java callback
-            // so the next JNI call doesn't trip an assert. The protocol
-            // contract is that the callback returns void without throwing,
-            // but we shouldn't crash the foreground service if Kotlin code
-            // throws unexpectedly.
-            if (env->ExceptionCheck()) {
-                env->ExceptionDescribe();
-                env->ExceptionClear();
+                // Defensive: clear any pending exception from the Java
+                // callback so the next JNI call doesn't trip an assert.
+                // The protocol contract is that the callback returns void
+                // without throwing, but we shouldn't crash the foreground
+                // service if Kotlin code throws unexpectedly.
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                }
+            } else {
+                LOGE("sendAudioToPeer: JNI alloc failed (jMac=%p jData=%p)",
+                     jMac, jData);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                }
             }
 
-            env->DeleteLocalRef(jMac);
-            env->DeleteLocalRef(jData);
+            if (jMac) env->DeleteLocalRef(jMac);
+            if (jData) env->DeleteLocalRef(jData);
         }
         env->DeleteLocalRef(callbackClass);
     }
@@ -416,8 +440,15 @@ void PeerAudioManager::sendAudioToPeer(JNIEnv* env,
 }
 
 void PeerAudioManager::setCallback(JNIEnv* env, jobject callback) {
-    if (!jvm_) {
-        env->GetJavaVM(&jvm_);
+    // Publish jvm_ first with release semantics so that as soon as the
+    // mixer thread observes a non-null jvm_ via its acquire load, it can
+    // safely use it without further synchronization. Capturing the JavaVM
+    // is idempotent, but we still go through the atomic to keep the
+    // happens-before edge correct.
+    if (jvm_.load(std::memory_order_relaxed) == nullptr) {
+        JavaVM* vm = nullptr;
+        env->GetJavaVM(&vm);
+        jvm_.store(vm, std::memory_order_release);
     }
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (callbackObject_) {

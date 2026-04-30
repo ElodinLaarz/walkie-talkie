@@ -128,7 +128,12 @@ private:
     std::thread mixerThread_;
     std::atomic<bool> mixerRunning_{false};
 
-    JavaVM* jvm_{nullptr};
+    // jvm_ is published lazily by setCallback() (which captures it from
+    // the calling JNIEnv) and read by mixerTickLoop's lazy-attach path on
+    // every tick. std::atomic with release/acquire prevents the C++ data
+    // race that a plain pointer would create between the publishing thread
+    // and the polling mixer thread.
+    std::atomic<JavaVM*> jvm_{nullptr};
 
     // Guards `callbackObject_` against the race between the JNI thread's
     // `setCallback` (which deletes + replaces the global ref) and the

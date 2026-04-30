@@ -55,8 +55,9 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
 
 std::optional<JitterBuffer::Frame> JitterBuffer::pop() {
     if (frames_.size() < targetDepth_) {
-        // Underrun semantics: count only after priming, and only on the
-        // *transition* into starvation. This prevents two failure modes:
+        // Buffer-underrun: too few frames to release. Count only after
+        // priming, and only on the *transition* into starvation. This
+        // prevents two failure modes:
         //   1. Cold-start: pop() loops on an empty buffer for many ticks
         //      before the first frame arrives — we shouldn't ratchet the
         //      target depth up because of those, since they're a fact of
@@ -71,11 +72,32 @@ std::optional<JitterBuffer::Frame> JitterBuffer::pop() {
         }
         return std::nullopt;
     }
+
+    // Hole-at-head: the buffer has enough frames but the seq we're expecting
+    // (playhead_) isn't among them. The expected seq was lost in transit.
+    // Return nullopt so the caller runs PLC for one frame and advance the
+    // playhead by exactly one — the next tick will release the queued frame
+    // (or detect another hole if more than one was lost in a row).
+    //
+    // We deliberately don't bulk-advance: a 3-frame hole produces 3 PLC
+    // ticks paced to the playout clock, which is the correct way to mask
+    // loss. Bulk-advancing would skip directly to the next queued frame
+    // and time-compress audio, which is exactly the bug this branch fixes.
+    if (playheadInit_ && seqLess(playhead_, frames_.front().seq)) {
+        if (primed_ && !inUnderrun_) {
+            ++underrunCount_;
+            ++underrunsThisInterval_;
+            inUnderrun_ = true;
+        }
+        ++playhead_;
+        return std::nullopt;
+    }
+
     Frame f = std::move(frames_.front());
     frames_.pop_front();
-    // Advance playhead. Use seq+1 rather than f.seq+1 to keep the meaning
-    // ("next expected seq") even if the popped frame was non-contiguous —
-    // the gap was already absorbed by whatever PLC ran during the underrun.
+    // playhead_ tracks the next expected seq from this peer. Advance to
+    // f.seq + 1 (modular increment is fine; uint32 overflow is the wrap
+    // path the rest of this class is built around).
     playhead_ = f.seq + 1;
     primed_ = true;
     inUnderrun_ = false;
@@ -115,8 +137,13 @@ void JitterBuffer::tick() {
         // proved itself across several intervals so a brief calm doesn't
         // shrink us right back into the danger zone.
         ++stableIntervalsCount_;
+        // Ceil-divide so a future bump of kJitterShrinkAfterStableTicks to
+        // a non-multiple of kJitterAdaptIntervalTicks doesn't quietly cause
+        // the buffer to shrink one interval earlier than configured. The
+        // host test (testAdaptShrinksAfterStability) uses the same formula.
         const size_t shrinkAfter =
-            audio_config::kJitterShrinkAfterStableTicks /
+            (audio_config::kJitterShrinkAfterStableTicks +
+             audio_config::kJitterAdaptIntervalTicks - 1) /
             audio_config::kJitterAdaptIntervalTicks;
         if (stableIntervalsCount_ >= shrinkAfter &&
             targetDepth_ > audio_config::kJitterMinDepth) {

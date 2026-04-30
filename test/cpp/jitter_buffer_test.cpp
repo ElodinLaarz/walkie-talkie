@@ -79,6 +79,78 @@ void testStarvationEpisodeCountsOnce() {
     std::cout << "Test Starvation Episode Counts Once: PASSED" << std::endl;
 }
 
+// Hole-at-head: when the buffer has depth >= target but the seq the
+// playhead expects isn't among the queued frames, pop() must return
+// nullopt (so the caller PLCs that frame) and advance playhead by one.
+// Regression test for the silent time-compression bug where pop() naively
+// returned frames_.front() and skipped the lost slot.
+void testHoleAtHeadProducesPLC() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x33};
+
+    // Push 100, 102, 103, 104 — seq 101 was lost. Depth (4) >= target (3)
+    // so the depth-underrun branch doesn't fire; this isolates the hole
+    // branch. Cold-start playhead = 100.
+    assert(jb.push(100, data, 1));
+    assert(jb.push(102, data, 1));
+    assert(jb.push(103, data, 1));
+    assert(jb.push(104, data, 1));
+
+    // First pop: front=100, playhead=100. Match — release.
+    auto p1 = jb.pop();
+    assert(p1.has_value() && p1->seq == 100);
+    assert(jb.underrunCount() == 0);
+
+    // Second pop: depth=3 >= target=3, but front=102 and playhead=101.
+    // Hole — return nullopt for PLC, advance playhead to 102, count
+    // one underrun.
+    auto p2 = jb.pop();
+    assert(!p2.has_value());
+    assert(jb.underrunCount() == 1);
+
+    // Third pop: front=102, playhead=102. Match — release. The hole
+    // recovery should clear inUnderrun_, so a later episode counts again.
+    auto p3 = jb.pop();
+    assert(p3.has_value() && p3->seq == 102);
+
+    std::cout << "Test Hole At Head Produces PLC: PASSED" << std::endl;
+}
+
+// A multi-frame hole produces one nullopt per missing slot — paced to the
+// playout clock, not a bulk skip — and counts as one starvation episode.
+void testMultiFrameHoleProducesContiguousPLC() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x77};
+    // Lost: 11, 12. Present: 10, 13..16. Depth (5) >= target (3) so we
+    // can keep popping through the hole without hitting the depth-underrun
+    // branch.
+    assert(jb.push(10, data, 1));
+    assert(jb.push(13, data, 1));
+    assert(jb.push(14, data, 1));
+    assert(jb.push(15, data, 1));
+    assert(jb.push(16, data, 1));
+
+    auto p10 = jb.pop();
+    assert(p10.has_value() && p10->seq == 10);
+
+    // Two consecutive hole pops covering seqs 11, 12.
+    auto h1 = jb.pop();
+    assert(!h1.has_value());
+    auto h2 = jb.pop();
+    assert(!h2.has_value());
+
+    // Recovery: front=13 now matches the advanced playhead.
+    auto p13 = jb.pop();
+    assert(p13.has_value() && p13->seq == 13);
+
+    // Episode invariant: h1 and h2 belong to the same starvation episode,
+    // counted exactly once.
+    assert(jb.underrunCount() == 1);
+
+    std::cout << "Test Multi-Frame Hole Produces Contiguous PLC: PASSED"
+              << std::endl;
+}
+
 // push() must enforce kJitterMaxDepth. A stalled consumer or flooding
 // producer can't grow the buffer without bound.
 void testPushCapsAtMaxDepth() {
@@ -228,8 +300,12 @@ void testAdaptShrinksAfterStability() {
         (audio_config::kJitterShrinkAfterStableTicks +
          audio_config::kJitterAdaptIntervalTicks - 1) /
         audio_config::kJitterAdaptIntervalTicks;
-    // Each tick before the next pop attempt: keep buffer above target depth.
-    uint32_t nextSeq = 1000;
+
+    // Seed contiguously with the current playhead so pop() never triggers
+    // hole detection. (If we picked an arbitrary nextSeq, the playhead would
+    // chase it for hundreds of ticks before catching up, and every one of
+    // those ticks would count as a hole-underrun.)
+    uint32_t nextSeq = jb.playhead();
     seedAtDepth(jb, nextSeq, audio_config::kJitterMaxDepth);
     nextSeq += audio_config::kJitterMaxDepth;
 
@@ -251,24 +327,34 @@ void testAdaptShrinksAfterStability() {
 void testWraparoundOrdering() {
     JitterBuffer jb;
     const uint8_t data[1] = {0x00};
-    // Cold-start the playhead near the rollover.
+    // Walk a contiguous run of seqs straight across the uint32 rollover.
+    // Push one, popAny one — keeps depth low so no kJitterMaxDepth pressure
+    // and exercises the seq comparator on every increment, including the
+    // 0xFFFFFFFF -> 0x00000000 transition.
+    //
+    // (Earlier versions of this test relied on a pre-stuffed queue with a
+    // giant gap that the new pop() hole-detection branch would now PLC
+    // through one tick at a time — that's correct production behavior but
+    // stops being a useful unit test of ordering. Walking contiguously
+    // tests the wrap-comparator without entangling with hole detection.)
     assert(jb.push(0xFFFFFFF0u, data, 1));
-    assert(jb.push(0xFFFFFFF1u, data, 1));
-    // Forward-wrap: seq 0x00000000 is "next" after 0xFFFFFFFF.
-    bool ok = jb.push(0x00000000u, data, 1);
-    assert(ok);
-    // A late arrival relative to the wrapped playhead must still be rejected.
-    // First, pop until we cross the wrap.
-    seedAtDepth(jb, 1, audio_config::kJitterMaxDepth - 3);
-    while (true) {
-        auto p = jb.pop();
-        if (!p.has_value()) break;
-        if (p->seq == 0x00000005u) break;
+    auto first = jb.popAny();
+    assert(first.has_value() && first->seq == 0xFFFFFFF0u);
+
+    for (uint32_t s = 0xFFFFFFF1u; s != 0x00000006u; ++s) {
+        assert(jb.push(s, data, 1));
+        auto pp = jb.popAny();
+        assert(pp.has_value());
+        assert(pp->seq == s);
     }
-    // Now push a "late" seq from before the wrap — it should be detected as
-    // before-playhead by the modular comparison and dropped.
+
+    // playhead is now 0x00000006 (next-expected after the last popped).
+    // 0xFFFFFFF5u is ~17 frames "before" 0x00000006 by the modular
+    // comparator, so it must be rejected as late and counted.
+    const auto preLate = jb.lateFrameCount();
     bool late = jb.push(0xFFFFFFF5u, data, 1);
     assert(!late);
+    assert(jb.lateFrameCount() == preLate + 1);
 
     std::cout << "Test Wraparound Ordering: PASSED" << std::endl;
 }
@@ -276,8 +362,8 @@ void testWraparoundOrdering() {
 void testPopAnyWhenBelowTarget() {
     JitterBuffer jb;
     const uint8_t data[1] = {0xee};
-    jb.push(7, data, 1);
-    jb.push(8, data, 1);
+    assert(jb.push(7, data, 1));
+    assert(jb.push(8, data, 1));
     // Below initial target (3); pop() returns nullopt.
     auto miss = jb.pop();
     assert(!miss.has_value());
@@ -325,6 +411,8 @@ int main() {
     try {
         testColdStartDoesNotCountUnderruns();
         testStarvationEpisodeCountsOnce();
+        testHoleAtHeadProducesPLC();
+        testMultiFrameHoleProducesContiguousPLC();
         testPushCapsAtMaxDepth();
         testNormalFlowAfterFilling();
         testLateFrameDropped();
