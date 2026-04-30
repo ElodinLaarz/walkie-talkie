@@ -66,6 +66,7 @@ dev_dependencies:
   build_runner: ^2.10.4
   bloc_test: ^9.1.7
   mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -108,3 +109,12 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#3498db"
+  adaptive_icon_foreground: "assets/icon/icon.png"
+  adaptive_icon_monochrome: "assets/icon/icon.png"
+  adaptive_icon_round: "assets/icon/icon.png"
