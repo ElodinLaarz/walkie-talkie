@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
     private var gattClientManager: GattClientManager? = null
+    private var hostAdvertiser: HostAdvertiser? = null
     private var voiceTransport: L2capVoiceTransport? = null
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
@@ -175,6 +176,35 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
                     }
+                }
+                "startAdvertising" -> {
+                    val sessionUuid = call.argument<String>("sessionUuid")
+                    val displayName = call.argument<String>("displayName")
+                    if (sessionUuid == null || displayName == null) {
+                        result.error(
+                            "INVALID_ARGUMENT",
+                            "sessionUuid and displayName are required",
+                            null
+                        )
+                    } else {
+                        // Don't echo sessionUuid / displayName here — both
+                        // are user/session identifiers and logcat is broadly
+                        // readable on dev builds.
+                        Log.i(TAG, "Starting LE advertising")
+                        if (hostAdvertiser == null) {
+                            hostAdvertiser = HostAdvertiser(this)
+                        }
+                        val success = hostAdvertiser?.start(sessionUuid, displayName) ?: false
+                        result.success(success)
+                    }
+                }
+                "stopAdvertising" -> {
+                    Log.i(TAG, "Stopping LE advertising")
+                    // Propagate the underlying boolean so a SecurityException
+                    // inside HostAdvertiser.stop() doesn't pretend to be a
+                    // clean shutdown on the Dart side.
+                    val success = hostAdvertiser?.stop() ?: true
+                    result.success(success)
                 }
                 "startGattServer" -> {
                     Log.i(TAG, "Starting GATT server")
@@ -414,6 +444,7 @@ class MainActivity : FlutterActivity() {
         voiceTransport?.stop()
         gattServerManager?.stop()
         gattClientManager?.disconnect()
+        hostAdvertiser?.stop()
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
         controlBytesEventChannel?.setStreamHandler(null)
