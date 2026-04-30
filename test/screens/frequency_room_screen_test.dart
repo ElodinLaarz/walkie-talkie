@@ -11,6 +11,7 @@ import 'package:walkie_talkie/data/frequency_mock_data.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
+import 'package:walkie_talkie/services/audio_service.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
@@ -37,10 +38,11 @@ const _viewport = Size(432, 1200);
 /// weak-signal toast (fires at 7.2s) — those are demo timers in initState.
 const _settle = Duration(milliseconds: 500);
 
-Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
+Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) {
   final mockCubit = cubit ?? MockFrequencySessionCubit();
   final mockStore = MockIdentityStore();
-  
+  final providedAudio = audio ?? AudioService();
+
   if (cubit == null) {
     when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
     when(() => mockCubit.identityStore).thenReturn(mockStore);
@@ -89,9 +91,15 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit}) {
         // fields focus, which would push modal sheet content off-screen
         // (same gotcha as the discovery rename test).
         data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
-        child: BlocProvider<FrequencySessionCubit>.value(
-          value: mockCubit,
-          child: c!,
+        // Mirror production: AudioService comes from the provider so the
+        // room screen's identity-assertion (#129) finds the same instance
+        // it stored in `_audio`.
+        child: RepositoryProvider<AudioService>.value(
+          value: providedAudio,
+          child: BlocProvider<FrequencySessionCubit>.value(
+            value: mockCubit,
+            child: c!,
+          ),
         ),
       ),
     ),
@@ -156,6 +164,22 @@ void main() {
   });
 
   group('FrequencyRoomScreen', () {
+    testWidgets(
+      'uses the AudioService from the provider, not a fresh one (#129)',
+      (tester) async {
+        // Two distinct instances: the one wired into the provider vs.
+        // a parallel one that should NOT end up as the screen's `_audio`.
+        // The screen's debug assertion (`identical(_audio, provider)`)
+        // is the lock — if we ever regress and build a second instance
+        // inside the screen, the framework crashes the test here.
+        final providerAudio = AudioService();
+        await tester.pumpWidget(_wrap(_room(), audio: providerAudio));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('renders the on-air chrome and the user as the first peer',
         (tester) async {
       await tester.pumpWidget(_wrap(_room()));

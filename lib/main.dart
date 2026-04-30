@@ -172,6 +172,11 @@ class FrequencyApp extends StatelessWidget {
           groupSize: 5,
           mediaKind: MediaKind.music,
           pttMode: false,
+          // Pass the singleton from the provider so the screen reuses the
+          // one instance (#129) — its own fallback would otherwise build a
+          // second AudioService whose audioEvents/controlBytes stream
+          // caches diverge from the rest of the app.
+          audioService: context.read<AudioService>(),
           // `leaveRoom` is async (re-reads recent frequencies before
           // emitting), but `onLeave` is a sync VoidCallback — wrap
           // explicitly so the discarded future is intentional rather
