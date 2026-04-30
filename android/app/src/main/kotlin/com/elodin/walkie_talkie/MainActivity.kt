@@ -247,6 +247,28 @@ class MainActivity : FlutterActivity() {
                         result.success(success)
                     }
                 }
+                "getNegotiatedMtu" -> {
+                    // Returns the MTU that the GATT layer negotiated with
+                    // [endpointId] (BT MAC), or null if no MTU has been
+                    // observed yet. Per BLE spec the wire floor is 23 bytes
+                    // (the value Android uses before any negotiation), so a
+                    // null return signals "use the default — no negotiation
+                    // has fired yet" rather than "the link is dead".
+                    //
+                    // Prefers the GATT *client* cache (guest side, where this
+                    // device drove the MTU request via `requestMtu`) and falls
+                    // back to the *server* cache (host side, where the peer
+                    // negotiated the MTU). Either side can answer once
+                    // `onMtuChanged` has fired for that link.
+                    val endpointId = call.argument<String>("endpointId")
+                    if (endpointId == null) {
+                        result.error("INVALID_ARGUMENT", "endpointId is required", null)
+                    } else {
+                        val mtu = gattClientManager?.getMtu(endpointId)
+                            ?: gattServerManager?.getMtu(endpointId)
+                        result.success(mtu)
+                    }
+                }
                 "startVoiceServer" -> {
                     Log.i(TAG, "Starting L2CAP voice server")
                     val bt = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter

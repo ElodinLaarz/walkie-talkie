@@ -345,6 +345,29 @@ class AudioService {
     }
   }
 
+  /// Read the negotiated ATT MTU for the GATT connection to [endpointId]
+  /// (Bluetooth MAC). Returns the negotiated value in bytes, or null if no
+  /// MTU has been observed yet for that endpoint or the platform call
+  /// fails.
+  ///
+  /// A null return means the link is in its pre-negotiation default state
+  /// (23 bytes) rather than "the link is dead" — callers should treat null
+  /// as "fall back to the protocol default" and retry on the next write.
+  ///
+  /// Used by [BleControlTransport] to size GATT REQUEST/RESPONSE fragments
+  /// against the actual wire ceiling instead of always emitting 247-byte
+  /// chunks the platform might re-fragment unpredictably.
+  Future<int?> getNegotiatedMtu(String endpointId) async {
+    try {
+      return await _methodChannel.invokeMethod<int>('getNegotiatedMtu', {
+        'endpointId': endpointId,
+      });
+    } catch (e) {
+      debugPrint('Error getting negotiated MTU for $endpointId: $e');
+      return null;
+    }
+  }
+
   /// Stop the GATT server.
   Future<bool> stopGattServer() async {
     try {

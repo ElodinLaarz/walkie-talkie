@@ -29,6 +29,14 @@ class GattClientManager(
     private var requestCharacteristic: BluetoothGattCharacteristic? = null
     private var responseCharacteristic: BluetoothGattCharacteristic? = null
 
+    // ATT MTU negotiated for the connected host, keyed by MAC. Populated by
+    // [onMtuChanged] once the GATT layer answers our [requestMtu] from
+    // [onConnectionStateChange]. The Dart control transport reads this via
+    // `MainActivity.getNegotiatedMtu` to size fragments to the actual link
+    // budget; without it the guest side would always return null and never
+    // engage MTU-aware fragmentation.
+    private val negotiatedMtus: MutableMap<String, Int> = mutableMapOf()
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(
             gatt: BluetoothGatt,
@@ -52,6 +60,7 @@ class GattClientManager(
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(TAG, "MTU changed to $mtu")
+                negotiatedMtus[gatt.device.address] = mtu
             } else {
                 Log.w(TAG, "MTU change failed with status $status")
             }
@@ -229,16 +238,28 @@ class GattClientManager(
      */
     fun disconnect() {
         try {
+            val address = gatt?.device?.address
             gatt?.disconnect()
             gatt?.close()
             gatt = null
             requestCharacteristic = null
             responseCharacteristic = null
+            if (address != null) {
+                negotiatedMtus.remove(address)
+            }
             Log.i(TAG, "GATT client disconnected and closed")
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting GATT client", e)
         }
     }
+
+    /**
+     * Returns the ATT MTU negotiated for [endpointId] (host MAC), or null if
+     * no MTU has been observed yet for that link. Mirrors
+     * `GattServerManager.getMtu(endpointId)`; one side or the other answers
+     * depending on which device is the GATT client/server for this link.
+     */
+    fun getMtu(endpointId: String): Int? = negotiatedMtus[endpointId]
 
     /**
      * Check if currently connected to a host.

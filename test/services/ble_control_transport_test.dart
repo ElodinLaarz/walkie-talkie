@@ -224,6 +224,217 @@ void main() {
       });
     });
 
+    group('MTU-aware send', () {
+      // Custom transport per-test so each test can wire its own MTU oracle.
+      late StreamController<({String endpointId, Uint8List bytes})> mtuController;
+      late List<Uint8List> mtuWritten;
+
+      setUp(() {
+        mtuController = StreamController.broadcast();
+        mtuWritten = [];
+      });
+
+      tearDown(() async {
+        await mtuController.close();
+      });
+
+      test('does not consult the MTU oracle when no active endpoint is set',
+          () async {
+        var mtuCalls = 0;
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async {
+            mtuCalls++;
+            return 100;
+          },
+        );
+
+        await t.send(_heartbeat());
+
+        // Without setActiveEndpoint, the oracle is never consulted and the
+        // encoder uses kMaxFragmentSize. Heartbeat is small enough to land
+        // in a single fragment regardless.
+        expect(mtuCalls, 0);
+        expect(mtuWritten, hasLength(1));
+        // The single fragment was sized against kMaxFragmentSize, not the
+        // smaller MTU 100.
+        expect(mtuWritten.first.length, lessThanOrEqualTo(kMaxFragmentSize));
+        t.dispose();
+      });
+
+      test('queries MTU for the active endpoint and sizes fragments accordingly',
+          () async {
+        var queriedFor = <String>[];
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (endpointId) async {
+            queriedFor.add(endpointId);
+            return 100; // Force smaller fragments.
+          },
+        );
+        t.setActiveEndpoint('host-mac-1');
+
+        final msg = JoinAccepted(
+          peerId: 'host',
+          seq: 1,
+          atMs: 1000,
+          hostPeerId: 'host',
+          roster: List.generate(
+            12,
+            (i) => ProtocolPeer(
+              peerId: 'p$i-long-uuid-string-padding-here',
+              displayName: 'User $i with a longer display name',
+            ),
+          ),
+        );
+
+        await t.send(msg);
+
+        expect(queriedFor, ['host-mac-1']);
+        // MTU 100 → fragment ceiling 97. Every fragment except the last
+        // must be exactly 97 bytes (header + payload).
+        expect(mtuWritten.length, greaterThan(1));
+        for (final f in mtuWritten.take(mtuWritten.length - 1)) {
+          expect(f.length, 97, reason: 'mid-stream fragment must be exactly mtu-3');
+        }
+        // Last fragment is the remainder; must be ≤ 97.
+        expect(mtuWritten.last.length, lessThanOrEqualTo(97));
+
+        // Reassemble end-to-end and verify identity.
+        final r = FragmentReassembler();
+        String? json;
+        for (final f in mtuWritten) {
+          json = r.feed(f);
+        }
+        expect(json, isNotNull);
+        final decoded = FrequencyMessage.decode(json!) as JoinAccepted;
+        expect(decoded.roster, hasLength(12));
+        t.dispose();
+      });
+
+      test('falls back to kMaxFragmentSize when oracle returns null', () async {
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async => null,
+        );
+        t.setActiveEndpoint('host-mac-1');
+
+        await t.send(_heartbeat());
+
+        // Single small message → single fragment regardless. The point is
+        // it doesn't throw and writeBytes is still invoked.
+        expect(mtuWritten, hasLength(1));
+        t.dispose();
+      });
+
+      test('aborts the send when MTU is below kMinControlMtu', () async {
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async => kMinControlMtu - 1, // 63: just below floor.
+        );
+        t.setActiveEndpoint('host-mac-1');
+
+        final ok = await t.send(_heartbeat());
+
+        // Drop is surfaced to the caller (cubit) so disconnect/remediation
+        // logic can fire — and nothing reached the wire.
+        expect(ok, isFalse);
+        expect(mtuWritten, isEmpty);
+        t.dispose();
+      });
+
+      test('exactly kMinControlMtu allows the send through', () async {
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async => kMinControlMtu,
+        );
+        t.setActiveEndpoint('host-mac-1');
+
+        final ok = await t.send(_heartbeat());
+
+        expect(ok, isTrue);
+        // At least one fragment hit the wire, none above the budget
+        // (mtu - att header = 61).
+        expect(mtuWritten, isNotEmpty);
+        final budget = kMinControlMtu - kAttHeaderOverhead;
+        for (final f in mtuWritten) {
+          expect(f.length, lessThanOrEqualTo(budget));
+        }
+        // Round-trip survives the small fragments.
+        final r = FragmentReassembler();
+        String? json;
+        for (final f in mtuWritten) {
+          json = r.feed(f);
+        }
+        expect(json, isNotNull);
+        expect(FrequencyMessage.decode(json!), isA<Heartbeat>());
+        t.dispose();
+      });
+
+      test('high MTU (>247) is clamped to kMaxFragmentSize', () async {
+        // Some link layers report an inflated MTU; we must not request a
+        // fragment size above the v1 ceiling regardless.
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async => 512,
+        );
+        t.setActiveEndpoint('host-mac-1');
+
+        // Build a message larger than one 247-byte fragment so we can
+        // observe the cap.
+        final big = JoinAccepted(
+          peerId: 'host',
+          seq: 1,
+          atMs: 1000,
+          hostPeerId: 'host',
+          roster: List.generate(
+            15,
+            (i) => ProtocolPeer(
+              peerId: 'p$i-very-long-uuid-here-padding-padding',
+              displayName: 'User $i with a longer display name',
+            ),
+          ),
+        );
+
+        await t.send(big);
+
+        for (final f in mtuWritten) {
+          expect(f.length, lessThanOrEqualTo(kMaxFragmentSize));
+        }
+        t.dispose();
+      });
+
+      test('clearing the active endpoint reverts to default fragmentation',
+          () async {
+        var calls = 0;
+        final t = BleControlTransport.forTest(
+          controlBytes: mtuController.stream,
+          writeBytes: (bytes) async => mtuWritten.add(bytes),
+          getMtu: (_) async {
+            calls++;
+            return 64;
+          },
+        );
+
+        t.setActiveEndpoint('host-mac-1');
+        await t.send(_heartbeat(seq: 1));
+        expect(calls, 1);
+
+        t.setActiveEndpoint(null);
+        await t.send(_heartbeat(seq: 2));
+        // No further oracle calls after clearing the binding.
+        expect(calls, 1);
+        expect(t.activeEndpoint, isNull);
+        t.dispose();
+      });
+    });
+
     group('forgetPeer', () {
       test('resets the seq watermark so a reconnecting peer is accepted',
           () async {
