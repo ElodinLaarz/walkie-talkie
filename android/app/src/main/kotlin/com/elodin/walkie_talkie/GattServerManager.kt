@@ -18,10 +18,13 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class GattServerManager(
     private val context: Context,
-    private val onBytesReceived: (deviceAddress: String, bytes: ByteArray) -> Unit
+    private val onBytesReceived: (deviceAddress: String, bytes: ByteArray) -> Unit,
+    private val onError: ((String) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "GattServerManager"
+        private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
+        private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
     }
 
     private var gattServer: BluetoothGattServer? = null
@@ -36,6 +39,16 @@ class GattServerManager(
             newState: Int
         ) {
             val address = device.address
+
+            // Check for authorization/authentication failures
+            if (status == GATT_INSUFFICIENT_AUTHORIZATION || status == GATT_INSUFFICIENT_AUTHENTICATION) {
+                Log.e(TAG, "GATT authorization failure from $address: status=$status")
+                onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                connectedDevices.remove(address)
+                negotiatedMtus.remove(address)
+                return
+            }
+
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "GATT connected: $address")
@@ -191,6 +204,7 @@ class GattServerManager(
             return true
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing Bluetooth permissions", e)
+            onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
             return false
         } catch (e: Exception) {
             Log.e(TAG, "Error starting GATT server", e)
@@ -225,6 +239,7 @@ class GattServerManager(
             return success
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing Bluetooth permissions for notify", e)
+            onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
             return false
         } catch (e: Exception) {
             Log.e(TAG, "Error sending notification to $deviceAddress", e)
