@@ -3,9 +3,12 @@ package com.elodin.walkie_talkie
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import java.io.DataInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * L2CAP CoC (Credit-Based Flow Control) voice transport.
@@ -14,12 +17,24 @@ import java.util.concurrent.atomic.AtomicInteger
  * in [0x80, 0xFF] odd range. Guests call [connectClient] to dial the host's
  * PSM. VoiceFrame packets flow over the established channel.
  *
- * **Framing (v1)**: L2CAP CoC is a stream protocol. For v1 we treat each
- * [sendToClient]/[sendToHost] call as one L2CAP packet by keeping frames
- * under kVoiceMtu = 128 bytes, which fits inside a single MTU. Full
- * length-prefixed reassembly is deferred to a future issue; callers must
- * ensure every write is a complete VoiceFrame (<=128 bytes) so receive-side
- * reads stay aligned.
+ * **Framing (v1.1)**: L2CAP CoC is a stream protocol. To keep frame
+ * boundaries deterministic across OEMs (some kernels coalesce multiple
+ * SDUs into one userspace `read`), every L2CAP write is preceded by a
+ * 2-byte big-endian length prefix carrying the size of the VoiceFrame
+ * payload that follows. Receivers read the prefix, then exactly that
+ * many bytes, then dispatch the inner bytes to [onVoiceFrame] — exactly
+ * the same payload the original v1 spec described, just framed at the
+ * transport layer instead of relying on packet boundaries.
+ *
+ * **Thread model**: each connected socket owns one *writer* thread and
+ * one *reader* thread. Producers (audio capture, heartbeats, …) call
+ * [sendToHost] / [sendToClient], which push onto a bounded
+ * [LinkedBlockingQueue]; the writer drains the queue and serialises
+ * writes onto the socket so concurrent producers can never tear a frame.
+ * The reader runs the framed-read loop. [stop] signals shutdown via a
+ * sentinel + socket close, then joins both threads with a short timeout
+ * so callers (the foreground service) can fully tear down between
+ * sessions without leaking threads.
  *
  * **Known risks** documented in issue #46:
  *  - `listenUsingInsecureL2capChannel` is flaky on some OEMs; guest side
@@ -36,18 +51,54 @@ class L2capVoiceTransport(
     companion object {
         private const val TAG = "L2capVoiceTransport"
         private val BACKOFF_MS = longArrayOf(250, 500, 1000, 2000, 5000)
+
+        /**
+         * Per-socket send queue capacity. ~64 frames at one-per-20-ms is
+         * ~1.3 s of audio. Above this, the link can't keep up; we drop
+         * the oldest frame so latency stays bounded instead of blocking
+         * the audio capture thread.
+         */
+        const val SEND_QUEUE_CAPACITY = 64
+
+        /** Length-prefix size: 2 bytes big-endian. */
+        const val LENGTH_PREFIX_SIZE = 2
+
+        /**
+         * Defensive ceiling on the length-prefix value. The protocol
+         * caps voice frames at [GattConstants.VOICE_MTU] (= 128); we
+         * accept up to 4 KB so future header growth has headroom and a
+         * malformed peer can't trick us into allocating gigabytes.
+         */
+        const val MAX_FRAME_SIZE = 4096
+
+        /** How long to wait for worker threads to drain on [stop]. */
+        private const val JOIN_TIMEOUT_MS = 500L
     }
+
+    /**
+     * Per-socket I/O bundle. We keep a strong reference to both threads
+     * so [stop] (and the per-link cleanup path on the guest side) can
+     * join them rather than leaking them to GC.
+     */
+    private class SocketIo(
+        val socket: BluetoothSocket,
+        val sendQueue: LinkedBlockingQueue<ByteArray>,
+        var recvThread: Thread? = null,
+        var writerThread: Thread? = null,
+    )
+
+    /** Sentinel pushed onto the send queue to terminate the writer thread. */
+    private val shutdownSentinel = ByteArray(0)
 
     // Host-side: server socket + accepted client sockets
     private var serverSocket: android.bluetooth.BluetoothServerSocket? = null
     private var activePsm: Int = -1
     private var acceptThread: Thread? = null
-    private val clientSockets = mutableMapOf<String, BluetoothSocket>()
+    private val clientSockets = mutableMapOf<String, SocketIo>()
     private val running = AtomicBoolean(false)
 
     // Guest-side: single connection to the host
-    private var guestSocket: BluetoothSocket? = null
-    private var guestRecvThread: Thread? = null
+    private var guestIo: SocketIo? = null
 
     // ── Host side ──────────────────────────────────────────────────────────
 
@@ -85,11 +136,13 @@ class L2capVoiceTransport(
                 val client = serverSock.accept()
                 val addr = client.remoteDevice.address
                 Log.i(TAG, "L2CAP client connected: $addr")
-                synchronized(clientSockets) { clientSockets[addr] = client }
+                // Insert into the map *before* starting threads so the recv
+                // thread's finally-block remove() can never fire ahead of the
+                // put() if the peer disconnects immediately.
+                val io = SocketIo(client, LinkedBlockingQueue(SEND_QUEUE_CAPACITY))
+                synchronized(clientSockets) { clientSockets[addr] = io }
+                startSocketIoThreads(addr, io)
                 onClientConnected(addr)
-                Thread({ receiveLoop(addr, client) }, "L2capRecv-$addr").apply {
-                    isDaemon = true; start()
-                }
             } catch (e: IOException) {
                 if (!running.get()) break
                 Log.e(TAG, "Accept error: ${e.message}")
@@ -103,35 +156,10 @@ class L2capVoiceTransport(
         }
     }
 
-    private fun receiveLoop(addr: String, socket: BluetoothSocket) {
-        val buf = ByteArray(GattConstants.VOICE_MTU.coerceAtLeast(socket.maxReceivePacketSize))
-        try {
-            val input = socket.inputStream
-            while (socket.isConnected) {
-                try {
-                    val n = input.read(buf)
-                    if (n <= 0) break  // EOF
-                    if (n < 8) continue // shorter than VoiceFrame header — drop
-                    onVoiceFrame(buf.copyOf(n))
-                } catch (e: IOException) {
-                    Log.i(TAG, "Receive loop ended for $addr: ${e.message}")
-                    break
-                }
-            }
-        } finally {
-            synchronized(clientSockets) { clientSockets.remove(addr) }
-            try { socket.close() } catch (_: IOException) {}
-        }
-    }
-
     /** Send [frame] to a connected client at [addr]. No-op if not connected. */
     fun sendToClient(addr: String, frame: ByteArray) {
-        val sock = synchronized(clientSockets) { clientSockets[addr] } ?: return
-        try {
-            sock.outputStream.write(frame)
-        } catch (e: IOException) {
-            Log.w(TAG, "Send to $addr failed: ${e.message}")
-        }
+        val io = synchronized(clientSockets) { clientSockets[addr] } ?: return
+        enqueueFrame(io, frame)
     }
 
     // ── Guest side ─────────────────────────────────────────────────────────
@@ -148,11 +176,15 @@ class L2capVoiceTransport(
             onError("Invalid voice PSM 0x${psm.toString(16)}")
             return false
         }
-        // Close any existing guest socket before dialling a new one.
-        synchronized(this) {
-            guestSocket?.let { try { it.close() } catch (_: IOException) {} }
-            guestSocket = null
+        // Tear down any existing guest connection before dialling a new one.
+        // Snapshot under the lock, then join the worker threads outside it
+        // so we never block other callers (sendToHost, stop) while waiting.
+        val prev = synchronized(this) {
+            val p = guestIo
+            guestIo = null
+            p
         }
+        prev?.let { stopSocketIo(it) }
 
         val device = try {
             bluetoothAdapter.getRemoteDevice(macAddress)
@@ -168,11 +200,9 @@ class L2capVoiceTransport(
                 Thread.sleep(delay)
                 sock = device.createInsecureL2capChannel(psm)
                 sock.connect()
-                synchronized(this) { guestSocket = sock }
-                guestRecvThread = Thread(
-                    { receiveLoop(macAddress, sock) },
-                    "L2capGuestRecv"
-                ).apply { isDaemon = true; start() }
+                val io = SocketIo(sock, LinkedBlockingQueue(SEND_QUEUE_CAPACITY))
+                synchronized(this) { guestIo = io }
+                startSocketIoThreads(macAddress, io)
                 Log.i(TAG, "L2CAP connected to $macAddress PSM 0x${psm.toString(16)}")
                 return true
             } catch (e: Exception) {
@@ -186,12 +216,126 @@ class L2capVoiceTransport(
 
     /** Send [frame] to the host (guest-side path). */
     fun sendToHost(frame: ByteArray) {
-        val sock = synchronized(this) { guestSocket } ?: return
-        try {
-            sock.outputStream.write(frame)
-        } catch (e: IOException) {
-            Log.w(TAG, "Send to host failed: ${e.message}")
+        val io = synchronized(this) { guestIo } ?: return
+        enqueueFrame(io, frame)
+    }
+
+    // ── Per-socket worker plumbing ─────────────────────────────────────────
+
+    /**
+     * Start the reader + writer threads for [io]. Splitting thread spawn
+     * from [SocketIo] construction lets callers insert the bundle into
+     * their tracking map *first*, so the recv-thread's remove-on-EOF
+     * finally never races ahead of the insert.
+     */
+    private fun startSocketIoThreads(addr: String, io: SocketIo) {
+        io.recvThread = Thread({ receiveLoop(addr, io.socket) }, "L2capRecv-$addr").apply {
+            isDaemon = true; start()
         }
+        io.writerThread = Thread({ writerLoop(addr, io.socket.outputStream, io.sendQueue) }, "L2capWriter-$addr").apply {
+            isDaemon = true; start()
+        }
+    }
+
+    /**
+     * Drain the per-socket queue and write each frame as a
+     * length-prefixed payload. Exits when the writer pulls
+     * [shutdownSentinel] off the queue, on I/O error, or on interrupt.
+     *
+     * This is the *only* thread that touches [out] — concurrent producers
+     * push to [queue] but never write directly to the socket. That's what
+     * eliminates the torn-frame race that issue #101 reports.
+     */
+    private fun writerLoop(addr: String, out: OutputStream, queue: LinkedBlockingQueue<ByteArray>) {
+        try {
+            while (true) {
+                val frame = queue.take()
+                if (frame === shutdownSentinel) break
+                if (frame.isEmpty()) continue
+                if (frame.size > MAX_FRAME_SIZE) {
+                    Log.w(TAG, "Dropping oversized frame (${frame.size}B) for $addr")
+                    continue
+                }
+                try {
+                    writeFramed(out, frame)
+                } catch (e: IOException) {
+                    Log.i(TAG, "Writer for $addr ended: ${e.message}")
+                    break
+                }
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    private fun receiveLoop(addr: String, socket: BluetoothSocket) {
+        try {
+            val input = DataInputStream(socket.inputStream)
+            while (socket.isConnected) {
+                val frame = try {
+                    readFramed(input)
+                } catch (e: IOException) {
+                    Log.i(TAG, "Receive loop ended for $addr: ${e.message}")
+                    break
+                } ?: break // EOF
+                if (frame.size < 8) {
+                    // VoiceFrame requires the 8-byte header — drop and keep
+                    // reading; a malformed peer can't lock us out.
+                    Log.w(TAG, "Frame from $addr shorter than VoiceFrame header — dropping")
+                    continue
+                }
+                onVoiceFrame(frame)
+            }
+        } catch (e: IOException) {
+            // Defensive — DataInputStream construction shouldn't throw, but
+            // BluetoothSocket.getInputStream() can if the socket closed
+            // racy with this thread starting.
+            Log.i(TAG, "Receive loop init failed for $addr: ${e.message}")
+        } finally {
+            synchronized(clientSockets) { clientSockets.remove(addr) }
+            try { socket.close() } catch (_: IOException) {}
+        }
+    }
+
+    /**
+     * Push [frame] onto [io]'s send queue. If the queue is full
+     * (producers outpacing the link), drop the *oldest* frame — voice is
+     * latency-sensitive, and stale audio is worse than missing audio.
+     */
+    private fun enqueueFrame(io: SocketIo, frame: ByteArray) {
+        if (frame.isEmpty()) return
+        if (!io.sendQueue.offer(frame)) {
+            io.sendQueue.poll() // drop oldest
+            io.sendQueue.offer(frame)
+        }
+    }
+
+    /**
+     * Cleanly stop a socket's I/O workers: enqueue the shutdown
+     * sentinel, close the socket to unblock the reader, then join both
+     * threads with a bounded timeout. Anything still alive after
+     * the timeout gets interrupted as a fallback.
+     */
+    private fun stopSocketIo(io: SocketIo) {
+        // Signal the writer first; clearing the queue avoids one last
+        // enqueued frame slipping out after stop.
+        io.sendQueue.clear()
+        io.sendQueue.offer(shutdownSentinel)
+        // Closing the socket unblocks readFully() in the recv loop and
+        // breaks any in-progress write() in the writer loop.
+        try { io.socket.close() } catch (_: IOException) {}
+
+        io.recvThread?.let { joinOrInterrupt(it) }
+        io.writerThread?.let { joinOrInterrupt(it) }
+    }
+
+    private fun joinOrInterrupt(t: Thread) {
+        try {
+            t.join(JOIN_TIMEOUT_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        if (t.isAlive) t.interrupt()
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -203,14 +347,88 @@ class L2capVoiceTransport(
             serverSocket = null
             activePsm = -1
         }
+        // Snapshot under lock so we can join without holding it.
+        val hostIos: List<SocketIo>
         synchronized(clientSockets) {
-            clientSockets.values.forEach { try { it.close() } catch (_: IOException) {} }
+            hostIos = clientSockets.values.toList()
             clientSockets.clear()
         }
-        synchronized(this) {
-            guestSocket?.let { try { it.close() } catch (_: IOException) {} }
-            guestSocket = null
+        hostIos.forEach { stopSocketIo(it) }
+        val guest = synchronized(this) {
+            val g = guestIo
+            guestIo = null
+            g
         }
+        guest?.let { stopSocketIo(it) }
+        // Join the accept thread last; closing the server socket above
+        // unblocks accept() with an IOException, which the loop treats
+        // as a shutdown signal once running == false.
+        acceptThread?.let { joinOrInterrupt(it) }
+        acceptThread = null
         Log.i(TAG, "L2CAP transport stopped")
     }
+
+    /**
+     * Test hook: snapshot the number of currently-tracked client sockets.
+     * Real code shouldn't need this, but instrumented tests do.
+     */
+    internal fun activeClientCount(): Int =
+        synchronized(clientSockets) { clientSockets.size }
 }
+
+// ── Framing helpers (package-private for unit tests) ───────────────────────
+
+/**
+ * Write [frame] to [out] as a 2-byte big-endian length prefix followed by
+ * the frame bytes. The length carries only the frame size — the prefix
+ * itself is *not* counted, matching common framed-protocol convention.
+ *
+ * Throws [IllegalArgumentException] if the frame exceeds
+ * [L2capVoiceTransport.MAX_FRAME_SIZE]; throws [IOException] if the
+ * underlying stream errors mid-write.
+ */
+internal fun writeFramed(out: OutputStream, frame: ByteArray) {
+    require(frame.size <= L2capVoiceTransport.MAX_FRAME_SIZE) {
+        "Frame size ${frame.size} exceeds MAX_FRAME_SIZE ${L2capVoiceTransport.MAX_FRAME_SIZE}"
+    }
+    val prefix = ByteArray(L2capVoiceTransport.LENGTH_PREFIX_SIZE)
+    prefix[0] = ((frame.size ushr 8) and 0xff).toByte()
+    prefix[1] = (frame.size and 0xff).toByte()
+    // Single buffer + single write avoids interleaving prefix and payload
+    // if a future caller ever shares the OutputStream across threads
+    // (the writer thread doesn't, but the API leaves no foot-gun).
+    val buf = ByteArray(L2capVoiceTransport.LENGTH_PREFIX_SIZE + frame.size)
+    System.arraycopy(prefix, 0, buf, 0, L2capVoiceTransport.LENGTH_PREFIX_SIZE)
+    System.arraycopy(frame, 0, buf, L2capVoiceTransport.LENGTH_PREFIX_SIZE, frame.size)
+    out.write(buf)
+    out.flush()
+}
+
+/**
+ * Read one length-prefixed frame from [input]. Returns the frame bytes
+ * (without the length prefix), or `null` on clean EOF *before* any bytes
+ * of a new frame have been read.
+ *
+ * Throws [IOException] if the stream errors mid-frame, or if the length
+ * prefix is zero / exceeds [L2capVoiceTransport.MAX_FRAME_SIZE].
+ */
+internal fun readFramed(input: DataInputStream): ByteArray? {
+    val hi = input.read()
+    if (hi < 0) return null // clean EOF before a frame started
+    val lo = input.read()
+    if (lo < 0) throw IOException("EOF mid-prefix (after high byte)")
+    val len = (hi shl 8) or lo
+    if (len <= 0 || len > L2capVoiceTransport.MAX_FRAME_SIZE) {
+        throw IOException("Invalid frame length $len")
+    }
+    val buf = ByteArray(len)
+    input.readFully(buf)
+    return buf
+}
+
+/**
+ * Adapter for [readFramed] that takes a plain [InputStream]; tests
+ * sometimes have a `ByteArrayInputStream` and don't want to hand-wrap.
+ */
+internal fun readFramed(input: InputStream): ByteArray? =
+    readFramed(if (input is DataInputStream) input else DataInputStream(input))
