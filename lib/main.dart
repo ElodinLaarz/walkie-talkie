@@ -8,6 +8,7 @@ import 'bloc/discovery_cubit.dart';
 import 'bloc/frequency_session_cubit.dart';
 import 'bloc/frequency_session_state.dart';
 import 'data/frequency_mock_data.dart';
+import 'l10n/generated/app_localizations.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
 import 'screens/frequency_permission_denied_screen.dart';
@@ -149,11 +150,13 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
           ),
         ],
         child: MaterialApp(
-          title: 'Frequency',
+          onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: ThemeMode.system,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           // Wrap the navigator so toasts stay above pushed routes (modal bottom
           // sheets, etc.) — a host inside `home` would render below the modal
           // overlay and get hidden when a sheet is open.

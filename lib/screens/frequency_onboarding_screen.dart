@@ -2,9 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/onboarding_permission_gateway.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
+
+/// Total number of steps in the onboarding flow. Surfaces in the chrome
+/// indicator (e.g. "01/03"); kept here so adding a step does not require
+/// updating the ARB or every locale's translation.
+const int _kOnboardingTotalSteps = 3;
 
 /// 3-step onboarding: welcome → permissions → display name.
 class FrequencyOnboardingScreen extends StatefulWidget {
@@ -70,6 +76,7 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
@@ -79,7 +86,10 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
               left: const FrequencyWordmark(),
               right: [
                 Text(
-                  '${(_step + 1).toString().padLeft(2, '0')}/03',
+                  l10n.onboardingStepIndicator(
+                    (_step + 1).toString().padLeft(2, '0'),
+                    _kOnboardingTotalSteps.toString().padLeft(2, '0'),
+                  ),
                   style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3),
                 ),
               ],
@@ -133,6 +143,7 @@ class _Welcome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
       child: Column(
@@ -151,17 +162,17 @@ class _Welcome extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            'Listen and talk together,\noffline.',
+            l10n.onboardingWelcomeHeadline,
             style: Theme.of(context).textTheme.displayLarge,
           ),
           const SizedBox(height: 14),
           Text(
-            "Frequency pairs phones over Bluetooth so nearby friends can join the same voice channel and share whatever you're listening to — no internet required for voice.",
+            l10n.onboardingWelcomeBody,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const Spacer(),
           PrimaryButton(
-            label: 'Get started',
+            label: l10n.onboardingGetStarted,
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,
@@ -197,6 +208,7 @@ class _Permissions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
       child: Column(
@@ -204,7 +216,7 @@ class _Permissions extends StatelessWidget {
         children: [
           const SizedBox(height: 16),
           Text(
-            'STEP 2 · PERMISSIONS',
+            l10n.onboardingPermissionsEyebrow,
             style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 11,
@@ -214,17 +226,17 @@ class _Permissions extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text('Two quick permissions.', style: Theme.of(context).textTheme.headlineMedium),
+          Text(l10n.onboardingPermissionsHeadline, style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 8),
           Text(
-            'We need Bluetooth to find nearby phones, and the microphone to share your voice.',
+            l10n.onboardingPermissionsBody,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const SizedBox(height: 24),
           _PermRow(
             icon: Icons.bluetooth,
-            title: 'Bluetooth nearby devices',
-            desc: 'Discover and connect to phones and headphones',
+            title: l10n.permissionBluetoothTitle,
+            desc: l10n.permissionBluetoothDescription,
             status: btStatus,
             inFlight: btInFlight,
             onAllow: onRequestBt,
@@ -233,8 +245,8 @@ class _Permissions extends StatelessWidget {
           const SizedBox(height: 10),
           _PermRow(
             icon: Icons.mic_none,
-            title: 'Microphone',
-            desc: 'Send your voice to the frequency',
+            title: l10n.permissionMicrophoneTitle,
+            desc: l10n.permissionMicrophoneDescription,
             status: micStatus,
             inFlight: micInFlight,
             onAllow: onRequestMic,
@@ -242,7 +254,7 @@ class _Permissions extends StatelessWidget {
           ),
           const Spacer(),
           PrimaryButton(
-            label: 'Continue',
+            label: l10n.onboardingContinue,
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,
@@ -275,10 +287,11 @@ class _PermRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     final granted = status == OnboardingPermissionStatus.granted;
     final permanentlyDenied = status == OnboardingPermissionStatus.permanentlyDenied;
     final effectiveDesc = permanentlyDenied
-        ? 'Blocked — re-enable in system settings'
+        ? l10n.permissionBlockedDescription
         : desc;
     return FreqCard(
       padding: const EdgeInsets.all(14),
@@ -330,7 +343,7 @@ class _PermRow extends StatelessWidget {
           ),
           if (granted)
             Text(
-              'Allowed',
+              l10n.permissionStatusAllowed,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -340,14 +353,14 @@ class _PermRow extends StatelessWidget {
             )
           else if (permanentlyDenied)
             FreqButton(
-              label: 'Open settings',
+              label: l10n.permissionOpenSettings,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               fontSize: 13,
               onPressed: () => unawaited(onOpenSettings()),
             )
           else
             FreqButton(
-              label: inFlight ? 'Asking…' : 'Allow',
+              label: inFlight ? l10n.permissionAsking : l10n.permissionAllow,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               fontSize: 13,
               onPressed: inFlight ? null : onAllow,
@@ -371,8 +384,11 @@ class _NamePickerState extends State<_NamePicker> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     final name = widget.controller.text.trim();
-    final initials = name.isEmpty ? '—' : name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
+    final initials = name.isEmpty
+        ? l10n.initialsPlaceholder
+        : name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
     final hasName = name.isNotEmpty;
 
     return Padding(
@@ -382,7 +398,7 @@ class _NamePickerState extends State<_NamePicker> {
         children: [
           const SizedBox(height: 16),
           Text(
-            'STEP 3 · YOUR HANDLE',
+            l10n.onboardingHandleEyebrow,
             style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 11,
@@ -393,12 +409,12 @@ class _NamePickerState extends State<_NamePicker> {
           ),
           const SizedBox(height: 6),
           Text(
-            'What should people call you?',
+            l10n.onboardingHandleHeadline,
             style: Theme.of(context).textTheme.headlineMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            "This shows up to everyone on the same frequency.",
+            l10n.onboardingHandleBody,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const SizedBox(height: 28),
@@ -440,11 +456,11 @@ class _NamePickerState extends State<_NamePicker> {
                       fontWeight: FontWeight.w500,
                       color: c.ink,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       isDense: true,
                       counterText: '',
                       border: InputBorder.none,
-                      hintText: 'Your name',
+                      hintText: l10n.onboardingHandleHint,
                     ),
                   ),
                 ),
@@ -455,13 +471,13 @@ class _NamePickerState extends State<_NamePicker> {
           Padding(
             padding: const EdgeInsets.only(left: 4),
             child: Text(
-              'You can change this later.',
+              l10n.onboardingHandleFootnote,
               style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
             ),
           ),
           const Spacer(),
           PrimaryButton(
-            label: 'Find a frequency',
+            label: l10n.onboardingFindFrequency,
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,

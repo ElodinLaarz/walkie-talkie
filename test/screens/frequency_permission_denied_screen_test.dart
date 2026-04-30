@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/screens/frequency_permission_denied_screen.dart';
 import 'package:walkie_talkie/services/permission_watcher.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
@@ -7,6 +8,8 @@ import 'package:walkie_talkie/theme/app_theme.dart';
 Widget _wrap(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: child,
   );
 }

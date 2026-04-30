@@ -23,7 +23,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
     
     <application
-        android:label="Walkie Talkie"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
