@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:permission_handler/permission_handler.dart' as ph;
 
 /// Tri-state result of a permission request, surfaced to the onboarding UI.
@@ -31,13 +32,13 @@ class DefaultOnboardingPermissionGateway implements OnboardingPermissionGateway 
   @override
   Future<OnboardingPermissionStatus> requestBluetooth() async {
     final results = await _bluetoothPermissions.request();
-    return _reduce(results.values);
+    return reduce(results.values);
   }
 
   @override
   Future<OnboardingPermissionStatus> requestMicrophone() async {
     final status = await ph.Permission.microphone.request();
-    return _reduce([status]);
+    return reduce([status]);
   }
 
   @override
@@ -45,7 +46,8 @@ class DefaultOnboardingPermissionGateway implements OnboardingPermissionGateway 
     await ph.openAppSettings();
   }
 
-  static OnboardingPermissionStatus _reduce(Iterable<ph.PermissionStatus> values) {
+  @visibleForTesting
+  static OnboardingPermissionStatus reduce(Iterable<ph.PermissionStatus> values) {
     if (values.any((s) => s.isPermanentlyDenied)) {
       return OnboardingPermissionStatus.permanentlyDenied;
     }
