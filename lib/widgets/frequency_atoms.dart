@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/frequency_mock_data.dart';
+import '../data/frequency_models.dart';
 import '../theme/app_theme.dart';
 
 /// "Frequency • dot" wordmark.

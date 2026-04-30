@@ -1,6 +1,6 @@
 /// Protocol-layer view of a peer in a frequency.
 ///
-/// Distinct from the UI's `Person` (in `lib/data/frequency_mock_data.dart`),
+/// Distinct from the UI's `Person` (in `lib/data/frequency_models.dart`),
 /// which carries presentation-only fields like `hue` and short `initials`.
 class ProtocolPeer {
   final String peerId;

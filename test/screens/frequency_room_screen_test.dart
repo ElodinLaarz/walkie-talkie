@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
 import 'package:walkie_talkie/bloc/frequency_session_state.dart';
-import 'package:walkie_talkie/data/frequency_mock_data.dart';
+import 'package:walkie_talkie/data/frequency_models.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
@@ -33,9 +33,7 @@ class MockIdentityStore extends Mock implements IdentityStore {}
 /// the test framework injects a fake-keyboard inset.
 const _viewport = Size(432, 1200);
 
-/// Long enough to settle modal-sheet entry (~250 ms), but short enough to
-/// avoid triggering the host's join-request toast (fires at 2.8s) or the
-/// weak-signal toast (fires at 7.2s) — those are demo timers in initState.
+/// Long enough to settle modal-sheet entry (~250 ms).
 const _settle = Duration(milliseconds: 500);
 
 Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) {
@@ -48,7 +46,7 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) 
     when(() => mockCubit.identityStore).thenReturn(mockStore);
     when(() => mockCubit.state).thenReturn(const SessionBooting());
     when(() => mockCubit.stream).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
-    
+
     final controller = StreamController<MediaCommand>.broadcast();
     when(() => mockCubit.mediaCommands).thenAnswer((_) => controller.stream);
 
@@ -56,7 +54,7 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) 
         StreamController<({String peerId, String displayName})>.broadcast();
     when(() => mockCubit.weakSignalEvents)
         .thenAnswer((_) => weakSignalController.stream);
-    
+
     when(() => mockCubit.sendMediaCommand(
           op: any(named: 'op'),
           source: any(named: 'source'),
@@ -110,19 +108,33 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) 
 Widget _room({
   bool isHost = false,
   bool pttMode = false,
-  int groupSize = 5,
   MediaKind mediaKind = MediaKind.music,
+  VoidCallback? onLeave,
 }) =>
     FrequencyRoomScreen(
       freq: '104.3',
       isHost: isHost,
       myName: 'Caleb',
-      groupSize: groupSize,
       mediaKind: mediaKind,
       pttMode: pttMode,
-      onLeave: () {},
-      debugDemoTimers: true,
+      onLeave: onLeave ?? () {},
     );
+
+/// Spins up a real cubit + parks it in `SessionRoom('104.3')` so a test
+/// can directly seed roster / mediaState via `applyJoinAccepted`. The
+/// `onLocalTalking` subscription is satisfied by leaving `audio: null`,
+/// which leaves `_audio?.localTalking` unsubscribed — voice-path tests
+/// that need it construct the cubit themselves with explicit args.
+FrequencySessionCubit _seededCubit({bool isHost = false}) {
+  final cubit = FrequencySessionCubit(
+    identityStore: _MemoryStore(),
+    recentFrequenciesStore: _NullRecentFrequenciesStore(),
+  );
+  cubit
+    ..emit(const SessionDiscovery(myName: 'Caleb'))
+    ..joinRoom(freq: '104.3', isHost: isHost);
+  return cubit;
+}
 
 void main() {
   /// Captures every audio MethodChannel call the room screen makes during a
@@ -180,7 +192,7 @@ void main() {
       },
     );
 
-    testWidgets('renders the on-air chrome and the user as the first peer',
+    testWidgets('renders the on-air chrome with the local user as the only chip',
         (tester) async {
       await tester.pumpWidget(_wrap(_room()));
       await tester.pump();
@@ -192,7 +204,25 @@ void main() {
       // Me-row shows the configured name without the muted suffix.
       expect(find.text('Caleb'), findsOneWidget);
       expect(find.textContaining('· muted'), findsNothing);
+
+      // No mock peer roster — single-user room shows just the local user
+      // (acceptance criterion for #105). SectionLabel uppercases its text.
+      expect(find.text('ON THIS FREQUENCY · 1'), findsOneWidget);
     });
+
+    testWidgets(
+      'me-row no longer leaks the mock "Sony WH-1000XM5" placeholder',
+      // Acceptance criterion for #105: `kPeople.first.btDevice` used to seed
+      // the local user's BT label even in production, shipping that string
+      // to real users. The me-row now reads the audio-output label until a
+      // real route is reported.
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        expect(find.text('Sony WH-1000XM5'), findsNothing);
+      },
+    );
 
     testWidgets('host chip only shows when isHost: true', (tester) async {
       await tester.pumpWidget(_wrap(_room(isHost: true)));
@@ -275,52 +305,82 @@ void main() {
       expect(find.text('Live'), findsNothing);
     });
 
-    testWidgets('skip and prev change the displayed track', (tester) async {
-      await tester.pumpWidget(_wrap(_room()));
-      await tester.pump();
+    testWidgets(
+      'opening a peer row reveals the drawer with volume + mute switch',
+      (tester) async {
+        // Drive the roster from the cubit instead of a mock list — that's
+        // the production path now that #105 dropped the demo roster.
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
 
-      // Music library starts on "Nightsong" by Mount Kimbie.
-      expect(find.text('Nightsong'), findsOneWidget);
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+        await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.skip_next));
-      await tester.pump();
-      expect(find.text('Nightsong'), findsNothing);
-      expect(find.text('Soft Fascination'), findsOneWidget);
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ],
+        ));
+        await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.skip_previous));
-      await tester.pump();
-      expect(find.text('Soft Fascination'), findsNothing);
-      expect(find.text('Nightsong'), findsOneWidget);
-    });
+        await tester.tap(find.text('Devon'));
+        await tester.pump(_settle);
 
-    testWidgets('opening a peer row reveals the drawer with volume + mute switch',
-        (tester) async {
-      await tester.pumpWidget(_wrap(_room()));
-      await tester.pump();
-
-      // Tap the second roster entry (the first peer after "me").
-      await tester.tap(find.text(kPeople[1].name));
-      await tester.pump(_settle);
-
-      expect(find.text('Mute from your side'), findsOneWidget);
-      expect(find.text('Their voice volume'), findsOneWidget);
-    });
+        expect(find.text('Mute from your side'), findsOneWidget);
+        expect(find.text('Their voice volume'), findsOneWidget);
+      },
+    );
 
     testWidgets('peer drawer hides Remove for guests', (tester) async {
-      await tester.pumpWidget(_wrap(_room(isHost: false)));
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
+
+      await tester.pumpWidget(_wrap(_room(isHost: false), cubit: cubit));
+      await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.text(kPeople[1].name));
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [
+          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+        ],
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Devon'));
       await tester.pump(_settle);
 
       expect(find.text('Remove from frequency'), findsNothing);
     });
 
     testWidgets('peer drawer surfaces Remove for hosts', (tester) async {
-      await tester.pumpWidget(_wrap(_room(isHost: true)));
+      final cubit = _seededCubit(isHost: true);
+      addTearDown(cubit.close);
+
+      await tester.pumpWidget(_wrap(_room(isHost: true), cubit: cubit));
+      await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.text(kPeople[1].name));
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'me-peer-id',
+        roster: const [
+          ProtocolPeer(peerId: 'p-guest', displayName: 'Devon'),
+        ],
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Devon'));
       await tester.pump(_settle);
 
       expect(find.text('Remove from frequency'), findsOneWidget);
@@ -328,37 +388,16 @@ void main() {
 
     testWidgets(
       'opening peer drawer on a cubit-driven roster does not crash on missing volume entry',
-      // Regression for #103: in production `debugDemoTimers: false`,
-      // `_volumes` is empty until the user adjusts a slider, so reading
-      // `_volumes[person.id]!` for any cubit-driven peer threw a null
-      // dereference. The drawer must read through `_volumeFor`, which
-      // falls back to the default volume for unknown peer ids.
+      // Regression for #103: in production the `_volumes` map is empty
+      // until the user adjusts a slider, so reading `_volumes[person.id]!`
+      // for any cubit-driven peer threw a null dereference. The drawer
+      // must read through `_volumeFor`, which falls back to the default
+      // volume for unknown peer ids.
       (tester) async {
-        final cubit = FrequencySessionCubit(
-          identityStore: _MemoryStore(),
-          recentFrequenciesStore: _NullRecentFrequenciesStore(),
-        );
+        final cubit = _seededCubit();
         addTearDown(cubit.close);
 
-        cubit
-          ..emit(const SessionDiscovery(myName: 'Caleb'))
-          ..joinRoom(freq: '104.3', isHost: false);
-
-        // Non-demo room screen — `debugDemoTimers: false` exercises the
-        // cubit-driven roster path and the production `_volumes`
-        // initialization (empty map).
-        await tester.pumpWidget(_wrap(
-          FrequencyRoomScreen(
-            freq: '104.3',
-            isHost: false,
-            myName: 'Caleb',
-            groupSize: 5,
-            mediaKind: MediaKind.music,
-            pttMode: false,
-            onLeave: () {},
-          ),
-          cubit: cubit,
-        ));
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         // Pump twice: first to settle initState's post-frame
         // microtasks (startVoice + the identity-store read inside
         // _resolveMyPeerId), second to drain the resulting setStates.
@@ -400,62 +439,18 @@ void main() {
       },
     );
 
-    // testWidgets.skip is bool-only; wrap in a group so the runner records
-    // a reason instead of a silent skip count.
-    group(
-      'click-through integration (skipped)',
-      () {
-        testWidgets(
-            'host removing a peer dismisses the drawer, drops them from the '
-            'roster, and surfaces a leave toast', (tester) async {
-          await tester.pumpWidget(_wrap(_room(isHost: true)));
-          await tester.pump();
-
-          final peerName = kPeople[1].name;
-          expect(find.text(peerName), findsOneWidget);
-
-          await tester.tap(find.text(peerName));
-          await tester.pump(_settle);
-
-          expect(find.text(peerName), findsAtLeastNWidgets(1));
-
-          await tester.tap(find.text('Remove from frequency'));
-          await tester.pump(_settle);
-
-          expect(find.text('Remove from frequency'), findsNothing);
-          expect(find.text(peerName), findsNothing);
-          expect(find.text('$peerName was removed'), findsOneWidget);
-        });
-      },
-      skip:
-          'modal-sheet bottom inset can push Remove below the viewport in '
-          'widget tests; drawer-content checks above already cover Remove '
-          'visible vs hidden; click-through integration deferred to a real '
-          'device + the state-container test seam landing with #13',
-    );
-
-    testWidgets('podcast media kind switches the source and the queue',
+    testWidgets('podcast media kind switches the source label',
         (tester) async {
       await tester.pumpWidget(_wrap(_room(mediaKind: MediaKind.podcast)));
       await tester.pump();
 
       // The "Listening together · …" eyebrow uppercases the source name.
       expect(find.text('LISTENING TOGETHER · PODCASTS'), findsOneWidget);
-      // First podcast track in kMedia.
-      expect(find.text('The Quiet Economy'), findsOneWidget);
     });
 
     testWidgets('Leave button fires onLeave', (tester) async {
       var leaveCount = 0;
-      await tester.pumpWidget(_wrap(FrequencyRoomScreen(
-        freq: '104.3',
-        isHost: false,
-        myName: 'Caleb',
-        groupSize: 5,
-        mediaKind: MediaKind.music,
-        pttMode: false,
-        onLeave: () => leaveCount++,
-      )));
+      await tester.pumpWidget(_wrap(_room(onLeave: () => leaveCount++)));
       await tester.pump();
 
       // The leave action is the rightmost ghost button in the chrome.
@@ -469,20 +464,13 @@ void main() {
       'rejoin with no mediaState resets the transport instead of stranding '
       'on the prior snapshot',
       (tester) async {
-        final cubit = FrequencySessionCubit(
-          identityStore: _MemoryStore(),
-          recentFrequenciesStore: _NullRecentFrequenciesStore(),
-        );
+        final cubit = _seededCubit();
         addTearDown(cubit.close);
-
-        cubit
-          ..emit(const SessionDiscovery(myName: 'Caleb'))
-          ..joinRoom(freq: '104.3', isHost: false);
 
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
 
-        // Land an initial snapshot (track #1, playing).
+        // Land an initial snapshot (playing).
         cubit.applyJoinAccepted(JoinAccepted(
           peerId: 'p-host',
           seq: 1,
@@ -497,11 +485,10 @@ void main() {
           ),
         ));
         await tester.pump();
-        expect(find.text('Soft Fascination'), findsOneWidget);
         expect(find.text('Live'), findsOneWidget);
 
         // Rejoin: host says "nothing playing" (mediaState absent on the
-        // wire). The transport should reset, not strand on track #1.
+        // wire). The transport should reset, not strand on the prior state.
         cubit.applyJoinAccepted(JoinAccepted(
           peerId: 'p-host',
           seq: 2,
@@ -511,48 +498,6 @@ void main() {
         ));
         await tester.pump();
         expect(find.text('Paused'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'snapshot for an unknown source is dropped — UI keeps the prior queue',
-      (tester) async {
-        final cubit = FrequencySessionCubit(
-          identityStore: _MemoryStore(),
-          recentFrequenciesStore: _NullRecentFrequenciesStore(),
-        );
-        addTearDown(cubit.close);
-
-        cubit
-          ..emit(const SessionDiscovery(myName: 'Caleb'))
-          ..joinRoom(freq: '104.3', isHost: false);
-
-        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
-        await tester.pump();
-        // Initial render — music queue's first track.
-        expect(find.text('Nightsong'), findsOneWidget);
-
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [],
-          mediaState: const MediaState(
-            // Truly absent from kMedia — a v2 host that supports a new
-            // source kind a v1 client doesn't know about.
-            source: 'TidalRadio',
-            trackIdx: 0,
-            playing: true,
-            positionMs: 0,
-          ),
-        ));
-        await tester.pump();
-
-        // Snapshot ignored — the screen still shows the local default,
-        // and `_source` hasn't been corrupted.
-        expect(find.text('Nightsong'), findsOneWidget);
-        expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
       },
     );
 
@@ -647,28 +592,22 @@ void main() {
     );
 
     testWidgets(
-      'applyJoinAccepted snapshot seeds the local player on rejoin',
+      'applyJoinAccepted snapshot promotes the source on rejoin',
       (tester) async {
         // Real cubit so the BlocListener actually reacts to state changes.
-        final cubit = FrequencySessionCubit(
-          identityStore: _MemoryStore(),
-          recentFrequenciesStore: _NullRecentFrequenciesStore(),
-        );
+        final cubit = _seededCubit();
         addTearDown(cubit.close);
-
-        // Pretend the user already tuned in to a music room.
-        cubit
-          ..emit(const SessionDiscovery(myName: 'Caleb'))
-          ..joinRoom(freq: '104.3', isHost: false);
 
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
 
-        // Initial render — no snapshot, screen shows the music queue's
-        // first track.
-        expect(find.text('Nightsong'), findsOneWidget);
+        // Initial render — no snapshot, eyebrow shows the local default
+        // source for music.
+        expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
 
-        // Host's JoinAccepted lands; mediaState says we're 91s into track #2.
+        // Host's JoinAccepted lands; mediaState says we're paused on a
+        // different source. The eyebrow promotes the host's source verbatim
+        // and the transport flips to Paused.
         cubit.applyJoinAccepted(JoinAccepted(
           peerId: 'p-host',
           seq: 1,
@@ -676,7 +615,7 @@ void main() {
           hostPeerId: 'p-host',
           roster: const [],
           mediaState: const MediaState(
-            source: 'YouTube Music',
+            source: 'Spotify',
             trackIdx: 1,
             playing: false,
             positionMs: 91000,
@@ -684,9 +623,7 @@ void main() {
         ));
         await tester.pump();
 
-        // Now showing the second track in the queue, paused, scrubbed in.
-        expect(find.text('Nightsong'), findsNothing);
-        expect(find.text('Soft Fascination'), findsOneWidget);
+        expect(find.text('LISTENING TOGETHER · SPOTIFY'), findsOneWidget);
         expect(find.text('Paused'), findsOneWidget);
       },
     );

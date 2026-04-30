@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/frequency_session_cubit.dart';
 import '../bloc/frequency_session_state.dart';
-import '../data/frequency_mock_data.dart';
+import '../data/frequency_models.dart';
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 import '../services/audio_service.dart';
@@ -31,7 +30,7 @@ extension on AudioOutput {
       };
 
   String subFor(String bt) => switch (this) {
-        AudioOutput.bluetooth => bt,
+        AudioOutput.bluetooth => bt.isEmpty ? 'Paired headphones' : bt,
         AudioOutput.earpiece => 'Private, held to ear',
         AudioOutput.speaker => 'Loud · everyone nearby hears',
       };
@@ -40,7 +39,6 @@ extension on AudioOutput {
 /// Main "On air" room — voice + now playing.
 class FrequencyRoomScreen extends StatefulWidget {
   final String freq;
-  final int groupSize;
   final MediaKind mediaKind;
   final bool pttMode;
   final bool isHost;
@@ -55,22 +53,15 @@ class FrequencyRoomScreen extends StatefulWidget {
   /// guarantee one `AudioService` per process at runtime.
   final AudioService? audioService;
 
-  /// When true, demo timers fire fake BLE events for design previews.
-  /// Widget tests pass true to keep their assertions stable; production
-  /// wiring defaults to false so real BLE events drive the UI.
-  final bool debugDemoTimers;
-
   const FrequencyRoomScreen({
     super.key,
     required this.freq,
-    required this.groupSize,
     required this.mediaKind,
     required this.pttMode,
     required this.isHost,
     required this.myName,
     required this.onLeave,
     this.audioService,
-    this.debugDemoTimers = false,
   });
 
   @override
@@ -79,7 +70,6 @@ class FrequencyRoomScreen extends StatefulWidget {
 
 class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late Person _me;
-  List<Person> _roster = []; // Only populated when debugDemoTimers is true
 
   bool _meMuted = false;
   bool _holdingPtt = false;
@@ -89,17 +79,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// [_kDefaultPeerVolume]. Null-asserting (`_volumes[peerId]!`) on
   /// a cubit-driven peer will throw because the entry doesn't exist
   /// yet, so always go through the helper instead of the raw map.
-  late Map<String, double> _volumes;
+  final Map<String, double> _volumes = {};
   static const double _kDefaultPeerVolume = 0.7;
   double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;
   final Set<String> _peerMuted = {};
   final Set<String> _removed = {};
 
-  String? _talkingId;
-  Timer? _talkTicker;
   Timer? _progressTimer;
-  Timer? _hostJoinDemoTimer;
-  Timer? _weakSignalDemoTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
   StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
   StreamSubscription<({String peerId, String displayName})>?
@@ -156,21 +142,17 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       name: firstName,
       initials: initials,
       hue: 145,
-      btDevice: kPeople.first.btDevice,
+      // Filled in once a real audio-route is reported by the platform; until
+      // then the row reads the audio-output label rather than this string,
+      // so an empty placeholder is safe and avoids leaking a hard-coded
+      // device name to real users.
+      btDevice: '',
     );
     _meMuted = widget.pttMode;
 
-    // Only populate mock roster when debugDemoTimers is true (for tests)
-    if (widget.debugDemoTimers) {
-      _roster = [_me, ...kPeople.skip(1).take(widget.groupSize - 1)];
-      _volumes = {for (final p in _roster) p.id: _kDefaultPeerVolume};
-    } else {
-      _volumes = {}; // Volumes populated dynamically as peers join
-    }
-
     _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
-    _lib = kMedia[_source]!;
-    _lastAction = const _LastAction(by: 'Devon', action: 'started playback', when: '12s ago');
+    _lib = emptyMediaLib;
+    _lastAction = const _LastAction(by: '', action: '', when: '');
 
     _audio = widget.audioService ?? context.read<AudioService>();
     // Guard against a future caller silently constructing a second
@@ -247,45 +229,6 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         .read<FrequencySessionCubit>()
         .weakSignalEvents
         .listen(_onWeakSignal);
-
-    if (widget.debugDemoTimers) {
-      _startTalkSimulation();
-
-      if (widget.isHost) {
-        _hostJoinDemoTimer = Timer(const Duration(milliseconds: 2800), () {
-          if (!mounted) return;
-          final newcomer = kPeople.length > widget.groupSize
-              ? kPeople[widget.groupSize]
-              : kPeople.last;
-          FrequencyToastHost.of(context).push(FrequencyToastSpec(
-            tone: ToastTone.request,
-            person: newcomer,
-            title: '${newcomer.name} wants to tune in',
-            description: "They're right nearby",
-            autoDismiss: null, // sticky — host must choose
-            // Demo only: real accept/deny dispatch waits on the BT mesh +
-            // state container. The toast surface is the deliverable for now.
-            actions: [
-              ToastAction(label: 'Deny', onTap: () {}),
-              ToastAction(label: 'Let in', primary: true, onTap: () {}),
-            ],
-          ));
-        });
-      }
-
-      _weakSignalDemoTimer = Timer(const Duration(milliseconds: 7200), () {
-        if (!mounted) return;
-        final p = _roster.last;
-        // Don't surface a weak-signal toast for someone who's already left.
-        if (p.id == 'me' || _removed.contains(p.id)) return;
-        FrequencyToastHost.of(context).push(FrequencyToastSpec(
-          tone: ToastTone.warn,
-          title: "${p.name}'s signal is weak",
-          description: 'Ask them to move closer',
-          autoDismiss: const Duration(milliseconds: 3600),
-        ));
-      });
-    }
   }
 
   @override
@@ -331,27 +274,23 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// change (rotation, keyboard inset, route restore) doesn't yank
   /// the player back to `positionMs` and erase local progress.
   ///
-  /// If `snapshot.source` is a key we don't recognize in `kMedia`, we
-  /// skip the snapshot entirely (don't mutate `_source`/`_lib`). This
-  /// keeps the UI's queue and the source string we'd ship in outgoing
-  /// `sendMediaCommand`s in sync — desync would mean the next play /
-  /// seek / skip carries an unknown source the host then ignores.
+  /// The room screen no longer ships a hard-coded media catalog: the
+  /// snapshot is the only ground truth for source + track index, and
+  /// title/artwork metadata isn't on the wire yet (#TBD adds it). We
+  /// surface the host's source verbatim and render a single placeholder
+  /// "Track N" entry; the protocol-level `trackIdx` rides through as the
+  /// queue position so subsequent media commands keep agreeing with the
+  /// host's view.
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
-    final lib = kMedia[snapshot.source];
-    if (lib == null) {
-      if (kDebugMode) debugPrint('Ignoring media snapshot for unknown source "${snapshot.source}"');
-      return;
-    }
     _appliedSnapshot = snapshot;
-    final clampedIdx = snapshot.trackIdx.clamp(0, lib.queue.length - 1);
     final positionSec = (snapshot.positionMs / 1000).round();
     setState(() {
       _source = snapshot.source;
-      _lib = lib;
-      _trackIdx = clampedIdx;
+      _lib = emptyMediaLib;
+      _trackIdx = 0;
       _playing = snapshot.playing;
-      _progress = positionSec.clamp(0, lib.queue[clampedIdx].durationSeconds);
+      _progress = positionSec.clamp(0, _lib.queue[0].durationSeconds);
     });
   }
 
@@ -373,10 +312,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   @override
   void dispose() {
-    _talkTicker?.cancel();
     _progressTimer?.cancel();
-    _hostJoinDemoTimer?.cancel();
-    _weakSignalDemoTimer?.cancel();
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
     _weakSignalSub?.cancel();
@@ -464,9 +400,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   }
 
   /// Resolves a `peerId` from a wire message to a display name.
-  /// Priority: it's me, it's in the protocol roster (the
+  /// Priority: it's me, it's in the cubit-driven protocol roster (the
   /// `JoinAccepted`/`RosterUpdate`-sourced `SessionRoom.roster`),
-  /// it's in the mock roster (v1 demo until BLE-backed peers land),
   /// otherwise generic fallback.
   ///
   /// `_myPeerId` is resolved asynchronously on init; before it lands,
@@ -482,30 +417,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         if (p.peerId == peerId) return p.displayName;
       }
     }
-    for (final p in _roster) {
-      if (p.id == peerId) return p.name;
-    }
     return 'Someone';
-  }
-
-  void _startTalkSimulation() {
-    _talkTicker?.cancel();
-    _talkTicker = Timer.periodic(const Duration(milliseconds: 1800), (_) {
-      if (!mounted) return;
-      final active = _roster
-          .where((p) => p.id != 'me' && !_peerMuted.contains(p.id) && !_removed.contains(p.id))
-          .map((p) => p.id)
-          .toList();
-      setState(() {
-        if (active.isEmpty) {
-          _talkingId = null;
-        } else if (Random().nextDouble() < 0.3) {
-          _talkingId = null;
-        } else {
-          _talkingId = active[Random().nextInt(active.length)];
-        }
-      });
-    });
   }
 
   void _startProgressTick() {
@@ -651,21 +563,25 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                         return prev.runtimeType != next.runtimeType;
                       },
                       builder: (context, state) {
-                        // Compute peers list from cubit state, or fall back to mock for demo mode
+                        // Cubit roster is the single source of truth for peers.
+                        // Local peer is filtered out (rendered separately as the
+                        // me-row); locally-removed peers (host kick) drop out
+                        // until the cubit's roster reflects the change.
                         final List<Person> peers;
-                        if (widget.debugDemoTimers) {
-                          // Demo mode: use mock roster (skip self at index 0)
-                          peers = _roster.skip(1).where((p) => !_removed.contains(p.id)).toList();
-                        } else if (state is SessionRoom && state.roster.isNotEmpty) {
-                          // Production: map ProtocolPeer roster, excluding local peer
-                          peers = state.roster
+                        final Set<String> talkingIds;
+                        if (state is SessionRoom && state.roster.isNotEmpty) {
+                          final visible = state.roster
                               .where((p) => p.peerId != _myPeerId)
                               .where((p) => !_removed.contains(p.peerId))
-                              .map(_protocolPeerToPerson)
                               .toList();
+                          peers = visible.map(_protocolPeerToPerson).toList();
+                          talkingIds = {
+                            for (final p in visible)
+                              if (p.talking) p.peerId,
+                          };
                         } else {
-                          // Empty roster: no peers yet
                           peers = [];
+                          talkingIds = const {};
                         }
 
                         return Column(
@@ -701,7 +617,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                                         key: ValueKey(peers[i].id),
                                         person: peers[i],
                                         first: i == 0,
-                                        talking: _talkingId == peers[i].id && !_peerMuted.contains(peers[i].id),
+                                        talking: talkingIds.contains(peers[i].id) && !_peerMuted.contains(peers[i].id),
                                         muted: _peerMuted.contains(peers[i].id),
                                         volume: _volumeFor(peers[i].id),
                                         onTap: () => _showPeerDrawer(peers[i]),
@@ -870,7 +786,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        _output == AudioOutput.bluetooth ? _me.btDevice : _output.label,
+                        _output == AudioOutput.bluetooth && _me.btDevice.isNotEmpty
+                            ? _me.btDevice
+                            : _output.label,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'Inter',
