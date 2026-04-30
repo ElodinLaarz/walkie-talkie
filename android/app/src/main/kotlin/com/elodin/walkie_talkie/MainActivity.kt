@@ -10,6 +10,7 @@ import io.flutter.plugin.common.EventChannel
 import android.util.Log
 import android.os.Handler
 import android.os.Looper
+import java.lang.ref.WeakReference
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -20,6 +21,30 @@ class MainActivity : FlutterActivity() {
 
         init {
             System.loadLibrary("walkie_talkie_audio")
+        }
+
+        /** Weak ref so the activity can be GC'd normally; the service's
+         *  static dispatch hook never holds the activity past its natural
+         *  lifecycle. */
+        @Volatile
+        private var instance: WeakReference<MainActivity>? = null
+
+        /**
+         * Called by [WalkieTalkieService] when a notification-button or
+         * MediaSession callback fires. Forwards the action as an audio
+         * EventChannel event so the Flutter room screen can apply it.
+         * No-op when the activity isn't around: the FlutterEngine is gone
+         * with it, so there's nothing to deliver to.
+         */
+        fun dispatchEventFromService(action: String) {
+            val activity = instance?.get() ?: return
+            val type = when (action) {
+                WalkieTalkieService.ACTION_LEAVE -> "leaveRoom"
+                WalkieTalkieService.ACTION_PTT_TOGGLE -> "pttToggle"
+                WalkieTalkieService.ACTION_MUTE_TOGGLE -> "muteToggle"
+                else -> return
+            }
+            activity.sendEventToFlutter(mapOf("type" to type))
         }
     }
 
@@ -37,6 +62,11 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Publish a weak reference for the service's static dispatch hook
+        // so notification-button / headset events can reach the EventChannel
+        // without forcing an activity launch (issue #97).
+        instance = WeakReference(this)
 
         // Register for native voice activity callbacks
         nativeRegisterForCallbacks()
@@ -171,7 +201,14 @@ class MainActivity : FlutterActivity() {
                     val muted = call.argument<Boolean>("muted")
                     if (muted != null) {
                         Log.i(TAG, "Setting mute state: $muted")
-                        // Placeholder - will be implemented when native voice pipeline is ready
+                        // Update the MediaStyle notification's Mute/Unmute
+                        // label directly on the running service — no
+                        // `startService` so we don't accidentally spin up an
+                        // FGS just to refresh a label when no room is active.
+                        WalkieTalkieService.getRunning()?.setMuteState(muted)
+                        // Native engine `setMuted` will be implemented when the
+                        // native voice pipeline lands; for now this is a no-op
+                        // beyond the notification label sync above.
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
@@ -453,9 +490,10 @@ class MainActivity : FlutterActivity() {
         ))
     }
 
-    // Called when the notification's Leave action brings this activity back to
-    // the foreground (singleTop launchMode prevents a new instance). The action
-    // extra is forwarded to Flutter so the room screen can call leaveRoom().
+    // Called when the notification's Leave action brings this activity back
+    // to the foreground (singleTop launchMode prevents a new instance). PTT
+    // and Mute go through [WalkieTalkieService] → [dispatchEventFromService]
+    // instead so they don't unlock the phone — only Leave routes here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
@@ -465,6 +503,13 @@ class MainActivity : FlutterActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        // Clear our static dispatch hook so the service stops trying to
+        // post events to a torn-down FlutterEngine. Compare-and-clear so
+        // a freshly recreated activity that already wrote a newer ref
+        // isn't accidentally wiped.
+        if (instance?.get() === this) {
+            instance = null
+        }
         nativeUnregisterCallbacks()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
