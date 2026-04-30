@@ -229,24 +229,30 @@ class BitrateAdapter {
 
       case _Direction.up:
         if (elapsedMs < _upHold.inMilliseconds) return null;
+        // Compute the next level explicitly with returns inside each branch,
+        // rather than mutate-then-fall-through, so the upstep destination
+        // is obvious to a reader who hasn't internalised the Dart 3
+        // no-fall-through rule for switch statements.
+        final BitrateLevel next;
         switch (state.level) {
           case BitrateLevel.low:
-            state.level = BitrateLevel.mid;
+            next = BitrateLevel.mid;
           case BitrateLevel.mid:
-            state.level = BitrateLevel.high;
+            next = BitrateLevel.high;
           case BitrateLevel.high:
-            // Already at ceiling.
+            // Already at the ceiling — clear pending and emit no step.
             state.pendingDirection = _Direction.none;
             state.pendingSinceMs = null;
             return null;
         }
+        state.level = next;
         // After a step up, reset dwell so the *next* upstep starts a fresh
         // 30 s window from the host-local clock rather than carrying over
         // old dwell credit. This satisfies the "step back up one notch"
         // wording — only one level per 30 s of clean samples.
         state.pendingDirection = _Direction.up;
         state.pendingSinceMs = nowMs;
-        return state.level;
+        return next;
 
       case _Direction.none:
         // Unreachable — handled above.

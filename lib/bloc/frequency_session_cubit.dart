@@ -600,8 +600,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   }
 
   /// Guest-only ingress for `BitrateHint`. Applies the hinted bitrate to
-  /// the local outbound encoder (toward the host). On the host, hints
-  /// are silently dropped — the host is the source of hints, not a sink.
+  /// the local outbound encoder (toward the host) **only if the hint
+  /// targets this peer** — the host broadcasts on the GATT RESPONSE
+  /// characteristic, so every connected guest receives every hint and
+  /// must filter by `target == localPeerId`. Mirrors the `RemovePeer`
+  /// dispatch pattern. On the host, hints are silently dropped — the
+  /// host is the source of hints, not a sink.
   void _onBitrateHint(BitrateHint hint) {
     if (isClosed) return;
     final current = state;
@@ -609,6 +613,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final audio = _audio;
     final mac = current.macAddress;
     if (audio == null || mac == null) return;
+    final localPeerId = _localPeerId;
+    // No cached peerId yet → can't tell whether the hint is for us. The
+    // bootstrap path always populates it before joinRoom emits a
+    // SessionRoom, so this branch is defensive only.
+    if (localPeerId == null || hint.target != localPeerId) return;
     unawaited(audio.setPeerBitrate(mac, hint.bps));
   }
 
@@ -649,17 +658,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       }
       if (isClosed) return;
     }
-    // Note: BitrateHint's envelope `peerId` is the *sender's* (host's)
-    // peerId per the protocol. The recipient is implicit — the host
-    // sends the hint along the GATT link to the specific guest. The
-    // [targetPeerId] arg is recorded in debug logs but not in the wire
-    // envelope. If/when the protocol grows multi-hop, this can carry a
-    // separate target field.
+    // The envelope `peerId` is the sender's (host's) peerId per the
+    // protocol convention; the wire's `target` field carries the
+    // intended recipient so guests other than [targetPeerId] drop the
+    // hint on receive (see [_onBitrateHint]) — the underlying GATT
+    // notification broadcasts to every subscribed central, so the host
+    // can't unicast at the transport layer today.
     if (kDebugMode) debugPrint('BitrateHint -> $targetPeerId: $bps bps');
     final msg = BitrateHint(
       peerId: hostPeerId,
       seq: ++_seq,
       atMs: DateTime.now().millisecondsSinceEpoch,
+      target: targetPeerId,
       bps: bps,
     );
     try {

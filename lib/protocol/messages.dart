@@ -675,21 +675,32 @@ final class LinkQuality extends FrequencyMessage {
   }
 }
 
-/// Host → guest advisory: "set your outbound encoder bitrate to [bps]."
-/// The recipient applies the value to its own `PeerAudioManager` for the
-/// link to the host. Out-of-range values are clamped at the native layer
-/// to the {Low, Mid, High} operating points in `audio_config.h`.
+/// Host → specific-guest advisory: "guest [target], set your outbound
+/// encoder bitrate to [bps]." The recipient applies the value to its
+/// own `PeerAudioManager` for the link to the host. Out-of-range values
+/// are clamped at the native layer to the {Low, Mid, High} operating
+/// points in `audio_config.h`.
 ///
 /// The host emits these in response to its own receive-side telemetry of
-/// the guest's stream — so a guest whose uplink is degraded gets nudged
+/// each guest's stream — so a guest whose uplink is degraded gets nudged
 /// down before the host's jitter buffer underruns become audible.
+///
+/// **Why a target field.** The host writes via `BleControlTransport.send`,
+/// which broadcasts on the GATT RESPONSE characteristic to every
+/// subscribed guest. Without a `target` field, every guest in a
+/// multi-guest room would interpret the hint and adjust their own
+/// encoder — turning a per-link decision into a room-wide one. Mirrors
+/// the `RemovePeer` pattern: guests filter on receive by `target ==
+/// localPeerId` and ignore hints addressed to someone else.
 final class BitrateHint extends FrequencyMessage {
+  final String target;
   final int bps;
 
   const BitrateHint({
     required super.peerId,
     required super.seq,
     required super.atMs,
+    required this.target,
     required this.bps,
   }) : assert(bps > 0, 'bps must be positive');
 
@@ -699,11 +710,16 @@ final class BitrateHint extends FrequencyMessage {
   @override
   Map<String, dynamic> toJson() => {
         ..._envelope(),
+        'target': target,
         'bps': bps,
       };
 
   factory BitrateHint._fromJson(Map<String, dynamic> j) {
     final bpsRaw = j['bps'];
+    final targetRaw = j['target'];
+    if (targetRaw is! String) {
+      throw const FormatException('`target` must be a string');
+    }
     if (bpsRaw is! int) {
       throw const FormatException('`bps` must be an int');
     }
@@ -714,6 +730,7 @@ final class BitrateHint extends FrequencyMessage {
       peerId: j['peerId'] as String,
       seq: j['seq'] as int,
       atMs: j['atMs'] as int,
+      target: targetRaw,
       bps: bpsRaw,
     );
   }

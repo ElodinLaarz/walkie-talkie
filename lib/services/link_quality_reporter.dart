@@ -45,7 +45,14 @@ import 'audio_service.dart';
   // values would diverge between platforms) — that's a stronger signal
   // than the avoided import.
   const frameDurationMs = 20;
-  final elapsedMs = elapsed.inMilliseconds;
+  // Use microseconds for the rate math: a sub-millisecond `elapsed`
+  // (legal — `Duration.zero` is the only thing the guard rejects)
+  // would truncate `inMilliseconds` to 0 and turn the division into
+  // Infinity. Microseconds avoid the truncation and survive the same
+  // `> 0` guarantee from the guard above.
+  final elapsedMicros = elapsed.inMicroseconds;
+  final elapsedMs = elapsedMicros / 1000.0;
+  final elapsedSeconds = elapsedMicros / 1000000.0;
   final expectedFrames = elapsedMs / frameDurationMs;
 
   // Lifetime counters; deltas can't go negative under normal operation.
@@ -65,7 +72,7 @@ import 'audio_service.dart';
   final lossPct = lossPctRaw.clamp(0.0, 100.0).toDouble();
 
   final jitterMs = current.currentDepthFrames * frameDurationMs;
-  final underrunsPerSec = underrunDelta / (elapsedMs / 1000.0);
+  final underrunsPerSec = underrunDelta / elapsedSeconds;
 
   return (
     lossPct: lossPct,

@@ -380,22 +380,39 @@ void main() {
       expect(() => FrequencyMessage.decode(floatJitter), throwsFormatException);
     });
 
-    test('BitrateHint round-trips', () {
-      const msg = BitrateHint(peerId: 'p-host', seq: 7, atMs: 0, bps: 16000);
+    test('BitrateHint round-trips with target + bps', () {
+      const msg = BitrateHint(
+        peerId: 'p-host',
+        seq: 7,
+        atMs: 0,
+        target: 'p-guest-a',
+        bps: 16000,
+      );
       final json = jsonDecode(msg.encode()) as Map<String, dynamic>;
       expect(json['kind'], 'bitrate_hint');
+      expect(json['target'], 'p-guest-a');
       expect(json['bps'], 16000);
       final round = _roundTrip(msg);
+      expect(round.target, 'p-guest-a');
       expect(round.bps, 16000);
+    });
+
+    test('BitrateHint rejects missing or wrong-typed target', () {
+      final missing =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":16000}';
+      final intTarget =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":16000,"target":42}';
+      expect(() => FrequencyMessage.decode(missing), throwsFormatException);
+      expect(() => FrequencyMessage.decode(intTarget), throwsFormatException);
     });
 
     test('BitrateHint rejects non-positive or non-int bps', () {
       final negative =
-          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":-100}';
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":-100}';
       final zero =
-          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":0}';
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":0}';
       final string =
-          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"bps":"16000"}';
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":"16000"}';
       expect(() => FrequencyMessage.decode(negative), throwsFormatException);
       expect(() => FrequencyMessage.decode(zero), throwsFormatException);
       expect(() => FrequencyMessage.decode(string), throwsFormatException);

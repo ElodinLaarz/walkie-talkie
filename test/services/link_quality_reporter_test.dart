@@ -154,6 +154,26 @@ void main() {
       expect(out.underrunsPerSec, 0.0);
     });
 
+    test('sub-millisecond elapsed does not divide by zero', () {
+      // Regression guard: `Duration.inMilliseconds` truncates a 500 µs
+      // window to 0, which would make the underruns/sec division blow
+      // up to Infinity even though the guard above only rejects
+      // `<= Duration.zero`. The math must use microseconds (or some
+      // other higher-resolution conversion) so the rate stays finite.
+      final prev = _snap(underrun: 0, late: 0);
+      final curr = _snap(underrun: 1, late: 1);
+      final out = computeLinkQuality(
+        previous: prev,
+        current: curr,
+        elapsed: const Duration(microseconds: 500),
+      );
+      expect(out.underrunsPerSec.isFinite, isTrue,
+          reason: 'must not divide by zero');
+      expect(out.lossPct.isFinite, isTrue,
+          reason: 'must not divide by zero');
+      expect(out.lossPct, lessThanOrEqualTo(100.0));
+    });
+
     test('non-positive elapsed throws ArgumentError', () {
       final prev = _snap();
       final curr = _snap();
