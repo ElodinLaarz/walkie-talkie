@@ -7,7 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'bloc/discovery_cubit.dart';
 import 'bloc/frequency_session_cubit.dart';
 import 'bloc/frequency_session_state.dart';
-import 'data/frequency_mock_data.dart';
+import 'data/frequency_models.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
@@ -230,7 +230,6 @@ class FrequencyApp extends StatelessWidget {
           freq: roomFreq,
           isHost: roomIsHost,
           myName: myName,
-          groupSize: 5,
           mediaKind: MediaKind.music,
           pttMode: false,
           // Pass the singleton from the provider so the screen reuses the

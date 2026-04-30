@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../data/frequency_mock_data.dart';
+import '../data/frequency_models.dart';
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
 
