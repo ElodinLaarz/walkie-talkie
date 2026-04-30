@@ -85,26 +85,35 @@ android {
     buildTypes {
         release {
             // Fail fast if release build is requested but no signing config is available
-            val envKeystorePath = System.getenv("KEYSTORE_PATH")
-            val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
-            val envKeyAlias = System.getenv("KEY_ALIAS")
-            val envKeyPassword = System.getenv("KEY_PASSWORD")
-            val hasEnvConfig = envKeystorePath != null && envKeystorePassword != null &&
-                               envKeyAlias != null && envKeyPassword != null
-            val hasFileConfig = rootProject.file("key.properties").exists()
+            // Only check when a release task is actually being executed
+            val isReleaseBuild = gradle.startParameter.taskNames.any {
+                it.contains("Release", ignoreCase = true) ||
+                it.contains("assembleRelease", ignoreCase = true) ||
+                it.contains("bundleRelease", ignoreCase = true)
+            }
 
-            if (!hasEnvConfig && !hasFileConfig) {
-                throw GradleException(
-                    "Release signing configuration is missing. Either:\n" +
-                    "  1. Create 'key.properties' in the project root with:\n" +
-                    "     storeFile=path/to/keystore.jks\n" +
-                    "     storePassword=<password>\n" +
-                    "     keyAlias=<alias>\n" +
-                    "     keyPassword=<password>\n" +
-                    "  OR\n" +
-                    "  2. Set environment variables:\n" +
-                    "     KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
-                )
+            if (isReleaseBuild) {
+                val envKeystorePath = System.getenv("KEYSTORE_PATH")
+                val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+                val envKeyAlias = System.getenv("KEY_ALIAS")
+                val envKeyPassword = System.getenv("KEY_PASSWORD")
+                val hasEnvConfig = envKeystorePath != null && envKeystorePassword != null &&
+                                   envKeyAlias != null && envKeyPassword != null
+                val hasFileConfig = rootProject.file("key.properties").exists()
+
+                if (!hasEnvConfig && !hasFileConfig) {
+                    throw GradleException(
+                        "Release signing configuration is missing. Either:\n" +
+                        "  1. Create 'key.properties' in the project root with:\n" +
+                        "     storeFile=path/to/keystore.jks\n" +
+                        "     storePassword=<password>\n" +
+                        "     keyAlias=<alias>\n" +
+                        "     keyPassword=<password>\n" +
+                        "  OR\n" +
+                        "  2. Set environment variables:\n" +
+                        "     KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
+                    )
+                }
             }
 
             signingConfig = signingConfigs.getByName("release")
