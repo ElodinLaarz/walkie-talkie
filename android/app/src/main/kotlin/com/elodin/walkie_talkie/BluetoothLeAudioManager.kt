@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothLeAudio
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -13,8 +14,10 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import java.util.UUID
 
@@ -62,22 +65,35 @@ class BluetoothLeAudioManager(private val context: Context) {
     }
 
     init {
-        bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.LE_AUDIO)
+        // Only attempt LE Audio init if supported (API 33+, hardware-gated)
+        if (isLeAudioSupported()) {
+            try {
+                bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.LE_AUDIO)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "BLUETOOTH_CONNECT permission denied during LE Audio init", e)
+                onError?.invoke("Bluetooth permission required for LE Audio")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to initialize LE Audio profile", e)
+            }
+        } else {
+            Log.i(TAG, "LE Audio not supported on this device, will fall back to classic audio routing")
+        }
     }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val deviceAddress = device.address
-            val deviceName = device.name
 
-            // Only care about devices that are already bonded (paired)
+            // Check permission BEFORE accessing device.name (API 31+ requirement)
             if (ActivityCompat.checkSelfPermission(
                     context,
                     Manifest.permission.BLUETOOTH_CONNECT
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
+                // Only care about devices that are already bonded (paired)
                 if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                    val deviceName = device.name
                     if (deviceName != null && deviceName.isNotBlank()) {
                         discoveredDevices[deviceAddress] = device
                         onDeviceDiscovered?.invoke(deviceAddress, deviceName)
@@ -220,7 +236,10 @@ class BluetoothLeAudioManager(private val context: Context) {
     }
 
     /**
-     * Connect to a Bluetooth LE Audio device
+     * Register a Bluetooth device for LE Audio routing.
+     * Note: This does NOT establish a GATT connection. It marks the device
+     * as a candidate for audio routing if LE Audio is supported.
+     * For phone-to-phone voice (L2CAP CoC), use GattClientManager/GattServerManager.
      */
     fun connectDevice(macAddress: String): Boolean {
         if (ActivityCompat.checkSelfPermission(
@@ -334,11 +353,44 @@ class BluetoothLeAudioManager(private val context: Context) {
     }
 
     /**
+     * Check if LE Audio is supported on this device.
+     * LE Audio is hardware-gated and only available on select devices
+     * (Pixel 7+, Galaxy S22+, and newer flagships with API 33+).
+     */
+    fun isLeAudioSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return false
+        }
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                bluetoothAdapter?.isLeAudioSupported == BluetoothStatusCodes.FEATURE_SUPPORTED
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check LE Audio support", e)
+            false
+        }
+    }
+
+    /**
      * Clean up resources
      */
     fun cleanup() {
         stopScan()
         connectedDevices.clear()
         discoveredDevices.clear()
+
+        // Close profile proxy to prevent leak
+        bluetoothLeAudio?.let { proxy ->
+            try {
+                bluetoothAdapter?.closeProfileProxy(BluetoothProfile.LE_AUDIO, proxy)
+                bluetoothLeAudio = null
+                Log.i(TAG, "LE Audio profile proxy closed")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to close LE Audio profile proxy", e)
+            }
+        }
     }
 }
