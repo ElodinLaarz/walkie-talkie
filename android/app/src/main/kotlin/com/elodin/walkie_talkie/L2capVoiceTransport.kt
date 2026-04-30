@@ -36,7 +36,6 @@ class L2capVoiceTransport(
     companion object {
         private const val TAG = "L2capVoiceTransport"
         private val BACKOFF_MS = longArrayOf(250, 500, 1000, 2000, 5000)
-        private const val VOICE_MTU = 128
     }
 
     // Host-side: server socket + accepted client sockets
@@ -105,7 +104,7 @@ class L2capVoiceTransport(
     }
 
     private fun receiveLoop(addr: String, socket: BluetoothSocket) {
-        val buf = ByteArray(VOICE_MTU.coerceAtLeast(socket.maxReceivePacketSize))
+        val buf = ByteArray(GattConstants.VOICE_MTU.coerceAtLeast(socket.maxReceivePacketSize))
         try {
             val input = socket.inputStream
             while (socket.isConnected) {

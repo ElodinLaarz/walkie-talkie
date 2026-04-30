@@ -3,7 +3,6 @@ package com.elodin.walkie_talkie
 import android.bluetooth.*
 import android.content.Context
 import android.util.Log
-import java.util.UUID
 
 /**
  * GATT client manager for the guest side of the Frequency control plane.
@@ -14,6 +13,9 @@ import java.util.UUID
  * RosterUpdate / Heartbeat via RESPONSE notifications.
  *
  * Counterpart to GattServerManager (host side). Per docs/protocol.md § "GATT service".
+ *
+ * Wire-level UUIDs and the target ATT MTU live in [GattConstants] — the
+ * single source of truth shared with the server side and the L2CAP transport.
  */
 class GattClientManager(
     private val context: Context,
@@ -21,15 +23,6 @@ class GattClientManager(
 ) {
     companion object {
         private const val TAG = "GattClientManager"
-
-        // Same UUIDs as the server side
-        val SERVICE_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e8e")
-        val REQUEST_CHAR_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e01")
-        val RESPONSE_CHAR_UUID: UUID = UUID.fromString("8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e02")
-        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-
-        // Target MTU for GATT operations (see issue #45)
-        private const val TARGET_MTU = 247
     }
 
     private var gatt: BluetoothGatt? = null
@@ -46,7 +39,7 @@ class GattClientManager(
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to GATT server: ${gatt.device.address}")
                     // Request MTU increase for better throughput
-                    gatt.requestMtu(TARGET_MTU)
+                    gatt.requestMtu(GattConstants.TARGET_ATT_MTU)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.i(TAG, "Disconnected from GATT server: ${gatt.device.address}")
@@ -72,21 +65,21 @@ class GattClientManager(
                 return
             }
 
-            val service = gatt.getService(SERVICE_UUID)
+            val service = gatt.getService(GattConstants.SERVICE_UUID)
             if (service == null) {
                 Log.e(TAG, "Walkie-talkie service not found on host")
                 return
             }
 
             // Cache the REQUEST characteristic for writes
-            requestCharacteristic = service.getCharacteristic(REQUEST_CHAR_UUID)
+            requestCharacteristic = service.getCharacteristic(GattConstants.REQUEST_CHAR_UUID)
             if (requestCharacteristic == null) {
                 Log.e(TAG, "REQUEST characteristic not found")
                 return
             }
 
             // Cache and enable notifications on RESPONSE characteristic
-            responseCharacteristic = service.getCharacteristic(RESPONSE_CHAR_UUID)
+            responseCharacteristic = service.getCharacteristic(GattConstants.RESPONSE_CHAR_UUID)
             if (responseCharacteristic == null) {
                 Log.e(TAG, "RESPONSE characteristic not found")
                 return
@@ -100,7 +93,7 @@ class GattClientManager(
             }
 
             // Write CCCD descriptor to enable notifications on the server side
-            val cccd = responseCharacteristic?.getDescriptor(CCCD_UUID)
+            val cccd = responseCharacteristic?.getDescriptor(GattConstants.CCCD_UUID)
             if (cccd == null) {
                 Log.e(TAG, "CCCD descriptor not found on RESPONSE characteristic")
                 return
@@ -119,7 +112,7 @@ class GattClientManager(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
-            if (characteristic.uuid == RESPONSE_CHAR_UUID) {
+            if (characteristic.uuid == GattConstants.RESPONSE_CHAR_UUID) {
                 val bytes = characteristic.value
                 if (bytes != null && bytes.isNotEmpty()) {
                     Log.d(TAG, "Received ${bytes.size} bytes from host")
@@ -135,7 +128,7 @@ class GattClientManager(
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (descriptor.uuid == CCCD_UUID) {
+            if (descriptor.uuid == GattConstants.CCCD_UUID) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.i(TAG, "CCCD write successful, notifications active")
                 } else {
@@ -149,7 +142,7 @@ class GattClientManager(
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            if (characteristic.uuid == REQUEST_CHAR_UUID) {
+            if (characteristic.uuid == GattConstants.REQUEST_CHAR_UUID) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "REQUEST write successful")
                 } else {
