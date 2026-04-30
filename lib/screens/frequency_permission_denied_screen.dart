@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/onboarding_permission_gateway.dart';
 import '../services/permission_watcher.dart';
 import '../theme/app_theme.dart';
@@ -38,6 +39,7 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
@@ -72,12 +74,12 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'Permissions revoked',
+                        l10n.permissionDeniedHeadline,
                         style: Theme.of(context).textTheme.displayLarge,
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        _explainerCopy(missing),
+                        _explainerCopy(l10n, missing),
                         style:
                             Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   color: c.ink2,
@@ -90,7 +92,7 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
                       ],
                       const Spacer(),
                       PrimaryButton(
-                        label: 'Open settings',
+                        label: l10n.permissionOpenSettings,
                         block: true,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         fontSize: 15,
@@ -98,7 +100,7 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       FreqButton(
-                        label: 'Retry',
+                        label: l10n.permissionRetry,
                         block: true,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         fontSize: 15,
@@ -115,19 +117,19 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
     );
   }
 
-  static String _explainerCopy(List<AppPermission> missing) {
+  static String _explainerCopy(
+    AppLocalizations l10n,
+    List<AppPermission> missing,
+  ) {
     final hasMic = missing.contains(AppPermission.microphone);
     final hasBt = missing.contains(AppPermission.bluetooth);
     if (hasMic && hasBt) {
-      return 'Frequency needs microphone and Bluetooth to keep you on the air. '
-          'Re-grant them in Settings to come back.';
+      return l10n.permissionDeniedExplainerBoth;
     }
     if (hasMic) {
-      return 'Frequency needs the microphone to send your voice. '
-          'Re-grant it in Settings to come back.';
+      return l10n.permissionDeniedExplainerMic;
     }
-    return 'Frequency needs Bluetooth to find nearby phones. '
-        'Re-grant it in Settings to come back.';
+    return l10n.permissionDeniedExplainerBluetooth;
   }
 }
 
@@ -138,6 +140,7 @@ class _DeniedRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return FreqCard(
       padding: const EdgeInsets.all(14),
       child: Row(
@@ -158,7 +161,7 @@ class _DeniedRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _title(perm),
+                  _title(l10n, perm),
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
@@ -167,7 +170,7 @@ class _DeniedRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'Blocked — re-enable in system settings',
+                  l10n.permissionBlockedDescription,
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
@@ -188,8 +191,9 @@ class _DeniedRow extends StatelessWidget {
         AppPermission.bluetooth => Icons.bluetooth_disabled,
       };
 
-  static String _title(AppPermission perm) => switch (perm) {
-        AppPermission.microphone => 'Microphone',
-        AppPermission.bluetooth => 'Bluetooth nearby devices',
+  static String _title(AppLocalizations l10n, AppPermission perm) =>
+      switch (perm) {
+        AppPermission.microphone => l10n.permissionMicrophoneTitle,
+        AppPermission.bluetooth => l10n.permissionBluetoothTitle,
       };
 }

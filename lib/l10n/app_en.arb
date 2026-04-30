@@ -1,0 +1,249 @@
+{
+    "@@locale": "en",
+
+    "appTitle": "Frequency",
+    "@appTitle": {
+        "description": "MaterialApp title — surfaces in OS task switcher / recents."
+    },
+
+    "onboardingStepIndicator": "{step}/03",
+    "@onboardingStepIndicator": {
+        "description": "Step counter in the onboarding chrome (e.g. 01/03).",
+        "placeholders": {
+            "step": { "type": "String", "example": "01" }
+        }
+    },
+
+    "onboardingWelcomeHeadline": "Listen and talk together,\noffline.",
+    "@onboardingWelcomeHeadline": {
+        "description": "Welcome headline on step 1 of onboarding. \\n is intentional — preserves the two-line wrap."
+    },
+    "onboardingWelcomeBody": "Frequency pairs phones over Bluetooth so nearby friends can join the same voice channel and share whatever you're listening to — no internet required for voice.",
+    "@onboardingWelcomeBody": {
+        "description": "Welcome body copy on step 1 of onboarding."
+    },
+    "onboardingGetStarted": "Get started",
+    "@onboardingGetStarted": {
+        "description": "Primary button on step 1 of onboarding."
+    },
+
+    "onboardingPermissionsEyebrow": "STEP 2 · PERMISSIONS",
+    "@onboardingPermissionsEyebrow": {
+        "description": "All-caps eyebrow label above the permissions step heading."
+    },
+    "onboardingPermissionsHeadline": "Two quick permissions.",
+    "@onboardingPermissionsHeadline": {
+        "description": "Heading on step 2 of onboarding."
+    },
+    "onboardingPermissionsBody": "We need Bluetooth to find nearby phones, and the microphone to share your voice.",
+    "@onboardingPermissionsBody": {
+        "description": "Body copy explaining why the two permissions are needed."
+    },
+    "permissionBluetoothTitle": "Bluetooth nearby devices",
+    "@permissionBluetoothTitle": {
+        "description": "Bluetooth permission row title."
+    },
+    "permissionBluetoothDescription": "Discover and connect to phones and headphones",
+    "@permissionBluetoothDescription": {
+        "description": "Bluetooth permission row body."
+    },
+    "permissionMicrophoneTitle": "Microphone",
+    "@permissionMicrophoneTitle": {
+        "description": "Microphone permission row title."
+    },
+    "permissionMicrophoneDescription": "Send your voice to the frequency",
+    "@permissionMicrophoneDescription": {
+        "description": "Microphone permission row body."
+    },
+    "permissionBlockedDescription": "Blocked — re-enable in system settings",
+    "@permissionBlockedDescription": {
+        "description": "Replaces the permission row body when the OS reports permanently denied."
+    },
+    "permissionStatusAllowed": "Allowed",
+    "@permissionStatusAllowed": {
+        "description": "Trailing label on a granted permission row."
+    },
+    "permissionOpenSettings": "Open settings",
+    "@permissionOpenSettings": {
+        "description": "Action button that deep-links to the OS app-settings page."
+    },
+    "permissionAsking": "Asking…",
+    "@permissionAsking": {
+        "description": "Disabled-state label on the Allow button while a request is in flight."
+    },
+    "permissionAllow": "Allow",
+    "@permissionAllow": {
+        "description": "Default label on the permission Allow button."
+    },
+    "onboardingContinue": "Continue",
+    "@onboardingContinue": {
+        "description": "Step 2 → step 3 advance button."
+    },
+
+    "onboardingHandleEyebrow": "STEP 3 · YOUR HANDLE",
+    "@onboardingHandleEyebrow": {
+        "description": "All-caps eyebrow above the display-name step."
+    },
+    "onboardingHandleHeadline": "What should people call you?",
+    "@onboardingHandleHeadline": {
+        "description": "Heading on step 3 of onboarding."
+    },
+    "onboardingHandleBody": "This shows up to everyone on the same frequency.",
+    "@onboardingHandleBody": {
+        "description": "Body copy on step 3 of onboarding."
+    },
+    "onboardingHandleHint": "Your name",
+    "@onboardingHandleHint": {
+        "description": "Placeholder text inside the display-name TextField."
+    },
+    "onboardingHandleFootnote": "You can change this later.",
+    "@onboardingHandleFootnote": {
+        "description": "Reassurance under the display-name field."
+    },
+    "onboardingFindFrequency": "Find a frequency",
+    "@onboardingFindFrequency": {
+        "description": "Final onboarding button — leaves onboarding for the discovery screen."
+    },
+    "initialsPlaceholder": "—",
+    "@initialsPlaceholder": {
+        "description": "Em-dash shown in the initials chip when the user has not entered a name yet."
+    },
+
+    "permissionDeniedHeadline": "Permissions revoked",
+    "@permissionDeniedHeadline": {
+        "description": "Headline shown after the user revokes mic / BT from system Settings while the app was running."
+    },
+    "permissionDeniedExplainerBoth": "Frequency needs microphone and Bluetooth to keep you on the air. Re-grant them in Settings to come back.",
+    "@permissionDeniedExplainerBoth": {
+        "description": "Body copy when both microphone and Bluetooth are denied."
+    },
+    "permissionDeniedExplainerMic": "Frequency needs the microphone to send your voice. Re-grant it in Settings to come back.",
+    "@permissionDeniedExplainerMic": {
+        "description": "Body copy when only microphone is denied."
+    },
+    "permissionDeniedExplainerBluetooth": "Frequency needs Bluetooth to find nearby phones. Re-grant it in Settings to come back.",
+    "@permissionDeniedExplainerBluetooth": {
+        "description": "Body copy when only Bluetooth is denied."
+    },
+    "permissionRetry": "Retry",
+    "@permissionRetry": {
+        "description": "Re-check permissions button on the denied screen."
+    },
+
+    "discoveryBluetoothChip": "On",
+    "@discoveryBluetoothChip": {
+        "description": "Trailing chip in the discovery chrome — shows that BT is on."
+    },
+    "discoveryHeroEyebrowScanning": "TUNING THE DIAL",
+    "@discoveryHeroEyebrowScanning": {
+        "description": "All-caps eyebrow above the discovery hero while actively scanning."
+    },
+    "discoveryHeroEyebrowPaused": "DISCOVERY PAUSED",
+    "@discoveryHeroEyebrowPaused": {
+        "description": "All-caps eyebrow when scanning is stopped but at least one session was found."
+    },
+    "discoveryHeroEyebrowEmpty": "NOTHING NEARBY",
+    "@discoveryHeroEyebrowEmpty": {
+        "description": "All-caps eyebrow when scanning is stopped and no sessions were found."
+    },
+    "discoveryHeroHeadline": "Phones around you,\non the same wavelength.",
+    "@discoveryHeroHeadline": {
+        "description": "Discovery hero headline. \\n preserved for two-line layout."
+    },
+    "discoveryHeroBody": "Make a Frequency to chat & listen together, or tune in to one nearby.",
+    "@discoveryHeroBody": {
+        "description": "Discovery hero body copy."
+    },
+    "discoveryStartFrequency": "Start a new Frequency",
+    "@discoveryStartFrequency": {
+        "description": "Primary button — host a brand-new channel."
+    },
+    "discoveryNewFreqHintPrefix": "A fresh channel will be broadcast at ",
+    "@discoveryNewFreqHintPrefix": {
+        "description": "Plain-text prefix to the auto-generated MHz value under the create button. The MHz value is rendered in the mono font and not localized."
+    },
+    "discoveryNewFreqUnit": "{freq} MHz",
+    "@discoveryNewFreqUnit": {
+        "description": "Frequency + unit string. Mono-styled.",
+        "placeholders": {
+            "freq": { "type": "String", "example": "92.5" }
+        }
+    },
+    "discoverySectionRecent": "Recent",
+    "@discoverySectionRecent": {
+        "description": "Header above the user's recent hosted frequencies."
+    },
+    "discoverySectionNearby": "Nearby",
+    "@discoverySectionNearby": {
+        "description": "Header above the discovered-sessions list."
+    },
+    "discoveryScanIndicatorScanning": "Scanning",
+    "@discoveryScanIndicatorScanning": {
+        "description": "Trailing label next to the pulse dot when actively scanning."
+    },
+    "discoveryScanIndicatorIdle": "Idle",
+    "@discoveryScanIndicatorIdle": {
+        "description": "Trailing label when scanning is stopped."
+    },
+    "discoveryScanActionPause": "Pause",
+    "@discoveryScanActionPause": {
+        "description": "Pause-scanning affordance next to the indicator."
+    },
+    "discoveryScanActionScan": "Scan",
+    "@discoveryScanActionScan": {
+        "description": "Resume-scanning affordance next to the indicator."
+    },
+    "discoveryFooter": "Using Bluetooth LE Audio · No internet required for voice",
+    "@discoveryFooter": {
+        "description": "Reassurance line at the bottom of the discovery list."
+    },
+    "discoveryUnknownHost": "Unknown Host",
+    "@discoveryUnknownHost": {
+        "description": "Fallback host name when the discovered session advertised an empty name."
+    },
+    "discoveryNearbyRowSubtitle": "Frequency Session",
+    "@discoveryNearbyRowSubtitle": {
+        "description": "Subtitle on a discovered nearby session row."
+    },
+    "discoveryNearbyRowOnPrefix": "On ",
+    "@discoveryNearbyRowOnPrefix": {
+        "description": "Prefix before the mono-styled MHz on a nearby row (the \"On 92.5\" half)."
+    },
+    "discoveryRowSeparator": "  ·  ",
+    "@discoveryRowSeparator": {
+        "description": "Middle-dot separator between subtitle pieces on a discovered-session row."
+    },
+    "discoveryTuneIn": "Tune in",
+    "@discoveryTuneIn": {
+        "description": "Action button on a selected nearby session — joins as guest."
+    },
+    "discoveryRecentRowTitle": "Your channel",
+    "@discoveryRecentRowTitle": {
+        "description": "Title on a row in the Recent (re-host) list."
+    },
+    "discoveryRecentRowHostPrefix": "Host on ",
+    "@discoveryRecentRowHostPrefix": {
+        "description": "Prefix before the mono freq on a recent-host row (e.g. \"Host on 92.5 MHz\")."
+    },
+    "discoveryRecentRowMhzSuffix": " MHz",
+    "@discoveryRecentRowMhzSuffix": {
+        "description": "Suffix after the mono freq on a recent-host row."
+    },
+    "discoveryRecentRowResume": "Resume",
+    "@discoveryRecentRowResume": {
+        "description": "Action button — re-host this previously-used freq."
+    },
+
+    "renameSheetTitle": "Your handle",
+    "@renameSheetTitle": {
+        "description": "Heading inside the rename bottom sheet."
+    },
+    "renameSheetSubtitle": "Shows up to everyone on the same frequency.",
+    "@renameSheetSubtitle": {
+        "description": "Subhead inside the rename bottom sheet."
+    },
+    "renameSheetSave": "Save",
+    "@renameSheetSave": {
+        "description": "Save button inside the rename bottom sheet."
+    }
+}

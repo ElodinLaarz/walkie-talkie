@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App label shown in launcher, app picker, recents, and Settings. -->
+    <string name="app_name">Walkie Talkie</string>
+
+    <!-- Foreground service notification (channel name + per-notification copy
+         shown while a session is active). Kept short so they fit in the
+         compact notification body; the title doubles as the FGS channel
+         identifier in Settings → Notifications. -->
+    <string name="fgs_channel_name">Walkie Talkie Service</string>
+    <string name="fgs_channel_description">Keeps the walkie-talkie connection active</string>
+    <string name="fgs_notification_title">Walkie Talkie Active</string>
+    <string name="fgs_notification_text_idle">Connected and ready to communicate</string>
+    <!-- %1$s: frequency display string, e.g. "92.5 MHz" -->
+    <string name="fgs_notification_text_on_freq">On %1$s · Tap to return</string>
+    <string name="fgs_notification_action_leave">Leave</string>
+</resources>

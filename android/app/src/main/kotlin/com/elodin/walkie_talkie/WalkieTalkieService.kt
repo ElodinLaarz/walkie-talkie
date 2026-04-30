@@ -129,17 +129,21 @@ class WalkieTalkieService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Walkie Talkie Service",
+            getString(R.string.fgs_channel_name),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Keeps the walkie-talkie connection active"
+            description = getString(R.string.fgs_channel_description)
         }
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(channel)
     }
 
     private fun buildNotification(freq: String?) = run {
-        val contentText = if (freq != null) "On $freq · Tap to return" else "Connected and ready to communicate"
+        val contentText = if (freq != null) {
+            getString(R.string.fgs_notification_text_on_freq, freq)
+        } else {
+            getString(R.string.fgs_notification_text_idle)
+        }
 
         val leavePendingIntent = PendingIntent.getActivity(
             this,
@@ -164,12 +168,16 @@ class WalkieTalkieService : Service() {
         )
 
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Walkie Talkie Active")
+            .setContentTitle(getString(R.string.fgs_notification_title))
             .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(tapPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Leave", leavePendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.fgs_notification_action_leave),
+                leavePendingIntent,
+            )
             .build()
     }
 

@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/discovery_cubit.dart';
 import '../bloc/discovery_state.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
@@ -108,6 +109,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
@@ -118,7 +120,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               right: [
                 FreqChip(
                   leading: Icon(Icons.bluetooth, size: 12, color: c.ink2),
-                  label: 'On',
+                  label: l10n.discoveryBluetoothChip,
                 ),
                 _IdentityChip(
                   name: widget.myName,
@@ -134,18 +136,18 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                   const SizedBox(height: 24),
                   _buildCreateCard(context),
                   if (widget.recentHostedFrequencies.isNotEmpty) ...[
-                    const SectionLabel(text: 'Recent'),
+                    SectionLabel(text: l10n.discoverySectionRecent),
                     _buildRecentList(context),
                   ],
                   SectionLabel(
-                    text: 'Nearby',
+                    text: l10n.discoverySectionNearby,
                     trailing: _buildScanIndicator(context),
                   ),
                   _buildNearbyList(context),
                   const SizedBox(height: 14),
                   Center(
                     child: Text(
-                      'Using Bluetooth LE Audio · No internet required for voice',
+                      l10n.discoveryFooter,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 12,
@@ -164,19 +166,24 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Widget _buildHero(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
         final scanning = state is DiscoveryScanning;
         final hasResults = (state is DiscoveryScanning && state.sessions.isNotEmpty) ||
             (state is DiscoveryStopped && state.sessions.isNotEmpty);
-        
+
         return Padding(
           padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                scanning ? 'TUNING THE DIAL' : (hasResults ? 'DISCOVERY PAUSED' : 'NOTHING NEARBY'),
+                scanning
+                    ? l10n.discoveryHeroEyebrowScanning
+                    : (hasResults
+                        ? l10n.discoveryHeroEyebrowPaused
+                        : l10n.discoveryHeroEyebrowEmpty),
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 12,
@@ -187,12 +194,12 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Phones around you,\non the same wavelength.',
+                l10n.discoveryHeroHeadline,
                 style: Theme.of(context).textTheme.displayMedium,
               ),
               const SizedBox(height: 10),
               Text(
-                'Make a Frequency to chat & listen together, or tune in to one nearby.',
+                l10n.discoveryHeroBody,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
               ),
             ],
@@ -204,12 +211,13 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Widget _buildCreateCard(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return FreqCard(
       padding: const EdgeInsets.all(14),
       child: Column(
         children: [
           PrimaryButton(
-            label: 'Start a new Frequency',
+            label: l10n.discoveryStartFrequency,
             icon: Icons.podcasts,
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -222,9 +230,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             text: TextSpan(
               style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
               children: [
-                const TextSpan(text: 'A fresh channel will be broadcast at '),
+                TextSpan(text: l10n.discoveryNewFreqHintPrefix),
                 TextSpan(
-                  text: '$_newFreq MHz',
+                  text: l10n.discoveryNewFreqUnit(_newFreq),
                   style: kMonoStyle.copyWith(fontSize: 12, color: c.ink2),
                 ),
               ],
@@ -237,6 +245,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Widget _buildScanIndicator(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
         final scanning = state is DiscoveryScanning;
@@ -246,7 +255,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             if (scanning) const PulseDot(size: 6),
             if (scanning) const SizedBox(width: 6),
             Text(
-              scanning ? 'Scanning' : 'Idle',
+              scanning
+                  ? l10n.discoveryScanIndicatorScanning
+                  : l10n.discoveryScanIndicatorIdle,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 11,
@@ -264,7 +275,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                 }
               },
               child: Text(
-                scanning ? 'Pause' : 'Scan',
+                scanning
+                    ? l10n.discoveryScanActionPause
+                    : l10n.discoveryScanActionScan,
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 11,
@@ -378,6 +391,7 @@ class _NearbyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     // Discovered sessions always have a frequency by definition in v1.
     return Material(
       color: selected ? c.surface2 : c.surface,
@@ -412,7 +426,7 @@ class _NearbyRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      s.hostName.isEmpty ? 'Unknown Host' : s.hostName,
+                      s.hostName.isEmpty ? l10n.discoveryUnknownHost : s.hostName,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 14,
@@ -424,15 +438,15 @@ class _NearbyRow extends StatelessWidget {
                       style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
                       child: Row(
                         children: [
-                          const Flexible(
+                          Flexible(
                             child: Text(
-                              'Frequency Session',
+                              l10n.discoveryNearbyRowSubtitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const Text('  ·  '),
-                          const Text('On '),
+                          Text(l10n.discoveryRowSeparator),
+                          Text(l10n.discoveryNearbyRowOnPrefix),
                           Text(s.mhzDisplay, style: kMonoStyle.copyWith(fontSize: 12)),
                         ],
                       ),
@@ -445,7 +459,7 @@ class _NearbyRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 FreqButton(
                   accent: true,
-                  label: 'Tune in',
+                  label: l10n.discoveryTuneIn,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   fontSize: 13,
                   onPressed: onJoin,
@@ -484,6 +498,7 @@ class _RecentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Material(
       color: c.surface,
       child: InkWell(
@@ -513,7 +528,7 @@ class _RecentRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Your channel',
+                      l10n.discoveryRecentRowTitle,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 14,
@@ -533,12 +548,12 @@ class _RecentRow extends StatelessWidget {
                           color: c.ink3,
                         ),
                         children: [
-                          const TextSpan(text: 'Host on '),
+                          TextSpan(text: l10n.discoveryRecentRowHostPrefix),
                           TextSpan(
                             text: freq,
                             style: kMonoStyle.copyWith(fontSize: 12),
                           ),
-                          const TextSpan(text: ' MHz'),
+                          TextSpan(text: l10n.discoveryRecentRowMhzSuffix),
                         ],
                       ),
                       maxLines: 1,
@@ -550,7 +565,7 @@ class _RecentRow extends StatelessWidget {
               const SizedBox(width: 8),
               FreqButton(
                 accent: true,
-                label: 'Resume',
+                label: l10n.discoveryRecentRowResume,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 fontSize: 13,
@@ -574,7 +589,8 @@ class _IdentityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    final initials = _initialsOf(name);
+    final l10n = AppLocalizations.of(context);
+    final initials = _initialsOf(name, l10n.initialsPlaceholder);
     // Visible chip is 28dp to match the chrome's other affordances; the
     // tappable hit area is 48dp (Material's recommended minimum) via a
     // transparent outer Material+InkWell wrapper.
@@ -613,9 +629,9 @@ class _IdentityChip extends StatelessWidget {
     );
   }
 
-  static String _initialsOf(String name) {
+  static String _initialsOf(String name, String emptyPlaceholder) {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return '—';
+    if (trimmed.isEmpty) return emptyPlaceholder;
     return trimmed.substring(0, trimmed.length >= 2 ? 2 : 1).toUpperCase();
   }
 }
@@ -650,6 +666,7 @@ class _RenameSheetState extends State<_RenameSheet> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     final hasName = _ctrl.text.trim().isNotEmpty;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -674,7 +691,7 @@ class _RenameSheetState extends State<_RenameSheet> {
             ),
           ),
           Text(
-            'Your handle',
+            l10n.renameSheetTitle,
             style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 16,
@@ -683,7 +700,7 @@ class _RenameSheetState extends State<_RenameSheet> {
             ),
           ),
           Text(
-            'Shows up to everyone on the same frequency.',
+            l10n.renameSheetSubtitle,
             style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
           ),
           const SizedBox(height: 18),
@@ -701,17 +718,17 @@ class _RenameSheetState extends State<_RenameSheet> {
                 fontWeight: FontWeight.w500,
                 color: c.ink,
               ),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
                 counterText: '',
                 border: InputBorder.none,
-                hintText: 'Your name',
+                hintText: l10n.onboardingHandleHint,
               ),
             ),
           ),
           const SizedBox(height: 16),
           PrimaryButton(
-            label: 'Save',
+            label: l10n.renameSheetSave,
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,

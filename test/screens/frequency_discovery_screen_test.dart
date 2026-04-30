@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:walkie_talkie/bloc/discovery_cubit.dart';
 import 'package:walkie_talkie/bloc/discovery_state.dart';
+import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/screens/frequency_discovery_screen.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 
@@ -21,6 +22,8 @@ Widget _wrap(Widget child, {DiscoveryCubit? cubit}) {
 
   return MaterialApp(
     theme: AppTheme.light(),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     builder: (context, navigator) => MediaQuery(
       data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
       child: BlocProvider<DiscoveryCubit>.value(
