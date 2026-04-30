@@ -512,15 +512,23 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         current: snapshot,
         elapsed: elapsed,
       );
-      final String peerId;
-      try {
-        peerId = await identityStore.getPeerId();
-      } catch (error, stackTrace) {
-        if (kDebugMode) debugPrint('Failed to resolve peer id for link quality: $error');
-        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-        return;
+      // Prefer the cached peerId (populated during bootstrap) — this
+      // tick fires every 2 s and an identityStore round-trip is a
+      // measurable Hive disk hit. Fall back to the store only if the
+      // cache is empty (a startup race we can't otherwise reach from
+      // a guest in a SessionRoom).
+      String? peerId = _localPeerId;
+      if (peerId == null) {
+        try {
+          peerId = await identityStore.getPeerId();
+          _localPeerId = peerId;
+        } catch (error, stackTrace) {
+          if (kDebugMode) debugPrint('Failed to resolve peer id for link quality: $error');
+          if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+          return;
+        }
+        if (isClosed) return;
       }
-      if (isClosed) return;
       final msg = LinkQuality(
         peerId: peerId,
         seq: ++_seq,
@@ -552,7 +560,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final current = state;
     if (current is! SessionRoom || !current.roomIsHost) return;
-    final newLevel = _bitrateAdapter.feed(report);
+    // Pass the host-local clock so adapter dwell windows are immune to
+    // sender clock drift / spoofing (see BitrateAdapter dwell docs).
+    final newLevel = _bitrateAdapter.feed(
+      report,
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+    );
     if (newLevel == null) return;
     // Adjust the host's own outbound encoder toward the reporter (best
     // effort — the audio side returns null on missing peer / handler).
@@ -598,15 +611,22 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> _sendBitrateHint(String targetPeerId, int bps) async {
     final t = _transport;
     if (t == null) return;
-    final String hostPeerId;
-    try {
-      hostPeerId = await identityStore.getPeerId();
-    } catch (error, stackTrace) {
-      if (kDebugMode) debugPrint('Failed to resolve peer id for bitrate hint: $error');
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      return;
+    // Use the cached peerId (populated during bootstrap) — adapter
+    // steps fire on every incoming `LinkQuality`, and an identityStore
+    // round-trip per step would add a Hive disk hit per host-side adapter
+    // decision. Fall back to the store only if the cache is empty.
+    String? hostPeerId = _localPeerId;
+    if (hostPeerId == null) {
+      try {
+        hostPeerId = await identityStore.getPeerId();
+        _localPeerId = hostPeerId;
+      } catch (error, stackTrace) {
+        if (kDebugMode) debugPrint('Failed to resolve peer id for bitrate hint: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+        return;
+      }
+      if (isClosed) return;
     }
-    if (isClosed) return;
     // Note: BitrateHint's envelope `peerId` is the *sender's* (host's)
     // peerId per the protocol. The recipient is implicit — the host
     // sends the hint along the GATT link to the specific guest. The

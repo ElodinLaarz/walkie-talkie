@@ -429,11 +429,17 @@ class AudioService {
   /// missed telemetry sample is non-fatal to the link.
   Future<LinkTelemetrySnapshot?> getLinkTelemetry(String macAddress) async {
     try {
-      final raw = await _methodChannel.invokeMethod<List<dynamic>>(
+      // `invokeMethod<dynamic>` rather than `<List<dynamic>>`: the
+      // StandardMessageCodec encodes Kotlin `IntArray` as `Int32List`,
+      // which does *not* satisfy `is List<dynamic>` in every Dart
+      // runtime path — a typed-list cast can throw before the elements
+      // even reach the parsing logic. Accepting `dynamic` and validating
+      // the shape ourselves works for both `Int32List` and plain `List`.
+      final raw = await _methodChannel.invokeMethod<dynamic>(
         'getLinkTelemetry',
         <String, dynamic>{'macAddress': macAddress},
       );
-      if (raw == null || raw.length != 5) return null;
+      if (raw is! List || raw.length != 5) return null;
       // Native returns a 5-element int array: [underruns, late, target,
       // current, bitrate]. Element-wise check guards against a truncated
       // or padded response from a stale platform handler.

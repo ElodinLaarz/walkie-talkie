@@ -61,9 +61,16 @@ enum BitrateLevel {
 /// **Hysteresis.** A single bad sample never trips a downstep; it must
 /// hold for [downHoldMid] or [downHoldLow] in wall-clock time. Up-steps
 /// require [upHold]. These aren't sample counts: a bigger reporter
-/// [interval] doesn't change the dwell. The adapter consumes
-/// `LinkQuality.atMs` as the timestamp, so stale samples (e.g. a tick
-/// straddling a real-time clock jump) won't accumulate dwell credit.
+/// [interval] doesn't change the dwell.
+///
+/// Dwell is measured against the **host-local** receipt clock, not
+/// `LinkQuality.atMs` from the sender. The protocol's `atMs` is a
+/// best-effort sender wall-clock with allowed peer-to-peer drift, and
+/// trusting it for the 4 s / 30 s windows would let a guest with a
+/// skewed clock — or a malicious one — accelerate or stall the bitrate
+/// step. [feed] takes an explicit `nowMs` so callers pass
+/// `DateTime.now().millisecondsSinceEpoch` (or an injected fake in
+/// tests); `LinkQuality.atMs` is treated as informational only.
 ///
 /// **Per-peer state.** Each peer has its own state machine — slow guests
 /// shouldn't drag fast guests down, and a guest's state survives across
@@ -139,10 +146,15 @@ class BitrateAdapter {
   /// implicitly inferring from its receive-side view, *or* the peer whose
   /// local telemetry the host polled directly).
   ///
+  /// [nowMs] is the **host-local** receipt timestamp in ms (typically
+  /// `DateTime.now().millisecondsSinceEpoch`). All dwell accounting
+  /// uses this clock, not `sample.atMs`, so a guest with a skewed or
+  /// hostile clock can't manipulate the 4 s / 30 s thresholds.
+  ///
   /// Returns the new [BitrateLevel] when this sample triggered a step,
   /// `null` otherwise. The caller should treat null as "leave the
   /// encoder where it is" — a no-op on the wire.
-  BitrateLevel? feed(LinkQuality sample) {
+  BitrateLevel? feed(LinkQuality sample, {required int nowMs}) {
     final peerId = sample.peerId;
     final state = _state.putIfAbsent(
       peerId,
@@ -174,17 +186,18 @@ class BitrateAdapter {
     if (direction == _Direction.none ||
         state.pendingDirection != direction) {
       state.pendingDirection = direction;
-      state.pendingSinceMs = direction == _Direction.none ? null : sample.atMs;
+      state.pendingSinceMs = direction == _Direction.none ? null : nowMs;
       return null;
     }
 
-    // Same direction as pending — check dwell.
+    // Same direction as pending — check dwell against the host-local
+    // clock, not the sender's `atMs`.
     final since = state.pendingSinceMs;
     if (since == null) {
-      state.pendingSinceMs = sample.atMs;
+      state.pendingSinceMs = nowMs;
       return null;
     }
-    final elapsedMs = sample.atMs - since;
+    final elapsedMs = nowMs - since;
 
     switch (direction) {
       case _Direction.downToLow:
@@ -228,11 +241,11 @@ class BitrateAdapter {
             return null;
         }
         // After a step up, reset dwell so the *next* upstep starts a fresh
-        // 30 s window from this sample's timestamp rather than carrying
-        // over old dwell credit. This satisfies the "step back up one
-        // notch" wording — only one level per 30 s of clean samples.
+        // 30 s window from the host-local clock rather than carrying over
+        // old dwell credit. This satisfies the "step back up one notch"
+        // wording — only one level per 30 s of clean samples.
         state.pendingDirection = _Direction.up;
-        state.pendingSinceMs = sample.atMs;
+        state.pendingSinceMs = nowMs;
         return state.level;
 
       case _Direction.none:
