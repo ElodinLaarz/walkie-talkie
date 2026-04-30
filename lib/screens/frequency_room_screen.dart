@@ -277,20 +277,39 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// The room screen no longer ships a hard-coded media catalog: the
   /// snapshot is the only ground truth for source + track index, and
   /// title/artwork metadata isn't on the wire yet (#TBD adds it). We
-  /// surface the host's source verbatim and render a single placeholder
-  /// "Track N" entry; the protocol-level `trackIdx` rides through as the
-  /// queue position so subsequent media commands keep agreeing with the
-  /// host's view.
+  /// surface the host's source verbatim and synthesize a placeholder
+  /// queue with `Track 1 … Track (snapshot.trackIdx + 1)` entries so
+  /// the protocol-level `trackIdx` rides through unchanged — outgoing
+  /// `sendMediaCommand`s keep referencing the same index the host
+  /// published.
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
     _appliedSnapshot = snapshot;
     final positionSec = (snapshot.positionMs / 1000).round();
+    // Without title/duration on the wire we can't pin a real total, so
+    // pick a duration that's at least one minute and at least double the
+    // current position. This keeps the slider sane (the thumb sits in
+    // the left half of the bar) without claiming a precise length.
+    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
+    final lib = MediaSourceLib(
+      name: snapshot.source,
+      kind: emptyMediaLib.kind,
+      queue: [
+        for (var i = 0; i <= snapshot.trackIdx; i++)
+          Track(
+            title: 'Track ${i + 1}',
+            artist: snapshot.source,
+            durationSeconds: placeholderDurationSec,
+            tag: '',
+          ),
+      ],
+    );
     setState(() {
       _source = snapshot.source;
-      _lib = emptyMediaLib;
-      _trackIdx = 0;
+      _lib = lib;
+      _trackIdx = snapshot.trackIdx;
       _playing = snapshot.playing;
-      _progress = positionSec.clamp(0, _lib.queue[0].durationSeconds);
+      _progress = positionSec.clamp(0, placeholderDurationSec);
     });
   }
 

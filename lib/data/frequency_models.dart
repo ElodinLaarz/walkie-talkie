@@ -63,7 +63,8 @@ String formatTime(int s) {
   if (s >= 3600) {
     final h = s ~/ 3600;
     final m = (s % 3600) ~/ 60;
-    return '$h:${m.toString().padLeft(2, '0')}:00';
+    final sec = s % 60;
+    return '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
   final m = s ~/ 60;
   final sec = s % 60;

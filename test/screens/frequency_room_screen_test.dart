@@ -627,6 +627,49 @@ void main() {
         expect(find.text('Paused'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'applyJoinAccepted snapshot rides snapshot.trackIdx through, '
+      'progress reflects positionMs without being clamped to 0:01',
+      // Regression for gemini-code-assist comment on PR #153: the
+      // first cut of `_applyMediaSnapshot` hardcoded `_trackIdx = 0`
+      // (losing the protocol-level index) and clamped progress to the
+      // 1-second duration of `emptyMediaLib.queue[0]`, so any nonzero
+      // positionMs collapsed to 0:01 on screen and the slider was
+      // pinned to its right edge.
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            // 91s into the 2nd track on the wire — trackIdx must ride
+            // through so outgoing media commands keep referencing the
+            // same index the host published.
+            source: 'Spotify',
+            trackIdx: 1,
+            playing: true,
+            positionMs: 91000,
+          ),
+        ));
+        await tester.pump();
+
+        // Placeholder title reflects the host's index (1-based).
+        expect(find.text('Track 2'), findsOneWidget);
+        // Elapsed timestamp surfaces the 1:31 mark — would have shown
+        // 0:01 (clamped against emptyMediaLib's 1-second duration)
+        // pre-fix.
+        expect(find.text('1:31'), findsOneWidget);
+      },
+    );
   });
 }
 
