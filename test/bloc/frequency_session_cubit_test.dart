@@ -1411,6 +1411,105 @@ void main() {
       blocker.complete(false);
       await expectLater(dropFuture, completes);
     });
+
+    test(
+      'watchdog fires after successful reconnect when JoinAccepted never arrives',
+      () async {
+        // Scenario: native reconnect succeeds (GATT link re-established), but
+        // the host never sends JoinAccepted (host died, session UUID changed,
+        // GATT subscription failed silently). The 10 s watchdog should fire,
+        // transition to ConnectionPhase.lost, and call leaveRoom.
+        connectQueue.add(true); // Simulate successful reconnect
+
+        final cubit = _makeCubit(
+          audio: audio,
+          reconnectDelays: _testReconnectDelays,
+        );
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        ));
+
+        // Start the reconnect — it will succeed but we won't send JoinAccepted.
+        final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+        await dropFuture; // Wait for reconnect to complete
+
+        // At this point, the cubit should be in reconnecting state with the
+        // watchdog running. The state should still be SessionRoom(reconnecting).
+        expect(cubit.state, isA<SessionRoom>());
+        expect(
+          (cubit.state as SessionRoom).connectionPhase,
+          ConnectionPhase.reconnecting,
+        );
+
+        // Wait for the 10 s watchdog to fire. Add a small buffer.
+        await Future<void>.delayed(const Duration(seconds: 10, milliseconds: 100));
+
+        // Watchdog should have fired and transitioned to Discovery.
+        expect(cubit.state, isA<SessionDiscovery>());
+        await cubit.close();
+      },
+    );
+
+    test(
+      'watchdog is cancelled when JoinAccepted arrives before timeout',
+      () async {
+        // Scenario: native reconnect succeeds and the host sends JoinAccepted
+        // before the 10 s watchdog expires. The watchdog must be cancelled
+        // and the state should transition to online.
+        connectQueue.add(true); // Simulate successful reconnect
+
+        final cubit = _makeCubit(
+          audio: audio,
+          reconnectDelays: _testReconnectDelays,
+        );
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        ));
+
+        final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
+        await dropFuture; // Wait for reconnect to complete
+
+        // State should be reconnecting with watchdog running.
+        expect(cubit.state, isA<SessionRoom>());
+        expect(
+          (cubit.state as SessionRoom).connectionPhase,
+          ConnectionPhase.reconnecting,
+        );
+
+        // Host sends JoinAccepted before the watchdog fires.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+        ));
+
+        // State should transition to online.
+        expect(cubit.state, isA<SessionRoom>());
+        expect(
+          (cubit.state as SessionRoom).connectionPhase,
+          ConnectionPhase.online,
+        );
+
+        // Wait past the watchdog timeout to ensure it was cancelled.
+        await Future<void>.delayed(const Duration(seconds: 10, milliseconds: 100));
+
+        // State should still be SessionRoom(online), not Discovery.
+        expect(cubit.state, isA<SessionRoom>());
+        expect(
+          (cubit.state as SessionRoom).connectionPhase,
+          ConnectionPhase.online,
+        );
+        await cubit.close();
+      },
+    );
   });
 
   // ── Heartbeats / dirty-disconnect ──────────────────────────────────────

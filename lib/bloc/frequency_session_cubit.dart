@@ -123,6 +123,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   StreamSubscription<List<AppPermission>>? _permissionSubscription;
   ReconnectController? _reconnectController;
 
+  /// Watchdog timer started after a successful GATT reconnect to detect when
+  /// the host never sends a JoinAccepted. Fires after 10 s and transitions
+  /// to ConnectionPhase.lost if still reconnecting. Cancelled by
+  /// applyJoinAccepted or any state transition that exits SessionRoom.
+  Timer? _joinAcceptedWatchdog;
+
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
 
   /// Stream of media commands relevant to the local peer's UI. Emits both
@@ -792,6 +798,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // the user manually leaves rather than waiting for the next delay tick.
     _reconnectController?.cancel();
     _reconnectController = null;
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = null;
     // Cancel the heartbeat timer so it doesn't keep ticking against an
     // empty roster (and incidentally trigger a phantom RosterUpdate if
     // a stale watermark expires post-leave).
@@ -884,6 +892,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> _teardownForPermissionRevoke() async {
     _reconnectController?.cancel();
     _reconnectController = null;
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = null;
     _heartbeats.stop();
     _signalReporter.stop();
     _weakSignalDetector.clear();
@@ -986,6 +996,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // completing is the authoritative "connection is healthy" signal.
     _reconnectController?.cancel();
     _reconnectController = null;
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = null;
     emit(current.copyWith(
       hostPeerId: msg.hostPeerId,
       roster: msg.roster,
@@ -1036,9 +1048,29 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // can show a "Lost connection" indicator, then drop to Discovery.
       emit(postAttempt.copyWith(connectionPhase: ConnectionPhase.lost));
       await leaveRoom();
+      return;
     }
-    // On success: wait for the transport's JoinAccepted to call
-    // applyJoinAccepted, which cancels the controller and resets to online.
+
+    // On success: GATT link is re-established, but we still need the host's
+    // JoinAccepted to complete the rejoin. Start a 10 s watchdog: if the
+    // host never sends JoinAccepted (host died, session UUID changed, GATT
+    // subscription failed silently, ...), bail to lost + Discovery rather
+    // than waiting forever.
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = Timer(const Duration(seconds: 10), () async {
+      if (isClosed) return;
+      final watchdogState = state;
+      // Guard: applyJoinAccepted already fired and cleared to online, or the
+      // user manually left. Don't overwrite a healthy or exited state.
+      if (watchdogState is! SessionRoom ||
+          watchdogState.connectionPhase != ConnectionPhase.reconnecting) {
+        return;
+      }
+      // Host never sent JoinAccepted after native reconnect succeeded —
+      // treat it like a full connection loss.
+      emit(watchdogState.copyWith(connectionPhase: ConnectionPhase.lost));
+      await leaveRoom();
+    });
   }
 
   /// Broadcasts a media command originated by the local peer.
@@ -1173,6 +1205,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Cancel an in-progress reconnect before closing so the attempt loop
     // won't call emit() or leaveRoom() after the cubit is disposed.
     _reconnectController?.cancel();
+    _joinAcceptedWatchdog?.cancel();
     // Stop the heartbeat timer before super.close() so a tick suspended
     // mid-microtask can't try to emit() against a closing cubit.
     _heartbeats.stop();
