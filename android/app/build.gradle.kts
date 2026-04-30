@@ -49,23 +49,74 @@ android {
 
     signingConfigs {
         create("release") {
+            // Support environment variables for CI (takes precedence over key.properties)
+            val envKeystorePath = System.getenv("KEYSTORE_PATH")
+            val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val envKeyAlias = System.getenv("KEY_ALIAS")
+            val envKeyPassword = System.getenv("KEY_PASSWORD")
+
             val keyPropsFile = rootProject.file("key.properties")
-            if (keyPropsFile.exists()) {
-                val keyProps = java.util.Properties()
-                keyPropsFile.inputStream().use { keyProps.load(it) }
-                keyAlias = keyProps.getProperty("keyAlias")
-                keyPassword = keyProps.getProperty("keyPassword")
-                storeFile = keyProps.getProperty("storeFile")?.let { rootProject.file(it) }
-                storePassword = keyProps.getProperty("storePassword")
+            val hasEnvConfig = envKeystorePath != null && envKeystorePassword != null &&
+                               envKeyAlias != null && envKeyPassword != null
+            val hasFileConfig = keyPropsFile.exists()
+
+            when {
+                hasEnvConfig -> {
+                    storeFile = file(envKeystorePath)
+                    storePassword = envKeystorePassword
+                    keyAlias = envKeyAlias
+                    keyPassword = envKeyPassword
+                }
+                hasFileConfig -> {
+                    val keyProps = java.util.Properties()
+                    keyPropsFile.inputStream().use { keyProps.load(it) }
+                    keyAlias = keyProps.getProperty("keyAlias")
+                    keyPassword = keyProps.getProperty("keyPassword")
+                    storeFile = keyProps.getProperty("storeFile")?.let { rootProject.file(it) }
+                    storePassword = keyProps.getProperty("storePassword")
+                }
+                else -> {
+                    // No signing config available - will fail at build time if release is requested
+                }
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName(
-                if (rootProject.file("key.properties").exists()) "release" else "debug"
-            )
+            // Fail fast if release build is requested but no signing config is available
+            // Only check when a release task is actually being executed
+            val isReleaseBuild = gradle.startParameter.taskNames.any {
+                it.contains("Release", ignoreCase = true) ||
+                it.contains("assembleRelease", ignoreCase = true) ||
+                it.contains("bundleRelease", ignoreCase = true)
+            }
+
+            if (isReleaseBuild) {
+                val envKeystorePath = System.getenv("KEYSTORE_PATH")
+                val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+                val envKeyAlias = System.getenv("KEY_ALIAS")
+                val envKeyPassword = System.getenv("KEY_PASSWORD")
+                val hasEnvConfig = envKeystorePath != null && envKeystorePassword != null &&
+                                   envKeyAlias != null && envKeyPassword != null
+                val hasFileConfig = rootProject.file("key.properties").exists()
+
+                if (!hasEnvConfig && !hasFileConfig) {
+                    throw GradleException(
+                        "Release signing configuration is missing. Either:\n" +
+                        "  1. Create 'key.properties' in the project root with:\n" +
+                        "     storeFile=path/to/keystore.jks\n" +
+                        "     storePassword=<password>\n" +
+                        "     keyAlias=<alias>\n" +
+                        "     keyPassword=<password>\n" +
+                        "  OR\n" +
+                        "  2. Set environment variables:\n" +
+                        "     KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
+                    )
+                }
+            }
+
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

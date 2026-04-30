@@ -57,6 +57,10 @@ app.*.symbols
 **/android/key.properties
 **/android/keystore.jks
 
+# Release signing (root level or android/)
+key.properties
+*.jks
+
 # iOS/XCode related
 **/ios/**/*.mode1v3
 **/ios/**/*.mode2v3
