@@ -118,22 +118,6 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// next 10 s tick on a slow link.
   bool _signalReportSendInFlight = false;
 
-  /// Serialiser for outbound [TalkingState] writes from [_onLocalTalking].
-  /// VAD edges can flap faster than [BleControlTransport.send] completes
-  /// (each send fragments the message and awaits each fragment in turn),
-  /// and two `unawaited` sends in flight at once would let fragments —
-  /// and, on the receiver, the messages they carry — interleave on the
-  /// wire. The receiver's [SequenceFilter] then drops the older `seq` as
-  /// "out-of-order", and a TalkingState that spans multiple GATT
-  /// fragments would corrupt reassembly outright.
-  ///
-  /// Each VAD edge chains its `t.send(msg)` onto this future so writes
-  /// strictly serialise. The seq counter is still assigned synchronously
-  /// at event time (under the listener's run-to-completion) so the wire
-  /// order matches the seq order — the chain just guarantees the
-  /// transport doesn't overlap them.
-  Future<void> _talkingSendChain = Future<void>.value();
-
   StreamSubscription<FrequencyMessage>? _transportSubscription;
   StreamSubscription<bool>? _localTalkingSubscription;
   StreamSubscription<List<AppPermission>>? _permissionSubscription;
@@ -562,13 +546,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// the transport connects. Uses cached [_localPeerId] to avoid async resolution
   /// and ensure sequence numbers are assigned at event time (no race).
   ///
-  /// Sends are chained through [_talkingSendChain] rather than fired with a
-  /// bare `unawaited`: a flapping VAD detector can otherwise overlap two
-  /// `t.send` calls and let their GATT fragments (or, for single-fragment
-  /// TalkingStates, just the writes themselves) interleave on the wire.
-  /// The receiver's [SequenceFilter] drops the older seq, so a missed-edge
-  /// race surfaces as a stuck "still talking" indicator on the other end.
-  /// See [_talkingSendChain] for the full rationale.
+  /// Wire ordering — preventing fragments from a flapping VAD detector
+  /// interleaving on the wire — is enforced by [BleControlTransport.send]
+  /// itself, which serialises concurrent callers through an internal
+  /// chain. This handler can therefore stay a fire-and-forget
+  /// `unawaited` while still satisfying the protocol's strict-monotonic
+  /// per-producer seq contract.
   void _onLocalTalking(bool talking) {
     final current = state;
     if (isClosed || current is! SessionRoom) return;
@@ -591,19 +574,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       atMs: DateTime.now().millisecondsSinceEpoch,
       talking: talking,
     );
-
-    // Chain onto the previous send so writes never overlap on the wire.
-    // Per-message errors are swallowed so a single bad send doesn't
-    // poison the chain and stall every subsequent VAD edge.
-    _talkingSendChain = _talkingSendChain.then((_) async {
-      if (isClosed) return;
-      try {
-        await t.send(msg);
-      } catch (error, stackTrace) {
-        if (kDebugMode) debugPrint('TalkingState send failed: $error');
-        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      }
-    });
+    // Fire-and-forget send — the transport's internal chain serialises
+    // wire writes so seq order is preserved even under flapping VAD.
+    // `catchError` swallows transport-level failures (e.g. a write that
+    // throws on a closing GATT link) so an unawaited reject doesn't
+    // bubble to the unhandled-async-error handler.
+    unawaited(t.send(msg).catchError((Object error, StackTrace stackTrace) {
+      if (kDebugMode) debugPrint('TalkingState send failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      return false;
+    }));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if

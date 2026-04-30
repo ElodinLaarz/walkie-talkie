@@ -72,6 +72,96 @@ void main() {
         expect(decoded.seq, msg.seq);
       });
 
+      test('serialises concurrent senders so fragments do not interleave',
+          () async {
+        // Two callers each push a multi-fragment message at the same
+        // time. Without the internal chain in BleControlTransport.send,
+        // their fragments could interleave inside the per-fragment
+        // `await _writeBytes(f)` loop and break reassembly at the
+        // receiver. The chain must keep all of msg-A's fragments
+        // contiguous before any of msg-B's land.
+        final roster = List.generate(
+          15,
+          (i) => ProtocolPeer(
+            peerId: 'peer-$i-very-long-uuid-string-here-abcdef',
+            displayName: 'User $i with a somewhat long display name',
+          ),
+        );
+        FrequencyMessage big(int seq) => JoinAccepted(
+              peerId: 'host-peer',
+              seq: seq,
+              atMs: 1000,
+              hostPeerId: 'host-peer',
+              roster: roster,
+            );
+
+        // Use a writeBytes with a microtask yield to maximise the
+        // opportunity for interleaving — a buffer-only callback
+        // wouldn't yield and the bug would never surface.
+        final localWritten = <Uint8List>[];
+        final localTransport = BleControlTransport.forTest(
+          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
+              .empty(),
+          writeBytes: (bytes) async {
+            await Future<void>.delayed(Duration.zero);
+            localWritten.add(bytes);
+          },
+        );
+        addTearDown(localTransport.dispose);
+
+        // Fire both sends without awaiting either — the transport must
+        // chain them under the hood.
+        final f1 = localTransport.send(big(1));
+        final f2 = localTransport.send(big(2));
+        await Future.wait([f1, f2]);
+
+        // Reassemble: a single FragmentReassembler fed all fragments in
+        // wire order should yield exactly two messages back-to-back, in
+        // the order send was called. If fragments interleaved, the
+        // reassembler would either return null (header mismatch) or
+        // splice the two — either way we wouldn't get two clean
+        // round-trips with seq 1 then seq 2.
+        final reassembler = FragmentReassembler();
+        final decoded = <FrequencyMessage>[];
+        for (final bytes in localWritten) {
+          final json = reassembler.feed(bytes);
+          if (json != null) decoded.add(FrequencyMessage.decode(json));
+        }
+        expect(decoded, hasLength(2));
+        expect(decoded[0].seq, 1);
+        expect(decoded[1].seq, 2);
+      });
+
+      test('a failing send does not poison the chain for later callers',
+          () async {
+        // The first writeBytes throws; the second send must still
+        // reach the wire. If the chain didn't isolate per-call errors
+        // the second call's future would never resolve (it'd be
+        // chained onto a rejected future and the `then` would inherit
+        // the error).
+        var writeCount = 0;
+        final captured = <Uint8List>[];
+        final localTransport = BleControlTransport.forTest(
+          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
+              .empty(),
+          writeBytes: (bytes) async {
+            writeCount++;
+            if (writeCount == 1) throw StateError('first write fails');
+            captured.add(bytes);
+          },
+        );
+        addTearDown(localTransport.dispose);
+
+        // The first send rejects; the second still completes true.
+        await expectLater(
+          localTransport.send(_heartbeat(seq: 1)),
+          throwsStateError,
+        );
+        final result = await localTransport.send(_heartbeat(seq: 2));
+        expect(result, isTrue);
+        expect(captured, hasLength(1));
+      });
+
       test('writes multiple fragments for a large message', () async {
         // Build a roster big enough to force fragmentation (>243 bytes JSON).
         final roster = List.generate(
