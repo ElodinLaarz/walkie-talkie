@@ -55,7 +55,7 @@ class WalkieTalkieService : Service() {
             updateNotification(freq)
         }
         Log.i(TAG, "Service started, freq=$freq")
-        return START_STICKY
+        return START_REDELIVER_INTENT
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -63,6 +63,7 @@ class WalkieTalkieService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Service destroyed")
+        audioEngineManager.stop()
         audioFocusManager?.abandon()
         audioFocusManager = null
     }
@@ -176,13 +177,13 @@ class WalkieTalkieService : Service() {
                 this,
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
