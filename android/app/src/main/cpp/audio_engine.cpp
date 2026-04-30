@@ -120,6 +120,9 @@ static void emitAudioErrorEvent(oboe::Result error) {
 // Error callback for Oboe streams. Emits structured events to Flutter rather
 // than crashing the foreground service. Handles permission revocation (which
 // presents as ErrorDisconnected or ErrorInternal) and other stream errors.
+//
+// Note: Oboe invokes both onErrorBeforeClose and onErrorAfterClose for the same
+// failure. We emit only in onErrorBeforeClose to avoid duplicate Flutter events.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
@@ -128,8 +131,9 @@ public:
     }
 
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override {
-        LOGE("Oboe stream error after close: %s", oboe::convertToText(error));
-        emitAudioErrorEvent(error);
+        LOGE("Oboe stream error after close: %s (event already emitted)",
+             oboe::convertToText(error));
+        // Do not emit — onErrorBeforeClose already sent the event.
     }
 };
 

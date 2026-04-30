@@ -50,6 +50,10 @@ class GattClientManager(
             if (status == GATT_INSUFFICIENT_AUTHORIZATION || status == GATT_INSUFFICIENT_AUTHENTICATION) {
                 Log.e(TAG, "GATT authorization failure: status=$status")
                 onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                negotiatedMtus.remove(gatt.device.address)
+                if (this@GattClientManager.gatt === gatt) {
+                    this@GattClientManager.gatt = null
+                }
                 gatt.close()
                 requestCharacteristic = null
                 responseCharacteristic = null
