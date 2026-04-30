@@ -1,6 +1,7 @@
-import 'package:hive/hive.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../protocol/uuid.dart';
+import 'walkie_talkie_database.dart';
 
 /// Persisted user identity that survives app restarts.
 ///
@@ -27,44 +28,51 @@ abstract class IdentityStore {
   Future<String> getPeerId();
 }
 
-/// Hive-backed [IdentityStore] keyed in a single string box.
-class HiveIdentityStore implements IdentityStore {
-  static const String _boxName = 'identity';
+/// sqflite-backed [IdentityStore]. Both keys live in the shared `kv` table
+/// in [WalkieTalkieDatabase] so we don't open a second SQLite file just for
+/// identity.
+class SqfliteIdentityStore implements IdentityStore {
   static const String _displayNameKey = 'displayName';
   static const String _peerIdKey = 'peerId';
 
-  Box<String>? _box;
-
-  /// Single-flight cache for `getPeerId`. The first caller starts the
+  /// Single-flight cache for [getPeerId]. The first caller starts the
   /// get-or-create; every concurrent caller awaits the same future, so all
   /// callers in the same session see the same id even on a fresh install.
   Future<String>? _peerIdFuture;
 
-  Future<Box<String>> _open() async {
-    final existing = _box;
-    if (existing != null && existing.isOpen) return existing;
-    final box = await Hive.openBox<String>(_boxName);
-    _box = box;
-    return box;
-  }
-
   @override
   Future<String?> getDisplayName() async {
-    final box = await _open();
-    final raw = box.get(_displayNameKey);
-    if (raw == null) return null;
+    final db = await WalkieTalkieDatabase.open();
+    final rows = await db.query(
+      'kv',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_displayNameKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final raw = rows.first['value'];
+    if (raw is! String) return null;
     final trimmed = raw.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
 
   @override
   Future<void> setDisplayName(String value) async {
-    final box = await _open();
+    final db = await WalkieTalkieDatabase.open();
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
-      await box.delete(_displayNameKey);
+      await db.delete(
+        'kv',
+        where: 'key = ?',
+        whereArgs: [_displayNameKey],
+      );
     } else {
-      await box.put(_displayNameKey, trimmed);
+      await db.insert(
+        'kv',
+        {'key': _displayNameKey, 'value': trimmed},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
   }
 
@@ -72,11 +80,24 @@ class HiveIdentityStore implements IdentityStore {
   Future<String> getPeerId() => _peerIdFuture ??= _readOrCreatePeerId();
 
   Future<String> _readOrCreatePeerId() async {
-    final box = await _open();
-    final existing = box.get(_peerIdKey);
-    if (existing != null && existing.isNotEmpty) return existing;
+    final db = await WalkieTalkieDatabase.open();
+    final rows = await db.query(
+      'kv',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_peerIdKey],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      final raw = rows.first['value'];
+      if (raw is String && raw.isNotEmpty) return raw;
+    }
     final fresh = generateUuidV4();
-    await box.put(_peerIdKey, fresh);
+    await db.insert(
+      'kv',
+      {'key': _peerIdKey, 'value': fresh},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     return fresh;
   }
 }

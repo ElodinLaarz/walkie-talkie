@@ -42,10 +42,17 @@ dependencies:
   flutter_bloc: ^9.0.0
   equatable: ^2.0.7
   
-  # Local Storage (NoSQL database for device name mapping)
+  # Local Storage (sqflite for identity + recents; sqflite is Flutter-team
+  # adjacent and right-sized for our small key-value scope. Hive v2 is
+  # unmaintained; `hive` + `hive_flutter` are kept transiently to drive a
+  # one-shot migration from any pre-existing boxes — can be dropped in a
+  # follow-up after the migration has had time to run on installed devices.)
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+  path_provider: ^2.1.4
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-  
+
   # Permissions Handling
   permission_handler: ^11.3.1
   
@@ -70,6 +77,10 @@ dev_dependencies:
   bloc_test: ^10.0.0
   mocktail: ^1.0.4
   flutter_launcher_icons: ^0.14.4
+  # In-memory sqflite for unit tests via FFI. Production uses the real
+  # `sqflite` plugin on Android; tests inject `databaseFactoryFfi` so
+  # they don't depend on the platform channel.
+  sqflite_common_ffi: ^2.3.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

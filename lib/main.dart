@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
 import 'bloc/discovery_cubit.dart';
 import 'bloc/frequency_session_cubit.dart';
@@ -20,12 +19,16 @@ import 'services/identity_store.dart';
 import 'services/onboarding_permission_gateway.dart';
 import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
+import 'services/storage_migration.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
+  // sqflite is the v1 store; this is a one-shot copy of any legacy Hive
+  // data on installs that had it. Subsequent launches see the marker in
+  // the `kv` table and skip Hive init entirely.
+  await migrateHiveToSqliteIfNeeded();
   runApp(const WalkieTalkieApp());
 }
 
@@ -113,11 +116,11 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<IdentityStore>(
-          create: (_) => widget.identityStore ?? HiveIdentityStore(),
+          create: (_) => widget.identityStore ?? SqfliteIdentityStore(),
         ),
         RepositoryProvider<RecentFrequenciesStore>(
           create: (_) =>
-              widget.recentFrequenciesStore ?? HiveRecentFrequenciesStore(),
+              widget.recentFrequenciesStore ?? SqfliteRecentFrequenciesStore(),
         ),
         RepositoryProvider<DiscoveryService>(
           create: (_) => widget.discoveryService ?? DiscoveryService(),
@@ -257,8 +260,8 @@ class FrequencyApp extends StatelessWidget {
 }
 
 /// Brief blank splash while the cubit reads the persisted identity. We
-/// expect Hive's box-open to take a couple of frames at most; rendering a
-/// stripped-down background avoids a flash of the wrong screen.
+/// expect sqflite's first-open to take a couple of frames at most;
+/// rendering a stripped-down background avoids a flash of the wrong screen.
 class _BootSplash extends StatelessWidget {
   const _BootSplash();
 

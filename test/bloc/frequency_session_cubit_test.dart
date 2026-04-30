@@ -74,9 +74,9 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       ..insert(0, trimmed);
     // Mirror the production cap so the fake doesn't silently let tests
     // drift past behavior the real store enforces.
-    if (_entries.length > HiveRecentFrequenciesStore.maxEntries) {
+    if (_entries.length > RecentFrequenciesStore.maxEntries) {
       _entries.removeRange(
-        HiveRecentFrequenciesStore.maxEntries,
+        RecentFrequenciesStore.maxEntries,
         _entries.length,
       );
     }
