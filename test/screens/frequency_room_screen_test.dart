@@ -629,6 +629,41 @@ void main() {
     );
 
     testWidgets(
+      'queuePlay command for an out-of-range trackIdx grows the placeholder queue '
+      'instead of throwing RangeError',
+      // Regression for Copilot review on PR #153: with a catalog-less
+      // placeholder queue, `_onMediaCommand`'s queuePlay branch wrote
+      // `_trackIdx = cmd.trackIdx!` directly, so any hop past the
+      // current placeholder length crashed on the next read of `_track`.
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Route a queuePlay through the cubit's mediaCommands stream
+        // — same path the wire-driven case uses. trackIdx 7 is well
+        // beyond any default placeholder size.
+        cubit.applyHostMediaEcho(MediaCommand(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          op: MediaOp.queuePlay,
+          source: 'YouTube Music',
+          trackIdx: 7,
+        ));
+        await tester.pump();
+
+        // The screen survived (no RangeError) and the placeholder
+        // queue grew enough for the new index — visible as the
+        // 8th-track label.
+        expect(tester.takeException(), isNull);
+        expect(find.text('Track 8'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'applyJoinAccepted snapshot rides snapshot.trackIdx through, '
       'progress reflects positionMs without being clamped to 0:01',
       // Regression for gemini-code-assist comment on PR #153: the

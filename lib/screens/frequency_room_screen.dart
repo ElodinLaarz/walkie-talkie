@@ -264,6 +264,43 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     }
   }
 
+  /// Build a placeholder [MediaSourceLib] sized to cover [trackIdx]
+  /// (i.e. with `trackIdx + 1` `Track 1 … Track N` entries) for the
+  /// given [source].
+  ///
+  /// Used by both [_applyMediaSnapshot] and [_onMediaCommand]'s
+  /// `queuePlay` branch so any protocol-level `trackIdx` the host
+  /// hands us is guaranteed to land inside `_lib.queue` — without
+  /// this, a `queuePlay(trackIdx: 5)` against a 1-element placeholder
+  /// queue would `RangeError` on the next read of `_track` /
+  /// `_lib.queue[_trackIdx]` (Copilot review on PR #153).
+  ///
+  /// Track duration is generous (`max(60s, 2 × positionSec)`) so the
+  /// slider has room without claiming a precise length we don't have
+  /// (title/artwork metadata isn't on the wire yet — #TBD).
+  MediaSourceLib _buildPlaceholderLib({
+    required String source,
+    required int trackIdx,
+    int positionSec = 0,
+  }) {
+    final clampedIdx = trackIdx < 0 ? 0 : trackIdx;
+    final placeholderDurationSec =
+        positionSec * 2 < 60 ? 60 : positionSec * 2;
+    return MediaSourceLib(
+      name: source,
+      kind: emptyMediaLib.kind,
+      queue: [
+        for (var i = 0; i <= clampedIdx; i++)
+          Track(
+            title: 'Track ${i + 1}',
+            artist: source,
+            durationSeconds: placeholderDurationSec,
+            tag: '',
+          ),
+      ],
+    );
+  }
+
   /// Snap the local player to the canonical state the host published.
   /// Called on initial entry (snapshot from the JoinAccepted in
   /// SessionRoom) and on every subsequent SessionRoom emission whose
@@ -275,41 +312,26 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// the player back to `positionMs` and erase local progress.
   ///
   /// The room screen no longer ships a hard-coded media catalog: the
-  /// snapshot is the only ground truth for source + track index, and
-  /// title/artwork metadata isn't on the wire yet (#TBD adds it). We
-  /// surface the host's source verbatim and synthesize a placeholder
-  /// queue with `Track 1 … Track (snapshot.trackIdx + 1)` entries so
-  /// the protocol-level `trackIdx` rides through unchanged — outgoing
-  /// `sendMediaCommand`s keep referencing the same index the host
-  /// published.
+  /// snapshot is the only ground truth for source + track index. We
+  /// surface the host's source verbatim and synthesize the placeholder
+  /// queue via [_buildPlaceholderLib] so the protocol-level `trackIdx`
+  /// rides through unchanged — outgoing `sendMediaCommand`s keep
+  /// referencing the same index the host published.
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
     _appliedSnapshot = snapshot;
     final positionSec = (snapshot.positionMs / 1000).round();
-    // Without title/duration on the wire we can't pin a real total, so
-    // pick a duration that's at least one minute and at least double the
-    // current position. This keeps the slider sane (the thumb sits in
-    // the left half of the bar) without claiming a precise length.
-    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
-    final lib = MediaSourceLib(
-      name: snapshot.source,
-      kind: emptyMediaLib.kind,
-      queue: [
-        for (var i = 0; i <= snapshot.trackIdx; i++)
-          Track(
-            title: 'Track ${i + 1}',
-            artist: snapshot.source,
-            durationSeconds: placeholderDurationSec,
-            tag: '',
-          ),
-      ],
+    final lib = _buildPlaceholderLib(
+      source: snapshot.source,
+      trackIdx: snapshot.trackIdx,
+      positionSec: positionSec,
     );
     setState(() {
       _source = snapshot.source;
       _lib = lib;
       _trackIdx = snapshot.trackIdx;
       _playing = snapshot.playing;
-      _progress = positionSec.clamp(0, placeholderDurationSec);
+      _progress = positionSec.clamp(0, lib.queue[_trackIdx].durationSeconds);
     });
   }
 
@@ -408,7 +430,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           break;
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
-            _trackIdx = cmd.trackIdx!;
+            final nextIdx = cmd.trackIdx!;
+            // Without a real catalog the placeholder queue is sized
+            // to the highest trackIdx we've seen; if the host hops
+            // to a higher index, grow it so `_track` stays in range
+            // (Copilot review on PR #153).
+            if (nextIdx >= _lib.queue.length) {
+              _lib = _buildPlaceholderLib(source: _source, trackIdx: nextIdx);
+            }
+            _trackIdx = nextIdx;
             _progress = 0;
             _playing = true;
             _lastAction = _LastAction(by: senderName, action: 'queued up track', when: 'just now');
