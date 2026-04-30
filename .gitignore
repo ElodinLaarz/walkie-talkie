@@ -35,7 +35,7 @@
 .pub/
 /build/
 
-# Web related
+# Flutter generated
 lib/generated_plugin_registrant.dart
 
 # Symbolication related
