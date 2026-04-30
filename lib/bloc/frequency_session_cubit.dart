@@ -486,6 +486,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       final snapshot = await audio.getLinkTelemetry(mac);
       if (isClosed) return;
+      // Re-check the room snapshot after the await: the user could have
+      // left the room (or left + rejoined a different room) between the
+      // tick start and the telemetry response. Mutating `_prevTelemetry`
+      // after a leave would re-seed an entry the room teardown just
+      // cleared; sending after a leave would write to a transport whose
+      // peer we already forgot. Bail if anything changed.
+      if (!_stillSameGuestRoomFor(mac)) return;
       final now = DateTime.now();
       if (snapshot == null) {
         // Native side unavailable — drop any seeded snapshot so the next
@@ -528,6 +535,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           return;
         }
         if (isClosed) return;
+        // Same race re-check after the second possible await.
+        if (!_stillSameGuestRoomFor(mac)) return;
       }
       final msg = LinkQuality(
         peerId: peerId,
@@ -546,6 +555,19 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     } finally {
       _linkQualitySendInFlight = false;
     }
+  }
+
+  /// True iff the cubit is still in a guest [SessionRoom] whose
+  /// `macAddress` matches [mac]. Used by [_sendLinkQuality] to bail when
+  /// the user left or switched rooms during a telemetry / identity
+  /// await — a simple `isClosed` check would let post-await mutations
+  /// poison the next room's telemetry baseline.
+  bool _stillSameGuestRoomFor(String mac) {
+    if (isClosed) return false;
+    final s = state;
+    if (s is! SessionRoom) return false;
+    if (s.roomIsHost) return false;
+    return s.macAddress == mac;
   }
 
   /// Host-only ingress for `LinkQuality`. Feeds the per-peer

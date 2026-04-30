@@ -59,7 +59,10 @@ import 'audio_service.dart';
 
   final lossPctRaw =
       expectedFrames <= 0 ? 0.0 : (lateDelta / expectedFrames) * 100.0;
-  final lossPct = lossPctRaw.clamp(0.0, 100.0);
+  // `num.clamp` returns `num`, not `double`; the record's `lossPct` field is
+  // typed `double`, so spell the conversion explicitly to keep the analyzer
+  // (and a strict-mode reader) happy.
+  final lossPct = lossPctRaw.clamp(0.0, 100.0).toDouble();
 
   final jitterMs = current.currentDepthFrames * frameDurationMs;
   final underrunsPerSec = underrunDelta / (elapsedMs / 1000.0);
