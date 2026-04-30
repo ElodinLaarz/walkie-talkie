@@ -21,6 +21,7 @@ if [ ! -f android/app/src/main/cpp/audio_mixer.cpp ]; then
 fi
 mkdir -p build/cpp_test
 ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+  -I test/cpp \
   -I android/app/src/main/cpp \
   test/cpp/mixer_test.cpp \
   android/app/src/main/cpp/audio_mixer.cpp \

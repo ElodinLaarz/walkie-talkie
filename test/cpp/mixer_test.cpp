@@ -2,38 +2,10 @@
 #include <cstdio>
 #include <cassert>
 
-// Host stub for <android/log.h> — maps Android logging to printf so the
-// production audio_mixer.cpp can compile in CI without the NDK.
-#define ANDROID_LOG_INFO 0
-#define ANDROID_LOG_WARN 1
-#define __android_log_print(priority, tag, ...) \
-    do { \
-        printf("[%s] ", tag); \
-        printf(__VA_ARGS__); \
-        printf("\n"); \
-    } while (0)
-
-// Stub for <jni.h> types — production audio_mixer.cpp doesn't use these in the
-// paths the test exercises (JNI entry points are in the `extern "C"` block at
-// the bottom), but the declarations are in scope so the host compiler needs
-// minimal type stubs.
-#define JNIEXPORT
-#define JNICALL
-typedef void* JNIEnv;
-typedef void* jobject;
-typedef void* jshortArray;
-typedef int jint;
-typedef short jshort;
-typedef int jsize;
-typedef unsigned char jboolean;
-#define JNI_TRUE 1
-#define JNI_FALSE 0
-#define JNI_ABORT 2
-
-// Now include the production header + implementation.
-// The test links against the production audio_mixer.cpp (compiled separately
-// in the build script), so we only need the header here. The cpp file is
-// compiled with the same android/log stub above.
+// Include the production audio_mixer header. The build script compiles this
+// test with `-I test/cpp` before `-I android/app/src/main/cpp`, so both this
+// test and the production audio_mixer.cpp will pick up the stub jni.h and
+// android/log.h from test/cpp/ instead of the real Android NDK headers.
 #include "../../android/app/src/main/cpp/audio_mixer.h"
 
 void testMixMinus() {
