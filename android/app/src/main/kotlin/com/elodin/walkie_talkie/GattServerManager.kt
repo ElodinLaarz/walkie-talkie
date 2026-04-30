@@ -226,15 +226,19 @@ class GattServerManager(
         }
 
         try {
-            responseCharacteristic.value = bytes
-            val success = gattServer?.notifyCharacteristicChanged(
+            // API 33+ notifyCharacteristicChanged with explicit value parameter —
+            // the deprecated overload writes characteristic.value field, which
+            // can race with a follow-up notification before the stack flushes.
+            val result = gattServer?.notifyCharacteristicChanged(
                 device,
                 responseCharacteristic,
-                false
-            ) ?: false
+                false,
+                bytes
+            ) ?: BluetoothStatusCodes.ERROR_UNKNOWN
+            val success = result == BluetoothStatusCodes.SUCCESS
 
             if (!success) {
-                Log.w(TAG, "Failed to queue notification for $deviceAddress")
+                Log.w(TAG, "Failed to queue notification for $deviceAddress: $result")
             }
             return success
         } catch (e: SecurityException) {

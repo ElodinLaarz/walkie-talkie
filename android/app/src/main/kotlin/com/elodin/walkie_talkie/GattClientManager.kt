@@ -2,6 +2,8 @@ package com.elodin.walkie_talkie
 
 import android.bluetooth.*
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 
 /**
@@ -26,11 +28,28 @@ class GattClientManager(
         private const val TAG = "GattClientManager"
         private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
         private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
+
+        /**
+         * Number of *additional* connect attempts after the initial one that
+         * we'll schedule on a transient GATT error. Total attempts =
+         * 1 (initial) + MAX_CONNECT_RETRIES.
+         */
+        private const val MAX_CONNECT_RETRIES = 5
+
+        /**
+         * Status codes worth retrying on Samsung/OEM stacks: 133 (GATT_ERROR),
+         * 147 (GATT_CONN_TIMEOUT), 8 (GATT_INSUFFICIENT_AUTHORIZATION — kept
+         * here for byte parity but actually short-circuits in the auth branch
+         * above), 19 (GATT_CONN_TERMINATE_PEER_USER on flaky links).
+         */
+        private val TRANSIENT_GATT_ERRORS = setOf(133, 147, 19)
     }
 
     private var gatt: BluetoothGatt? = null
     private var requestCharacteristic: BluetoothGattCharacteristic? = null
     private var responseCharacteristic: BluetoothGattCharacteristic? = null
+    private var connectRetryCount = 0
+    private var pendingMacAddress: String? = null
 
     // ATT MTU negotiated for the connected host, keyed by MAC. Populated by
     // [onMtuChanged] once the GATT layer answers our [requestMtu] from
@@ -39,6 +58,14 @@ class GattClientManager(
     // budget; without it the guest side would always return null and never
     // engage MTU-aware fragmentation.
     private val negotiatedMtus: MutableMap<String, Int> = mutableMapOf()
+
+    // Retries are scheduled via a Handler.postDelayed so the GATT callback
+    // thread isn't blocked. The Runnable is cached so [disconnect] (and a
+    // successful reconnect) can cancel any pending retry — otherwise a
+    // user-initiated disconnect could be followed seconds later by a stale
+    // reconnect attempt, leaking GATT state and confusing the Dart layer.
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private var pendingRetry: Runnable? = null
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(
@@ -54,6 +81,9 @@ class GattClientManager(
                 if (this@GattClientManager.gatt === gatt) {
                     this@GattClientManager.gatt = null
                 }
+                cancelPendingRetry()
+                connectRetryCount = 0
+                pendingMacAddress = null
                 gatt.close()
                 requestCharacteristic = null
                 responseCharacteristic = null
@@ -63,13 +93,53 @@ class GattClientManager(
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to GATT server: ${gatt.device.address}")
+                    // Connection succeeded — drop any pending retry and reset
+                    // the retry counter so the next failure starts fresh.
+                    cancelPendingRetry()
+                    connectRetryCount = 0
                     // Request MTU increase for better throughput
                     gatt.requestMtu(GattConstants.TARGET_ATT_MTU)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.i(TAG, "Disconnected from GATT server: ${gatt.device.address}")
+                    val address = gatt.device.address
+                    Log.i(TAG, "Disconnected from GATT server: $address, status=$status")
+
+                    // Close the GATT connection here instead of in disconnect()
+                    // to avoid closing before the callback completes, which
+                    // triggers GATT 133 spam on Samsung stacks.
+                    gatt.close()
+                    if (this@GattClientManager.gatt === gatt) {
+                        this@GattClientManager.gatt = null
+                    }
+                    negotiatedMtus.remove(address)
                     requestCharacteristic = null
                     responseCharacteristic = null
+
+                    // Retry on transient GATT errors, but only while the
+                    // user still wants to be connected (pendingMacAddress
+                    // is cleared by disconnect()).
+                    val mac = pendingMacAddress
+                    if (mac != null &&
+                        status in TRANSIENT_GATT_ERRORS &&
+                        connectRetryCount < MAX_CONNECT_RETRIES
+                    ) {
+                        connectRetryCount++
+                        val backoffMs = 100L * (1 shl (connectRetryCount - 1)) // exponential backoff
+                        Log.w(TAG, "Transient GATT error $status, retry $connectRetryCount/$MAX_CONNECT_RETRIES after ${backoffMs}ms")
+
+                        scheduleRetry(mac, backoffMs)
+                    } else {
+                        if (status != BluetoothGatt.GATT_SUCCESS) {
+                            Log.e(TAG, "GATT disconnected with error status $status")
+                            // Surface the failure to Flutter so the cubit's
+                            // reconnect watchdog / UI can react instead of
+                            // sitting silently in a half-broken state.
+                            onError?.invoke("GATT_DISCONNECTED:$status")
+                        }
+                        cancelPendingRetry()
+                        connectRetryCount = 0
+                        pendingMacAddress = null
+                    }
                 }
             }
         }
@@ -125,24 +195,32 @@ class GattClientManager(
                 return
             }
 
-            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            val writeSuccess = gatt.writeDescriptor(cccd)
-            if (!writeSuccess) {
-                Log.e(TAG, "Failed to write CCCD descriptor")
+            // API 33+ writeDescriptor with explicit value parameter — avoids
+            // the deprecated 2-arg form whose `desc.value` field could go
+            // stale before the write actually flushed.
+            val writeSuccess = gatt.writeDescriptor(
+                cccd,
+                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            )
+            if (writeSuccess != BluetoothStatusCodes.SUCCESS) {
+                Log.e(TAG, "Failed to write CCCD descriptor: $writeSuccess")
             } else {
                 Log.i(TAG, "GATT client setup complete, notifications enabled")
             }
         }
 
+        // API 33+ onCharacteristicChanged with explicit value parameter — the
+        // 2-arg form returns characteristic.value which can be overwritten by
+        // a subsequent notification before the callback reads it.
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
         ) {
             if (characteristic.uuid == GattConstants.RESPONSE_CHAR_UUID) {
-                val bytes = characteristic.value
-                if (bytes != null && bytes.isNotEmpty()) {
-                    Log.d(TAG, "Received ${bytes.size} bytes from host")
-                    onResponseBytes(bytes)
+                if (value.isNotEmpty()) {
+                    Log.d(TAG, "Received ${value.size} bytes from host")
+                    onResponseBytes(value)
                 } else {
                     Log.w(TAG, "Received empty RESPONSE notification")
                 }
@@ -178,6 +256,24 @@ class GattClientManager(
         }
     }
 
+    private fun scheduleRetry(macAddress: String, delayMs: Long) {
+        cancelPendingRetry()
+        val runnable = Runnable {
+            // The user may have called disconnect() during the backoff
+            // window — re-check before initiating a new connectGatt.
+            if (pendingMacAddress == macAddress) {
+                connectToHost(macAddress)
+            }
+        }
+        pendingRetry = runnable
+        retryHandler.postDelayed(runnable, delayMs)
+    }
+
+    private fun cancelPendingRetry() {
+        pendingRetry?.let(retryHandler::removeCallbacks)
+        pendingRetry = null
+    }
+
     /**
      * Connect to the host's GATT server at [macAddress].
      *
@@ -199,18 +295,26 @@ class GattClientManager(
 
         try {
             val device = adapter.getRemoteDevice(macAddress)
-            Log.i(TAG, "Connecting to host at $macAddress")
+            Log.i(TAG, "Connecting to host at $macAddress (attempt ${connectRetryCount + 1})")
+            pendingMacAddress = macAddress
             gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             return gatt != null
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Missing Bluetooth permissions for connectGatt", e)
-            onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
-            return false
-        } catch (e: IllegalArgumentException) {
-            Log.e(TAG, "Invalid MAC address: $macAddress", e)
-            return false
         } catch (e: Exception) {
-            Log.e(TAG, "Error connecting to GATT server", e)
+            // Reset retry / pending state on every failure path so a half-set
+            // pendingMacAddress can't trigger a retry the user never asked for.
+            when (e) {
+                is SecurityException -> {
+                    Log.e(TAG, "Missing Bluetooth permissions for connectGatt", e)
+                    onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
+                }
+                is IllegalArgumentException ->
+                    Log.e(TAG, "Invalid MAC address: $macAddress", e)
+                else ->
+                    Log.e(TAG, "Error connecting to GATT server", e)
+            }
+            cancelPendingRetry()
+            connectRetryCount = 0
+            pendingMacAddress = null
             return false
         }
     }
@@ -235,11 +339,15 @@ class GattClientManager(
         }
 
         try {
-            char.value = bytes
-            char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            val success = currentGatt.writeCharacteristic(char)
+            // API 33+ writeCharacteristic with explicit value and writeType parameters
+            val result = currentGatt.writeCharacteristic(
+                char,
+                bytes,
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            )
+            val success = result == BluetoothStatusCodes.SUCCESS
             if (!success) {
-                Log.w(TAG, "Failed to queue REQUEST write")
+                Log.w(TAG, "Failed to queue REQUEST write: $result")
             }
             return success
         } catch (e: SecurityException) {
@@ -254,19 +362,20 @@ class GattClientManager(
 
     /**
      * Disconnect from the host and clean up the GATT connection.
+     *
+     * Note: close() is called in the STATE_DISCONNECTED callback, not here,
+     * to avoid closing the handle before the callback completes (which
+     * triggers GATT 133 errors on Samsung stacks). The callback is also
+     * responsible for nulling [gatt] and clearing the negotiated MTU
+     * cache for the disconnected address.
      */
     fun disconnect() {
         try {
-            val address = gatt?.device?.address
+            cancelPendingRetry()
+            connectRetryCount = 0
+            pendingMacAddress = null
             gatt?.disconnect()
-            gatt?.close()
-            gatt = null
-            requestCharacteristic = null
-            responseCharacteristic = null
-            if (address != null) {
-                negotiatedMtus.remove(address)
-            }
-            Log.i(TAG, "GATT client disconnected and closed")
+            Log.i(TAG, "GATT client disconnect initiated")
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting GATT client", e)
         }
