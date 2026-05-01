@@ -979,6 +979,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   }
 
   Future<void> _reportPeer(BuildContext drawerCtx, Person person) async {
+    // Capture prior mute state so we can revert accurately on failure without
+    // accidentally unmuting a peer that was already muted before the report.
+    final wasMuted = _peerMuted.contains(person.id);
     // Optimistically update in-memory mute state so the room UI responds
     // immediately; we revert below if the DB write fails.
     setState(() {
@@ -991,9 +994,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       await _blockedPeersStore.block(person.id);
       blocked = true;
     } catch (_) {
-      // Persistence failed — revert the in-memory change and fall through
-      // to show an error toast.
-      if (mounted) setState(() => _peerMuted.remove(person.id));
+      // Persistence failed — revert the optimistic change only if the peer
+      // was not already muted before this report action.
+      if (mounted && !wasMuted) setState(() => _peerMuted.remove(person.id));
     }
 
     if (!mounted) return;
