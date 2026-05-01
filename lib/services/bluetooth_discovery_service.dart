@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../protocol/discovery.dart';
@@ -46,7 +46,7 @@ class DiscoveryService {
     await _scanSubscription?.cancel();
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       for (ScanResult r in results) {
-        final session = _parseResult(r);
+        final session = parseResult(r);
         if (session != null) {
           _discovered[session.sessionUuidLow8] =
               (session: session, lastSeen: DateTime.now());
@@ -82,7 +82,8 @@ class DiscoveryService {
     );
   }
 
-  DiscoveredSession? _parseResult(ScanResult r) {
+  @visibleForTesting
+  DiscoveredSession? parseResult(ScanResult r) {
     // Manufacturer data is a Map<int, List<int>>.
     for (final entry in r.advertisementData.manufacturerData.entries) {
       final data = Uint8List.fromList(entry.value);
