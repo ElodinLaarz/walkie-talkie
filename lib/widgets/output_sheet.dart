@@ -77,7 +77,14 @@ class OutputSheet extends StatelessWidget {
                   ],
                 ),
               ),
-              GhostButton(icon: Icons.close, onPressed: () => Navigator.pop(context)),
+              Semantics(
+                button: true,
+                label: 'Close output picker',
+                child: GhostButton(
+                  icon: Icons.close,
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -124,18 +131,24 @@ class _OutputRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return Material(
-      color: selected ? c.surface2 : c.surface,
-      child: InkWell(
-        onTap: () => Navigator.pop(context, output),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            border: Border(
-              top: first ? BorderSide.none : BorderSide(color: c.line),
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: output.label,
+      hint: output.subFor(btName),
+      excludeSemantics: true,
+      child: Material(
+        color: selected ? c.surface2 : c.surface,
+        child: InkWell(
+          onTap: () => Navigator.pop(context, output),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border(
+                top: first ? BorderSide.none : BorderSide(color: c.line),
+              ),
             ),
-          ),
-          child: Row(
+            child: Row(
             children: [
               Container(
                 width: 36,
@@ -174,6 +187,7 @@ class _OutputRow extends StatelessWidget {
               ),
               if (selected) Icon(Icons.check, size: 16, color: c.accent),
             ],
+          ),
           ),
         ),
       ),

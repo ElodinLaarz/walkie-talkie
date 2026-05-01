@@ -25,18 +25,31 @@ class PeerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return Material(
-      color: c.surface,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              top: first ? BorderSide.none : BorderSide(color: c.line),
+    final String status;
+    if (talking) {
+      status = 'talking';
+    } else if (muted) {
+      status = 'muted';
+    } else {
+      status = 'volume ${(volume * 100).round()}%';
+    }
+    return Semantics(
+      button: true,
+      label: '${person.name}, $status',
+      hint: 'Open volume and mute controls',
+      excludeSemantics: true,
+      child: Material(
+        color: c.surface,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                top: first ? BorderSide.none : BorderSide(color: c.line),
+              ),
             ),
-          ),
-          child: Row(
+            child: Row(
             children: [
               FreqAvatar(person: person, size: 36, talking: talking, muted: muted),
               const SizedBox(width: 12),
@@ -92,6 +105,7 @@ class PeerRow extends StatelessWidget {
               const SizedBox(width: 6),
               Icon(Icons.chevron_right, size: 16, color: c.ink3),
             ],
+          ),
           ),
         ),
       ),

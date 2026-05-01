@@ -43,7 +43,17 @@ class FreqChip extends StatelessWidget {
   final Widget? leading;
   final String label;
   final bool live;
-  const FreqChip({super.key, this.leading, required this.label, this.live = false});
+
+  /// Optional richer announcement for screen readers — e.g. "On air"
+  /// instead of the visible status code. Defaults to [label].
+  final String? semanticLabel;
+  const FreqChip({
+    super.key,
+    this.leading,
+    required this.label,
+    this.live = false,
+    this.semanticLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,28 +61,33 @@ class FreqChip extends StatelessWidget {
     final bg = live ? c.accentSoft : c.surface2;
     final fg = live ? c.accentInk : c.ink2;
     final border = live ? Colors.transparent : c.line;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (leading != null) ...[leading!, const SizedBox(width: 6)],
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              color: fg,
-              letterSpacing: 0.22,
-              fontWeight: FontWeight.w500,
+    return Semantics(
+      label: semanticLabel ?? label,
+      hint: live ? 'Live status indicator' : null,
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (leading != null) ...[leading!, const SizedBox(width: 6)],
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                color: fg,
+                letterSpacing: 0.22,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -160,54 +175,64 @@ class FreqAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final radius = size < 32 ? 8.0 : 12.0;
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: hueColor(person.hue),
-              borderRadius: BorderRadius.circular(radius),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              person.initials,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: size * 0.36,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.2,
-                color: hueInk(person.hue),
+    final statusParts = <String>[];
+    if (talking) statusParts.add('talking');
+    if (muted) statusParts.add('muted');
+    final statusSuffix =
+        statusParts.isEmpty ? '' : ', ${statusParts.join(', ')}';
+    return Semantics(
+      label: '${person.name}$statusSuffix',
+      image: true,
+      excludeSemantics: true,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: hueColor(person.hue),
+                borderRadius: BorderRadius.circular(radius),
               ),
-            ),
-          ),
-          if (talking)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _TalkRing(radius: radius + 2, color: c.accent),
-              ),
-            ),
-          if (muted)
-            Positioned(
-              right: -3,
-              bottom: -3,
-              child: Container(
-                width: size * 0.45,
-                height: size * 0.45,
-                decoration: BoxDecoration(
-                  color: c.ink,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: c.bg, width: 2),
+              alignment: Alignment.center,
+              child: Text(
+                person.initials,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: size * 0.36,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                  color: hueInk(person.hue),
                 ),
-                alignment: Alignment.center,
-                child: Icon(Icons.mic_off, size: size * 0.26, color: c.bg),
               ),
             ),
-        ],
+            if (talking)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: _TalkRing(radius: radius + 2, color: c.accent),
+                ),
+              ),
+            if (muted)
+              Positioned(
+                right: -3,
+                bottom: -3,
+                child: Container(
+                  width: size * 0.45,
+                  height: size * 0.45,
+                  decoration: BoxDecoration(
+                    color: c.ink,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: c.bg, width: 2),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(Icons.mic_off, size: size * 0.26, color: c.bg),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -372,40 +397,60 @@ class SignalBars extends StatelessWidget {
 class FreqSwitch extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
-  const FreqSwitch({super.key, required this.value, required this.onChanged});
+
+  /// Required for screen-reader announcement (e.g. "Mute peer", "Push to
+  /// talk lock"). Without it TalkBack reads only "switch, on/off" and
+  /// the user can't tell which control they're toggling.
+  final String semanticLabel;
+  final String? semanticHint;
+  const FreqSwitch({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    required this.semanticLabel,
+    this.semanticHint,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return GestureDetector(
+    return Semantics(
+      label: semanticLabel,
+      hint: semanticHint,
+      toggled: value,
+      enabled: true,
       onTap: () => onChanged(!value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 36,
-        height: 20,
-        decoration: BoxDecoration(
-          color: value ? c.accent : c.line2,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: AnimatedAlign(
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: () => onChanged(!value),
+        child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Container(
-              width: 16,
-              height: 16,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.18),
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
+          width: 36,
+          height: 20,
+          decoration: BoxDecoration(
+            color: value ? c.accent : c.line2,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: AnimatedAlign(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 2,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
