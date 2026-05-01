@@ -75,52 +75,36 @@ void main() async {
   runApp(const WalkieTalkieApp());
 }
 
+// Matches any key/field containing a display-name identifier, regardless of
+// separator (camelCase, snake_case, or space-separated).
+final _piiKeyRegex = RegExp(r'display[_ ]?name', caseSensitive: false);
+// Matches "display_?name: <value>" in free-form text, capturing through the
+// next comma or semicolon so multi-word values are fully redacted.
+final _piiMessageRegex = RegExp(r'display[_ ]?name[:\s]*[^,;]+', caseSensitive: false);
+
 /// Sanitizes Sentry events to remove PII.
 /// Redacts display names from contexts and breadcrumbs.
 /// Keeps peerId as it's documented as an anonymous identifier.
 SentryEvent? _sanitizeEvent(SentryEvent event) {
-  // Redact displayName from contexts
-  final sanitizedContexts = event.contexts.clone();
-  // Remove any context entries that might contain display names
-  sanitizedContexts.removeWhere((key, value) {
-    final keyLower = key.toLowerCase();
-    return keyLower.contains('displayname') || keyLower.contains('display_name');
-  });
+  // Direct mutation — SentryContexts is mutable in sentry 9.x.
+  event.contexts.removeWhere((key, _) => _piiKeyRegex.hasMatch(key));
 
-  // Redact displayName from breadcrumbs
-  final sanitizedBreadcrumbs = event.breadcrumbs?.map((crumb) {
-    var sanitizedMessage = crumb.message;
-    var sanitizedData = crumb.data;
-
-    // Redact from message if it contains display name patterns
-    if (sanitizedMessage != null &&
-        (sanitizedMessage.toLowerCase().contains('displayname') ||
-            sanitizedMessage.toLowerCase().contains('display name'))) {
-      sanitizedMessage = sanitizedMessage.replaceAll(
-        RegExp(r'display[_ ]?name[:\s]*[^\s,;]+', caseSensitive: false),
-        'displayName: [REDACTED]',
-      );
+  // Mutate breadcrumbs in-place — SentryBreadcrumb is mutable in sentry 9.x.
+  for (final crumb in event.breadcrumbs ?? const []) {
+    final msg = crumb.message;
+    if (msg != null && _piiMessageRegex.hasMatch(msg)) {
+      crumb.message = msg.replaceAll(_piiMessageRegex, 'displayName: [REDACTED]');
     }
 
-    // Redact from data map
-    if (sanitizedData != null) {
-      sanitizedData = sanitizedData.map((key, value) {
-        if (key.toLowerCase().contains('displayname') ||
-            key.toLowerCase().contains('display_name')) {
-          return MapEntry(key, '[REDACTED]');
-        }
-        return MapEntry(key, value);
-      });
+    final data = crumb.data;
+    if (data != null && data.keys.any(_piiKeyRegex.hasMatch)) {
+      crumb.data = Map.fromEntries(data.entries.map((e) {
+        return _piiKeyRegex.hasMatch(e.key) ? MapEntry(e.key, '[REDACTED]') : e;
+      }));
     }
+  }
 
-    return crumb.copyWith(message: sanitizedMessage, data: sanitizedData);
-  }).toList();
-
-  // Return event with sanitized fields
-  return event.copyWith(
-    contexts: sanitizedContexts,
-    breadcrumbs: sanitizedBreadcrumbs,
-  );
+  return event;
 }
 
 class WalkieTalkieApp extends StatefulWidget {
