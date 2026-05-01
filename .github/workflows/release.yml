@@ -9,6 +9,11 @@ on:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    # Minimal permissions: only contents:read for actions/checkout. The cache
+    # half of subosito/flutter-action and actions/upload-artifact@v4 both rely
+    # on ACTIONS_RUNTIME_TOKEN (runner-scoped, not GITHUB_TOKEN) so they need
+    # no actions:* scope on the GITHUB_TOKEN — confirmed in their respective
+    # action docs.
     permissions:
       contents: read
     steps:
@@ -127,7 +132,12 @@ jobs:
       attestations: write
     steps:
       - name: Download release AAB
-        uses: actions/download-artifact@v4
+        # Pinned to a commit SHA (not @v4) for the same reason
+        # attest-build-provenance is pinned: this step runs alongside the
+        # privileged attestation step in a job that holds id-token:write +
+        # attestations:write. A retargeted tag could compromise the runner
+        # before the attestation step signs anything.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-aab
           path: aab
