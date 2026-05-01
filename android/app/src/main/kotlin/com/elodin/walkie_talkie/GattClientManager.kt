@@ -36,9 +36,9 @@ class GattClientManager(
 
         /**
          * Status codes worth retrying on Samsung/OEM stacks: 133 (GATT_ERROR),
-         * 147 (GATT_CONN_TIMEOUT), 8 (GATT_INSUFFICIENT_AUTHORIZATION — kept
-         * here for byte parity but actually short-circuits in the auth branch
-         * above), 19 (GATT_CONN_TERMINATE_PEER_USER on flaky links).
+         * 147 (GATT_CONN_TIMEOUT), 19 (GATT_CONN_TERMINATE_PEER_USER on flaky
+         * links). Authorization errors (8, 5, 15) are handled separately via
+         * GattConstants.AUTHORIZATION_ERRORS and are never retried.
          */
         private val TRANSIENT_GATT_ERRORS = setOf(133, 147, 19)
     }
