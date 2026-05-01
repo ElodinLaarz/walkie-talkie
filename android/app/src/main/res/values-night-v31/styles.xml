@@ -8,6 +8,12 @@
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="android:windowSplashScreenBackground">#121212</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/android12splash</item>
+        <!-- See values-v31/styles.xml — these two attributes prevent a
+             one-frame default-background flash between OS-splash dismissal
+             and Flutter's first frame, and hand off to NormalTheme cleanly.
+             Re-add them after any flutter_native_splash:create run. -->
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:postSplashScreenTheme">@style/NormalTheme</item>
     </style>
     <!-- Theme applied to the Android Window as soon as the process has started.
          This theme determines the color of the Android Window while your

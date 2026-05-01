@@ -144,10 +144,17 @@ flutter_launcher_icons:
   adaptive_icon_monochrome: "assets/icon/icon_monochrome.png"
 
 # Native splash configuration. The generator writes:
-#   - drawable/launch_background.xml + drawable-night/ (legacy / Android 11-)
-#   - values/styles.xml + values-night/ — adds windowSplashScreenBackground
-#     and windowSplashScreenAnimatedIcon for the Android 12+ SplashScreen API
-#   - mipmap-* / drawable-* assets for the splash icon
+#   - drawable*/launch_background.xml — light + dark, with + without -v21,
+#     for the legacy splash on Android 11 and below
+#   - values-v31/styles.xml + values-night-v31/styles.xml — the
+#     windowSplashScreenBackground and windowSplashScreenAnimatedIcon style
+#     attributes for the Android 12+ SplashScreen API. Note: the generator
+#     writes these into the v31 qualifier directories specifically (they
+#     are no-ops on older API levels), and it touches values/styles.xml +
+#     values-night/styles.xml only to add the LaunchTheme window-flag items
+#     (forceDarkAllowed, windowFullscreen, etc.).
+#   - drawable-*/splash.png + android12splash.png — the splash icon assets
+#     across density buckets for both API paths.
 # Light/dark backgrounds match the lib/theme palette so the splash blends into
 # the first frame instead of flashing a different color. The brand blue
 # (#3498db) used by the adaptive launcher icon is intentionally NOT used as the
