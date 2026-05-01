@@ -14,9 +14,11 @@ class WalkieTalkieDatabase {
 
   static const String _dbName = 'walkie_talkie.db';
   // v2 (2026-04): added `blocked_peers` for #125 (persistent block list).
-  // Existing v1 installs hit `_onUpgrade` which CREATE TABLE IF NOT EXISTS
-  // the new table without touching any data the user already has.
-  static const int _dbVersion = 2;
+  // v3 (2026-04): added `nickname` + `pinned` to `recent_frequencies` for
+  // the #125 naming/pinning sub-feature. Existing rows get `nickname=NULL`
+  // and `pinned=0`, so the legacy unpinned-most-recent-first ordering is
+  // unchanged for users who upgrade with no pinned entries.
+  static const int _dbVersion = 3;
 
   static DatabaseFactory? _factoryOverride;
   static String? _pathOverride;
@@ -75,7 +77,9 @@ class WalkieTalkieDatabase {
     await db.execute('''
       CREATE TABLE recent_frequencies (
         freq TEXT PRIMARY KEY NOT NULL,
-        recorded_at INTEGER NOT NULL
+        recorded_at INTEGER NOT NULL,
+        nickname TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute(
@@ -95,6 +99,31 @@ class WalkieTalkieDatabase {
   ) async {
     if (oldVersion < 2) {
       await _createBlockedPeersTable(db);
+    }
+    if (oldVersion < 3) {
+      await _addRecentFrequenciesNicknameAndPinned(db);
+    }
+  }
+
+  /// Adds the v3 `nickname` (TEXT, NULL for "no nickname set") and `pinned`
+  /// (INTEGER, 0/1 boolean — sqlite has no native bool) columns to
+  /// `recent_frequencies`. `IF NOT EXISTS` guards each ALTER so re-running
+  /// the migration on an install that's already at v3 (manual migration
+  /// scripts, partial upgrades) is a no-op rather than a hard error.
+  static Future<void> _addRecentFrequenciesNicknameAndPinned(
+    Database db,
+  ) async {
+    final cols = await db.rawQuery('PRAGMA table_info(recent_frequencies)');
+    final existing = cols.map((r) => r['name'] as String?).toSet();
+    if (!existing.contains('nickname')) {
+      await db.execute(
+        'ALTER TABLE recent_frequencies ADD COLUMN nickname TEXT',
+      );
+    }
+    if (!existing.contains('pinned')) {
+      await db.execute(
+        'ALTER TABLE recent_frequencies ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0',
+      );
     }
   }
 

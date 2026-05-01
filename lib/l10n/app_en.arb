@@ -277,6 +277,49 @@
     "@discoveryRecentRowResume": {
         "description": "Action button — re-host this previously-used freq."
     },
+    "discoveryRecentRowMenuTooltip": "Recent options",
+    "@discoveryRecentRowMenuTooltip": {
+        "description": "TalkBack/long-press tooltip on the per-row overflow (three-dot) menu in the Recent list — opens a popup with rename and pin actions."
+    },
+    "discoveryRecentMenuRename": "Rename",
+    "@discoveryRecentMenuRename": {
+        "description": "Item in the per-row Recent overflow menu — opens the nickname bottom sheet."
+    },
+    "discoveryRecentMenuPin": "Pin to top",
+    "@discoveryRecentMenuPin": {
+        "description": "Item in the per-row Recent overflow menu when the row is currently unpinned — pinning floats it above unpinned rows and exempts it from the rolling cap."
+    },
+    "discoveryRecentMenuUnpin": "Unpin",
+    "@discoveryRecentMenuUnpin": {
+        "description": "Item in the per-row Recent overflow menu when the row is currently pinned — removes the pin and re-subjects the row to the rolling cap."
+    },
+    "discoveryRecentPinnedBadge": "PINNED",
+    "@discoveryRecentPinnedBadge": {
+        "description": "Small all-caps eyebrow shown next to the title of a pinned recent row — a redundant cue alongside the pin glyph in the row's icon disc."
+    },
+    "discoveryRecentNicknameSheetTitle": "Nickname this channel",
+    "@discoveryRecentNicknameSheetTitle": {
+        "description": "Heading inside the bottom sheet that lets the user assign or change a nickname for one of their recent frequencies."
+    },
+    "discoveryRecentNicknameSheetSubtitle": "Shown only on your device, on the Recent row for {freq} MHz.",
+    "@discoveryRecentNicknameSheetSubtitle": {
+        "description": "Subhead inside the recent-nickname bottom sheet. {freq} is the recent frequency the nickname will apply to (rendered mono-styled). The subhead reassures the user that the nickname is local — it doesn't propagate to peers in the room.",
+        "placeholders": {
+            "freq": { "type": "String", "example": "92.5" }
+        }
+    },
+    "discoveryRecentNicknameHint": "e.g. Family channel",
+    "@discoveryRecentNicknameHint": {
+        "description": "Placeholder text inside the recent-nickname text field — suggests the kind of label the user might pick."
+    },
+    "discoveryRecentNicknameSheetSave": "Save",
+    "@discoveryRecentNicknameSheetSave": {
+        "description": "Save button inside the recent-nickname bottom sheet."
+    },
+    "discoveryRecentNicknameSheetClear": "Remove nickname",
+    "@discoveryRecentNicknameSheetClear": {
+        "description": "Secondary action inside the recent-nickname bottom sheet — only shown when the row already has a nickname. Clears the existing nickname so the row falls back to the default 'Your channel' label."
+    },
 
     "renameSheetTitle": "Your handle",
     "@renameSheetTitle": {

@@ -26,28 +26,68 @@ class _FakeIdentityStore implements IdentityStore {
 }
 
 class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
-  final List<String> _entries;
+  final List<RecentFrequency> _entries;
   _FakeRecentFrequenciesStore({List<String>? initial})
-      : _entries = List<String>.of(initial ?? const []);
+      : _entries = List<RecentFrequency>.of(
+          (initial ?? const []).map((f) => RecentFrequency(freq: f)),
+        );
 
   @override
-  Future<List<String>> getRecent() async => List<String>.unmodifiable(_entries);
+  Future<List<String>> getRecent() async {
+    final detailed = await getRecentDetailed();
+    return List<String>.unmodifiable(detailed.map((e) => e.freq));
+  }
+
+  @override
+  Future<List<RecentFrequency>> getRecentDetailed() async {
+    final pinned = _entries.where((e) => e.pinned).toList();
+    final unpinned = _entries.where((e) => !e.pinned).toList();
+    return List<RecentFrequency>.unmodifiable([...pinned, ...unpinned]);
+  }
 
   @override
   Future<void> record(String freq) async {
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
-    _entries
-      ..remove(trimmed)
-      ..insert(0, trimmed);
-    // Mirror the production cap so the fake doesn't silently let tests
-    // drift past behavior the real store enforces.
-    if (_entries.length > RecentFrequenciesStore.maxEntries) {
-      _entries.removeRange(
-        RecentFrequenciesStore.maxEntries,
-        _entries.length,
-      );
+    final existingIdx = _entries.indexWhere((e) => e.freq == trimmed);
+    final existing =
+        existingIdx >= 0 ? _entries.removeAt(existingIdx) : null;
+    _entries.insert(0, existing ?? RecentFrequency(freq: trimmed));
+    // Mirror the production cap on UNPINNED entries so the fake doesn't
+    // silently let tests drift past the behavior the real store enforces;
+    // pinned entries are exempt from the cap (#125).
+    final unpinned = _entries.where((e) => !e.pinned).toList();
+    if (unpinned.length > RecentFrequenciesStore.maxEntries) {
+      final toDrop = unpinned
+          .skip(RecentFrequenciesStore.maxEntries)
+          .map((e) => e.freq)
+          .toSet();
+      _entries.removeWhere((e) => toDrop.contains(e.freq));
     }
+  }
+
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {
+    final idx = _entries.indexWhere((e) => e.freq == freq);
+    if (idx < 0) return;
+    final trimmed = nickname?.trim();
+    final value = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    _entries[idx] = RecentFrequency(
+      freq: _entries[idx].freq,
+      nickname: value,
+      pinned: _entries[idx].pinned,
+    );
+  }
+
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {
+    final idx = _entries.indexWhere((e) => e.freq == freq);
+    if (idx < 0) return;
+    _entries[idx] = RecentFrequency(
+      freq: _entries[idx].freq,
+      nickname: _entries[idx].nickname,
+      pinned: pinned,
+    );
   }
 
   @override

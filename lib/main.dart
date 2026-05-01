@@ -219,6 +219,12 @@ class FrequencyApp extends StatelessWidget {
           onRename: (name) {
             cubit.rename(name);
           },
+          onSetRecentNickname: (freq, nickname) {
+            unawaited(cubit.setRecentNickname(freq, nickname));
+          },
+          onSetRecentPinned: (freq, pinned) {
+            unawaited(cubit.setRecentPinned(freq, pinned));
+          },
           // joinRoom is a Future<void> now that it persists; the cubit
           // tolerates a fire-and-forget call (the user has already
           // committed to entering the room).
