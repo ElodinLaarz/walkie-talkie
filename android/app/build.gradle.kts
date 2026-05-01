@@ -187,6 +187,11 @@ android {
     // silently regressing per-device download size — the whole reason this app
     // ships an AAB instead of a fat APK is to deliver only the ABI / density /
     // language slice each device needs.
+    //
+    // vcsInfo embeds the HEAD commit SHA + remote URL into the AAB metadata so
+    // Play Console can deep-link crash stack traces back to the exact source
+    // revision — pairs with the R8 mapping upload from #110 for fully
+    // deobfuscated, source-linked traces in the Play Console crash dashboard.
     bundle {
         language {
             enableSplit = true
@@ -196,6 +201,9 @@ android {
         }
         abi {
             enableSplit = true
+        }
+        vcsInfo {
+            include = true
         }
     }
 
