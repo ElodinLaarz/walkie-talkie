@@ -1,0 +1,35 @@
+Walkie Talkie is an offline, privacy-first voice communication app for Android. "Tune in" to a shared frequency and you're instantly on a voice channel with everyone nearby on the same one — no Wi-Fi, no internet, no account required.
+
+── HOW IT WORKS ──
+
+Open the app and either host your own frequency or join one a friend is broadcasting nearby. Voice travels over Bluetooth LE directly between phones — there is no server in the path.
+
+• Host a channel: Your phone becomes the room host. Others can scan for your frequency and tune in.
+• Join a channel: Tap any visible frequency in the discovery list to send a join request.
+• Talk: Push-to-talk or hands-free mode. A talking ring lights up around any peer who is speaking.
+• Mute: Silence yourself without leaving the room.
+• Leave: Walk away at any time; the room stays open for others.
+
+── PRIVACY FIRST ──
+
+• No accounts. Your display name is stored only on your device and shared only inside an active room.
+• No audio stored or uploaded. Voice is captured, transmitted over Bluetooth to nearby phones, and discarded in real time. Nothing leaves local Bluetooth range.
+• Bluetooth identifiers are used only for connection management between phones in the same room and are not stored beyond the active session.
+• Crash reporting is opt-in and off by default. If enabled, only anonymised crash stack traces are sent — no audio, no display names.
+
+── HOW VOICE WORKS ──
+
+Voice is carried over L2CAP CoC (Bluetooth LE connection-oriented channels) using the Opus codec at 24 kbps — the same codec used by Discord, WebRTC, and WhatsApp calls. A mix-minus algorithm on the host phone prevents echo: each listener hears everyone except themselves.
+
+── PERMISSIONS ──
+
+Walkie Talkie requests the minimum set of permissions needed to function:
+• Bluetooth: to discover, connect, and broadcast nearby frequencies.
+• Microphone: to capture your voice while you are in a room.
+• Notifications: to show the persistent room notification required by Android for microphone-enabled background services.
+
+No location, no contacts, no storage.
+
+── OPEN SOURCE ──
+
+Walkie Talkie is open source (MIT licence). Source code and the full wire-protocol specification are available on GitHub.

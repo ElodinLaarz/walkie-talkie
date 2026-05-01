@@ -1,0 +1,1 @@
+Initial release. Offline peer-to-peer voice rooms over Bluetooth LE — no internet required.

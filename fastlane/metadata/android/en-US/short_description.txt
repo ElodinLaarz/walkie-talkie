@@ -1,0 +1,1 @@
+Peer-to-peer voice rooms over Bluetooth LE. No internet, no accounts, no cloud.
