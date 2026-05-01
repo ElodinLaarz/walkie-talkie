@@ -24,15 +24,34 @@ android {
         // Android 13+ required for Bluetooth LE Audio APIs
         minSdk = 33
         targetSdk = 36
-        // Auto-derive versionCode in CI from VERSION_CODE (explicit override) or
-        // GITHUB_RUN_NUMBER (one-per-CI-run, monotonic). Local builds and any CI
-        // run without those vars fall back to the static `+N` from pubspec.yaml,
-        // surfaced via flutter.versionCode. Play rejects duplicate versionCodes,
-        // so this is what lets back-to-back release builds upload without a
-        // manual pubspec bump.
-        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()
-            ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
-            ?: flutter.versionCode)
+        // Resolve versionCode in this priority order. Play rejects duplicate
+        // versionCodes, so the goal is "every CI build uploads with a unique,
+        // strictly increasing code, with no manual pubspec bump":
+        //
+        //   1. VERSION_CODE env var — explicit override for one-off builds
+        //      (e.g. recreating a specific historical build).
+        //   2. GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT — monotonic per CI
+        //      run AND per rerun-of-the-same-run. GITHUB_RUN_NUMBER alone
+        //      repeats across reruns of a failed workflow, so a rerun would
+        //      collide with the failed attempt's code if that attempt had
+        //      uploaded; folding GITHUB_RUN_ATTEMPT in makes reruns distinct.
+        //      The multiplier is 100 because GitHub re-runs are capped well
+        //      below that in practice (the docs cap automatic reruns at 10),
+        //      so adjacent run numbers can't overlap.
+        //   3. flutter.versionCode (the static `+N` in pubspec.yaml) — local
+        //      builds and any CI run without the GitHub env vars.
+        //
+        // The CI-derived value is also clamped to >= flutter.versionCode so a
+        // manual pubspec bump (e.g. for a hotfix) still wins if it ever exceeds
+        // the run-number-derived code.
+        versionCode = run {
+            val explicit = System.getenv("VERSION_CODE")?.toIntOrNull()
+            if (explicit != null) return@run explicit
+            val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+            val runAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toIntOrNull() ?: 1
+            val ciDerived = runNumber?.let { it * 100 + runAttempt }
+            if (ciDerived != null) maxOf(ciDerived, flutter.versionCode) else flutter.versionCode
+        }
         versionName = flutter.versionName
         
         // NDK configuration for Oboe audio library

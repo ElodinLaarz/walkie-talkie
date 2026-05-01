@@ -55,9 +55,12 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          # GITHUB_RUN_NUMBER is read by android/app/build.gradle.kts so each CI
-          # run produces a unique versionCode — Play rejects duplicate codes.
+          # GITHUB_RUN_NUMBER + GITHUB_RUN_ATTEMPT are read by
+          # android/app/build.gradle.kts so each CI run (and each rerun of a
+          # failed run) produces a unique versionCode — Play rejects duplicate
+          # codes.
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: One or more signing secrets are not set"
@@ -86,6 +89,14 @@ jobs:
           echo "AAB size: ${AAB_BYTES} bytes (${AAB_MIB} MiB)"
           echo "::notice title=AAB size::${AAB_MIB} MiB (${AAB_BYTES} bytes)"
           echo "aab_size_bytes=${AAB_BYTES}" >> "$GITHUB_OUTPUT"
+          if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+            {
+              echo "### AAB size"
+              echo ""
+              echo "- **${AAB_MIB} MiB** (${AAB_BYTES} bytes)"
+              echo "- Budget: $((AAB_MAX_BYTES / 1048576)) MiB"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "$AAB_BYTES" -gt "$AAB_MAX_BYTES" ]; then
             echo "Error: AAB size ${AAB_BYTES} bytes exceeds budget ${AAB_MAX_BYTES} bytes"
             exit 1
