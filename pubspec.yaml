@@ -47,7 +47,7 @@ dependencies:
   # unmaintained; `hive` + `hive_flutter` are kept transiently to drive a
   # one-shot migration from any pre-existing boxes — can be dropped in a
   # follow-up after the migration has had time to run on installed devices.)
-  sqflite: ^2.3.3+1
+  sqflite: ^2.4.2+1
   path: ^1.9.0
   path_provider: ^2.1.4
   hive: ^2.2.3
@@ -76,10 +76,10 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  mockito: ^5.6.1
-  build_runner: ^2.10.4
+  mockito: ^5.6.4
+  build_runner: ^2.15.0
   bloc_test: ^10.0.0
-  mocktail: ^1.0.4
+  mocktail: ^1.0.5
   flutter_launcher_icons: ^0.14.4
   # Generates the Android 12+ SplashScreen API resources (windowSplashScreen*
   # style attributes + drawable). Without these, cold start on Android 12/13/14
@@ -89,7 +89,7 @@ dev_dependencies:
   # In-memory sqflite for unit tests via FFI. Production uses the real
   # `sqflite` plugin on Android; tests inject `databaseFactoryFfi` so
   # they don't depend on the platform channel.
-  sqflite_common_ffi: ^2.3.3
+  sqflite_common_ffi: ^2.4.0+3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
