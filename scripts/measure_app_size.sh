@@ -94,8 +94,10 @@ SIZE_CSV=$(java -jar "$BUNDLETOOL_JAR" get-size total --apks="$APKS_PATH")
 echo "$SIZE_CSV"
 
 # Take the last numeric "<min>,<max>" row — robust to header ordering and to
-# any future extra rows from --dimensions expansion.
-SIZE_ROW=$(printf '%s\n' "$SIZE_CSV" | grep -E '^[0-9]+,[0-9]+$' | tail -n1)
+# any future extra rows from --dimensions expansion. The `|| true` keeps a
+# no-match grep from tripping `set -euo pipefail` before we can print a
+# useful error with the raw output.
+SIZE_ROW=$(printf '%s\n' "$SIZE_CSV" | { grep -E '^[0-9]+,[0-9]+$' || true; } | tail -n1)
 if [ -z "$SIZE_ROW" ]; then
   echo "Error: could not parse a numeric MIN,MAX row from bundletool output:" >&2
   printf '%s\n' "$SIZE_CSV" >&2
