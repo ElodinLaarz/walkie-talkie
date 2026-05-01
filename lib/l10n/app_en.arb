@@ -380,7 +380,7 @@
     "@privacyPolicySectionContactTitle": {
         "description": "Privacy policy section title — how to contact the maintainers."
     },
-    "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at github.com/ElodinLaarz/walkie-talkie/issues.",
+    "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at https://github.com/ElodinLaarz/walkie-talkie/issues.",
     "@privacyPolicySectionContactBody": {
         "description": "Privacy policy body — contact."
     }
