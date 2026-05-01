@@ -771,6 +771,108 @@ void main() {
         expect(find.text('Caleb · muted'), findsOneWidget);
       },
     );
+
+    // --- Additional notification-path coverage (issue #123) ---
+
+    testWidgets(
+      'leaveRoom event from notification or MediaSession.onStop fires onLeave',
+      (tester) async {
+        // The MediaSession onStop callback and the service's Leave
+        // PendingIntent both route through `dispatchEventFromService`,
+        // which emits a leaveRoom event on the audio EventChannel. This
+        // test exercises that path end-to-end from the EventChannel into
+        // the screen's leave handler.
+        final eventEmitter =
+            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        addTearDown(eventEmitter.dispose);
+
+        var leaveCount = 0;
+        await tester.pumpWidget(_wrap(_room(onLeave: () => leaveCount++)));
+        await tester.pump();
+
+        eventEmitter.emit({'type': 'leaveRoom'});
+        await tester.pump();
+
+        expect(leaveCount, 1);
+      },
+    );
+
+    testWidgets(
+      'pttToggle in open-mic mode mutes (notification PTT button in open-mic)',
+      (tester) async {
+        // In open-mic mode pttToggle and muteToggle are symmetrical —
+        // both toggle the persistent mute. A notification labeled "PTT"
+        // that fires pttToggle should still mute the open-mic stream.
+        final eventEmitter =
+            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Initial: open-mic, not muted.
+        expect(find.text('Mute'), findsOneWidget);
+        expect(find.text('Caleb · muted'), findsNothing);
+
+        // First toggle → muted.
+        eventEmitter.emit({'type': 'pttToggle'});
+        await tester.pump();
+        expect(find.text('Caleb · muted'), findsOneWidget);
+        expect(find.text('Unmute'), findsOneWidget);
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': true}),
+        );
+
+        // Second toggle → back to unmuted.
+        eventEmitter.emit({'type': 'pttToggle'});
+        await tester.pump();
+        expect(find.text('Mute'), findsOneWidget);
+        expect(find.text('Caleb · muted'), findsNothing);
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': false}),
+        );
+      },
+    );
+
+    testWidgets(
+      'muteToggle in PTT mode toggles PTT holding (notification Mute button in PTT mode)',
+      (tester) async {
+        // In PTT mode muteToggle and pttToggle are symmetrical — both
+        // flip the PTT-held state. A notification "Mute" button emitting
+        // muteToggle should unmute the stream when held state is false,
+        // and re-mute it on a second press.
+        final eventEmitter =
+            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room(pttMode: true)));
+        await tester.pump();
+
+        // PTT mode starts muted-until-held.
+        expect(find.text('Caleb · muted'), findsOneWidget);
+
+        // First toggle → held → unmuted.
+        eventEmitter.emit({'type': 'muteToggle'});
+        await tester.pump();
+        expect(find.text('Caleb · muted'), findsNothing);
+        expect(find.text('Caleb'), findsOneWidget);
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': false}),
+        );
+
+        // Second toggle → released → muted again.
+        eventEmitter.emit({'type': 'muteToggle'});
+        await tester.pump();
+        expect(find.text('Caleb · muted'), findsOneWidget);
+        expect(
+          audioCalls.last,
+          isMethodCall('setMuted', arguments: {'muted': true}),
+        );
+      },
+    );
   });
 }
 
