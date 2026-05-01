@@ -50,17 +50,15 @@ jobs:
           echo "Keystore decoded to ${{ runner.temp }}/walkie-talkie.jks"
 
       - name: Build release AAB
+        # android/app/build.gradle.kts derives versionCode from the runner's
+        # default GITHUB_RUN_NUMBER + GITHUB_RUN_ATTEMPT env vars (auto-set on
+        # every step) so each CI run and each rerun gets a unique code — Play
+        # rejects duplicates.
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/walkie-talkie.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          # GITHUB_RUN_NUMBER + GITHUB_RUN_ATTEMPT are read by
-          # android/app/build.gradle.kts so each CI run (and each rerun of a
-          # failed run) produces a unique versionCode — Play rejects duplicate
-          # codes.
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: One or more signing secrets are not set"
@@ -88,7 +86,6 @@ jobs:
           AAB_MIB=$(awk "BEGIN { printf \"%.2f\", $AAB_BYTES / 1048576 }")
           echo "AAB size: ${AAB_BYTES} bytes (${AAB_MIB} MiB)"
           echo "::notice title=AAB size::${AAB_MIB} MiB (${AAB_BYTES} bytes)"
-          echo "aab_size_bytes=${AAB_BYTES}" >> "$GITHUB_OUTPUT"
           if [ -n "$GITHUB_STEP_SUMMARY" ]; then
             {
               echo "### AAB size"

@@ -47,12 +47,37 @@ android {
         // builds onto the same flutter.versionCode whenever the static code
         // happens to exceed the run-derived one (Play would then reject the
         // second). If you need to force a specific code in CI, set VERSION_CODE.
+        //
+        // Math is in Long and validated against Android's hard ceiling
+        // (versionCode is a 32-bit signed int but Play caps it at 2.1B) so a
+        // pathological GITHUB_RUN_NUMBER can't silently overflow into a
+        // negative or out-of-range code that breaks releases late in the build.
         versionCode = run {
-            val explicit = System.getenv("VERSION_CODE")?.toIntOrNull()
-            if (explicit != null) return@run explicit
-            val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
-            val runAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toIntOrNull() ?: 1
-            runNumber?.let { it * 100 + runAttempt } ?: flutter.versionCode
+            val maxVersionCode = 2_100_000_000L
+            fun checked(value: Long, source: String): Int {
+                if (value <= 0L || value > maxVersionCode) {
+                    throw GradleException(
+                        "$source resolved to invalid versionCode $value. " +
+                            "versionCode must be in (0, $maxVersionCode]."
+                    )
+                }
+                return value.toInt()
+            }
+            val explicitRaw = System.getenv("VERSION_CODE")
+            if (explicitRaw != null) {
+                val explicit = explicitRaw.toLongOrNull()
+                    ?: throw GradleException(
+                        "VERSION_CODE must be an integer, got: \"$explicitRaw\"."
+                    )
+                return@run checked(explicit, "VERSION_CODE")
+            }
+            val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toLongOrNull()
+            val runAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toLongOrNull() ?: 1L
+            val ciDerived = runNumber?.let { it * 100L + runAttempt }
+            if (ciDerived != null) {
+                return@run checked(ciDerived, "GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT")
+            }
+            flutter.versionCode
         }
         versionName = flutter.versionName
         
