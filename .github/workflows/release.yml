@@ -81,12 +81,12 @@ jobs:
           flutter build appbundle --release --target-platform=android-arm64,android-arm,android-x64
 
       - name: Measure AAB size
-        # Logs the AAB size and fails if it exceeds the budget. The 30 MB target
-        # in #131 is the goal; we set the hard ceiling well above that so this
-        # step catches catastrophic regressions (e.g. an accidental fat APK
-        # config or a vendored binary blob) without flapping on small growth.
-        # Note: this measures the AAB itself, not the per-device download —
-        # bundletool's Play-served APK split sizes are typically much smaller.
+        # Bundle-on-disk size is a coarse catastrophic-regression alarm — a 50
+        # MiB ceiling well above the per-device target catches an accidental
+        # fat APK config or a vendored binary blob without flapping on small
+        # growth. The number that actually matters for #131's "< 30 MB AAB
+        # download" target is what Play serves to a device, measured by the
+        # bundletool step below.
         env:
           AAB_MAX_BYTES: 52428800 # 50 MiB
         run: |
@@ -111,6 +111,21 @@ jobs:
             echo "Error: AAB size ${AAB_BYTES} bytes exceeds budget ${AAB_MAX_BYTES} bytes"
             exit 1
           fi
+
+      - name: Measure per-device download size (bundletool)
+        # Replays Play's split logic on the signed AAB to derive what a real
+        # device would download — the number issue #131 budgets ("target < 30
+        # MB AAB download"). Soft-warns on > 30 MiB target; hard-fails on >
+        # 50 MiB ceiling. See scripts/measure_app_size.sh for the bundletool
+        # invocation and SHA-pinning rationale.
+        env:
+          AAB_PATH: build/app/outputs/bundle/release/app-release.aab
+          KEYSTORE_PATH: ${{ runner.temp }}/walkie-talkie.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          WORK_DIR: ${{ runner.temp }}/bundletool
+        run: bash scripts/measure_app_size.sh
 
       - name: Upload release AAB
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
