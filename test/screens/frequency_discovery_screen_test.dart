@@ -520,6 +520,39 @@ void main() {
         expect(privacyButton, findsOneWidget);
       },
     );
+
+    testWidgets(
+      'tapping the footer Licenses link pushes Flutter\'s LicensePage with our title',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+          ),
+        ));
+        await tester.pump();
+
+        final list = find.byType(ListView);
+        final licensesButton = find.widgetWithText(TextButton, 'Licenses');
+        await tester.dragUntilVisible(
+          licensesButton,
+          list,
+          const Offset(0, -120),
+        );
+        await tester.pump();
+        await tester.tap(licensesButton);
+        // The license page renders an internal AnimatedSwitcher; pump
+        // through the route + initial frame.
+        await tester.pump();
+        await tester.pump(_settleWindow);
+
+        // The applicationName we hand to `showLicensePage` becomes the
+        // header title — anchoring on the localized string proves we
+        // reached LicensePage rather than just any new route.
+        expect(find.text('Open source licenses'), findsWidgets);
+      },
+    );
   });
 
   group('DiscoveryResult invariants', () {
