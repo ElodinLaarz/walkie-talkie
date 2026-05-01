@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart' show Transaction;
+
 import 'walkie_talkie_database.dart';
 
 /// One persisted "recent" entry — the freq itself plus the user-curated
@@ -212,26 +214,32 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
         ''',
         [trimmed, orderingTimestamp],
       );
-      // Cap: keep only the top-N UNPINNED by recorded_at. NOT IN with a
-      // top-N sub-select is one round-trip and the table is bounded to
-      // ~maxEntries + however many pins the user has set, so the scan
-      // cost is trivial. Pinned rows are excluded from both the keep set
-      // and the delete predicate so they stick around regardless of how
-      // many fresh records arrive.
-      await txn.execute(
-        '''
-        DELETE FROM $_table
-        WHERE pinned = 0
-          AND freq NOT IN (
-            SELECT freq FROM $_table
-            WHERE pinned = 0
-            ORDER BY recorded_at DESC
-            LIMIT ?
-          )
-        ''',
-        [RecentFrequenciesStore.maxEntries],
-      );
+      await _capUnpinnedRows(txn);
     });
+  }
+
+  /// Keeps only the top-`maxEntries` UNPINNED rows by `recorded_at`. Both
+  /// [_doRecord] and [_doSetPinned] (on unpin) need to enforce this
+  /// invariant — the helper is here so the SQL lives in one place. NOT
+  /// IN with a top-N sub-select is one round-trip and the table is
+  /// bounded to ~maxEntries + however many pins the user has set, so
+  /// the scan cost is trivial. Pinned rows are excluded from both the
+  /// keep set and the delete predicate so they stick around regardless
+  /// of how many fresh records arrive.
+  Future<void> _capUnpinnedRows(Transaction txn) async {
+    await txn.execute(
+      '''
+      DELETE FROM $_table
+      WHERE pinned = 0
+        AND freq NOT IN (
+          SELECT freq FROM $_table
+          WHERE pinned = 0
+          ORDER BY recorded_at DESC
+          LIMIT ?
+        )
+      ''',
+      [RecentFrequenciesStore.maxEntries],
+    );
   }
 
   @override
@@ -291,19 +299,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
       // already unpinned, is documented as a no-op and shouldn't trigger
       // a defensive evict.
       if (!pinned && affected > 0) {
-        await txn.execute(
-          '''
-          DELETE FROM $_table
-          WHERE pinned = 0
-            AND freq NOT IN (
-              SELECT freq FROM $_table
-              WHERE pinned = 0
-              ORDER BY recorded_at DESC
-              LIMIT ?
-            )
-          ''',
-          [RecentFrequenciesStore.maxEntries],
-        );
+        await _capUnpinnedRows(txn);
       }
     });
   }

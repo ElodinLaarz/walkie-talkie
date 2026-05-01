@@ -1060,6 +1060,38 @@ void main() {
     );
 
     test(
+      'setRecentPinned swallows store failures and still completes',
+      () async {
+        // Same failure-path coverage as the setRecentNickname test —
+        // user has already committed the toggle from the UI; a disk
+        // hiccup must not bubble up as an unhandled async error.
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1'],
+        )..throwOnSetPinned = true;
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await expectLater(
+          cubit.setRecentPinned('100.1', true),
+          completes,
+        );
+
+        // Pin write failed → on-disk row stays unpinned, and the
+        // cubit's reload reflects the on-disk truth.
+        final after = cubit.state as SessionDiscovery;
+        expect(after.recentHostedFrequencies.single.freq, '100.1');
+        expect(after.recentHostedFrequencies.single.pinned, isFalse);
+        // Exactly one attempt — the cubit doesn't retry past the failure.
+        expect(recent.setPinnedCalls, 1);
+
+        await cubit.close();
+      },
+    );
+
+    test(
       'setRecentPinned is a no-op outside Discovery',
       () async {
         final recent = _FakeRecentFrequenciesStore();
