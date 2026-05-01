@@ -77,7 +77,7 @@ android {
             if (ciDerived != null) {
                 return@run checked(ciDerived, "GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT")
             }
-            flutter.versionCode
+            checked(flutter.versionCode.toLong(), "flutter.versionCode")
         }
         versionName = flutter.versionName
         
