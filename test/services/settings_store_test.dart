@@ -62,12 +62,12 @@ void main() {
         expect(await store.getCrashReportingEnabled(), isTrue);
       });
 
-      test('persists true across database restarts', () async {
-        final store = SqfliteSettingsStore();
-        await store.setCrashReportingEnabled(true);
-        // Simulate app restart by resetting the database connection
-        final newStore = SqfliteSettingsStore();
-        expect(await newStore.getCrashReportingEnabled(), isTrue);
+      test('persists across new SqfliteSettingsStore instances', () async {
+        final first = SqfliteSettingsStore();
+        await first.setCrashReportingEnabled(true);
+        // Different wrapper, same database connection → same persisted value
+        final second = SqfliteSettingsStore();
+        expect(await second.getCrashReportingEnabled(), isTrue);
       });
 
       test('multiple concurrent reads return the same value', () async {

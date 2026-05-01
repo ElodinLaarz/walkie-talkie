@@ -33,10 +33,10 @@ class SqfliteSettingsStore implements SettingsStore {
     );
     if (rows.isEmpty) return false; // Default to opt-out
     final raw = rows.first['value'];
-    // Accept 1, "1", "true", true
-    if (raw is int) return raw == 1;
-    if (raw is String) return raw == '1' || raw.toLowerCase() == 'true';
-    if (raw is bool) return raw;
+    // kv table stores TEXT, so raw should be a String
+    if (raw is String) {
+      return raw == '1' || raw.toLowerCase() == 'true';
+    }
     return false;
   }
 
@@ -45,7 +45,7 @@ class SqfliteSettingsStore implements SettingsStore {
     final db = await WalkieTalkieDatabase.open();
     await db.insert(
       'kv',
-      {'key': _crashReportingKey, 'value': enabled ? 1 : 0},
+      {'key': _crashReportingKey, 'value': enabled ? '1' : '0'},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }

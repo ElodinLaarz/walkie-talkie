@@ -4,7 +4,7 @@ This document explains how to configure and use Sentry for crash reporting in th
 
 ## Overview
 
-Crash reporting is **opt-out by default** to respect user privacy. The app:
+Crash reporting is **disabled by default (opt-in)** to respect user privacy. The app:
 - Does not send any crash reports unless the user explicitly opts in
 - Only captures anonymous crash data (no PII like display names)
 - Includes native crash support for C++ code (Oboe/Opus)
@@ -73,14 +73,18 @@ To test crash reporting locally:
 
 1. Set the `SENTRY_DSN` environment variable
 2. Enable crash reporting via SQLite:
+
    ```dart
    final store = SqfliteSettingsStore();
    await store.setCrashReportingEnabled(true);
    ```
+
 3. Trigger a crash:
+
    ```dart
    throw Exception('Test crash');
    ```
+
 4. Check the Sentry dashboard for the crash report
 
 ## Native Crashes (C++)

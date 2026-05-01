@@ -229,6 +229,11 @@ sentry {
     // Include source context in stack traces
     includeSourceContext = true
 
+    // Prevent duplicate initialization (sentry_flutter handles SDK init)
+    autoInstallation {
+        enabled = false
+    }
+
     // Trace instrumentation for performance monitoring (opt-in only)
     tracingInstrumentation {
         enabled = false // Disabled by default for privacy
@@ -242,9 +247,8 @@ dependencies {
     // so the mic stream isn't suppressed when the screen is off.
     implementation("androidx.media:media:1.7.0")
 
-    // Sentry for crash reporting (opt-in via Settings, issue #120)
-    // Includes NDK support for native crashes from Oboe/Opus C++ code
-    implementation("io.sentry:sentry-android:7.18.1")
+    // Sentry SDK is provided by sentry_flutter plugin (no explicit dependency needed)
+    // Native crash support configured via Sentry Gradle plugin above
 
     testImplementation("junit:junit:4.13.2")
 }

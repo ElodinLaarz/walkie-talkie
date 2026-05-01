@@ -46,20 +46,16 @@ void main() async {
       await SentryFlutter.init(
         (options) {
           options.dsn = sentryDsn;
-          // Only send on Wi-Fi to respect user data plans
+          // Enable session tracking
           options.enableAutoSessionTracking = true;
-          // Redact PII
-          options.beforeSend = (event, hint) {
-            // Strip display names and peer IDs from breadcrumbs and contexts
-            final sanitized = _sanitizeEvent(event);
-            return sanitized;
-          };
           // Sample rate: 100% for crashes (privacy-first app, low volume)
           options.sampleRate = 1.0;
           // Attach stack traces to messages
           options.attachStacktrace = true;
-          // Respect do-not-track
-          options.enableAutoSessionTracking = true;
+          // Redact PII before sending
+          options.beforeSend = (event, hint) {
+            return _sanitizeEvent(event);
+          };
         },
         appRunner: () => runApp(const WalkieTalkieApp()),
       );
@@ -72,12 +68,51 @@ void main() async {
 }
 
 /// Sanitizes Sentry events to remove PII.
-/// Redacts display names, peer IDs (keep them as anonymous identifiers),
-/// and any other sensitive data.
+/// Redacts display names from contexts and breadcrumbs.
+/// Keeps peerId as it's documented as an anonymous identifier.
 SentryEvent? _sanitizeEvent(SentryEvent event) {
-  // For now, pass through peerId as it's documented as anonymous.
-  // Future enhancement: redact display names from extra context.
-  return event;
+  // Redact displayName from contexts
+  final sanitizedContexts = event.contexts.clone();
+  // Remove any context entries that might contain display names
+  sanitizedContexts.removeWhere((key, value) {
+    final keyLower = key.toLowerCase();
+    return keyLower.contains('displayname') || keyLower.contains('display_name');
+  });
+
+  // Redact displayName from breadcrumbs
+  final sanitizedBreadcrumbs = event.breadcrumbs?.map((crumb) {
+    var sanitizedMessage = crumb.message;
+    var sanitizedData = crumb.data;
+
+    // Redact from message if it contains display name patterns
+    if (sanitizedMessage != null &&
+        (sanitizedMessage.toLowerCase().contains('displayname') ||
+            sanitizedMessage.toLowerCase().contains('display name'))) {
+      sanitizedMessage = sanitizedMessage.replaceAll(
+        RegExp(r'display[_ ]?name[:\s]*[^\s,;]+', caseSensitive: false),
+        'displayName: [REDACTED]',
+      );
+    }
+
+    // Redact from data map
+    if (sanitizedData != null) {
+      sanitizedData = sanitizedData.map((key, value) {
+        if (key.toLowerCase().contains('displayname') ||
+            key.toLowerCase().contains('display_name')) {
+          return MapEntry(key, '[REDACTED]');
+        }
+        return MapEntry(key, value);
+      });
+    }
+
+    return crumb.copyWith(message: sanitizedMessage, data: sanitizedData);
+  }).toList();
+
+  // Return event with sanitized fields
+  return event.copyWith(
+    contexts: sanitizedContexts,
+    breadcrumbs: sanitizedBreadcrumbs,
+  );
 }
 
 class WalkieTalkieApp extends StatefulWidget {
