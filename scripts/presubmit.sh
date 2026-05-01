@@ -76,8 +76,17 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
 build/cpp_test/ring_buffer_test
 
 # opus_codec_test exercises OpusEncoder/OpusDecoder from opus_codec.cpp.
-# Requires libopus (install via: apt install libopus-dev).
-# pkg-config supplies the opus include path (-I/usr/include/opus on Debian/Ubuntu).
+# Requires libopus and pkg-config. Without an explicit preflight, a missing
+# libopus surfaces as a confusing "fatal error: opus.h: No such file" from g++
+# instead of a clear install hint.
+if ! command -v pkg-config >/dev/null 2>&1; then
+    echo "pkg-config not found — install it (apt install pkg-config) to run opus_codec_test."
+    exit 1
+fi
+if ! pkg-config --exists opus; then
+    echo "libopus not found via pkg-config — install it (apt install libopus-dev) to run opus_codec_test."
+    exit 1
+fi
 ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     -I test/cpp \
     -I android/app/src/main/cpp \
