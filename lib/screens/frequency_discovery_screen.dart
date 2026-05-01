@@ -10,10 +10,12 @@ import '../l10n/generated/app_localizations.dart';
 import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
 import '../services/recent_frequencies_store.dart';
+import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import 'frequency_explainer_screen.dart';
 import 'frequency_privacy_policy_screen.dart';
+import 'frequency_settings_screen.dart';
 
 class DiscoveryResult {
   final String freq;
@@ -143,6 +145,18 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                 _IdentityChip(
                   name: widget.myName,
                   onTap: _openRenameSheet,
+                ),
+                Tooltip(
+                  message: l10n.settingsTooltip,
+                  child: IconButton(
+                    icon: Icon(Icons.settings_outlined, size: 20, color: c.ink2),
+                    onPressed: _openSettings,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -456,6 +470,15 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
         builder: (_) => FrequencyExplainerScreen(
           onDone: () => Navigator.of(context).pop(),
         ),
+      ),
+    );
+  }
+
+  Future<void> _openSettings() async {
+    final store = context.read<SettingsStore>();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FrequencySettingsScreen(settingsStore: store),
       ),
     );
   }

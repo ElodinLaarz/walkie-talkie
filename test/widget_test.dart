@@ -6,6 +6,7 @@ import 'package:walkie_talkie/services/bluetooth_discovery_service.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/permission_watcher.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
+import 'package:walkie_talkie/services/settings_store.dart';
 
 class _FakeIdentityStore implements IdentityStore {
   String? _name;
@@ -176,6 +177,29 @@ class _FakePermissionWatcher implements PermissionWatcher {
   Future<void> dispose() async {}
 }
 
+/// In-memory [SettingsStore] for widget tests — avoids hitting the sqflite
+/// platform channel or requiring [databaseFactoryFfi] initialisation.
+class _FakeSettingsStore implements SettingsStore {
+  bool _crashReporting = false;
+  bool _pttMode = false;
+  bool _keepScreenOn = false;
+
+  @override
+  Future<bool> getCrashReportingEnabled() async => _crashReporting;
+  @override
+  Future<void> setCrashReportingEnabled(bool v) async => _crashReporting = v;
+
+  @override
+  Future<bool> getPttModeEnabled() async => _pttMode;
+  @override
+  Future<void> setPttModeEnabled(bool v) async => _pttMode = v;
+
+  @override
+  Future<bool> getKeepScreenOn() async => _keepScreenOn;
+  @override
+  Future<void> setKeepScreenOn(bool v) async => _keepScreenOn = v;
+}
+
 void main() {
   testWidgets('first launch routes through onboarding', (tester) async {
     await tester.pumpWidget(WalkieTalkieApp(
@@ -183,6 +207,7 @@ void main() {
       recentFrequenciesStore: _FakeRecentFrequenciesStore(),
       discoveryService: _FakeDiscoveryService(),
       permissionWatcher: _FakePermissionWatcher(),
+      settingsStore: _FakeSettingsStore(),
     ));
     // Boot splash → microtask flush → onboarding welcome.
     await tester.pump();
@@ -201,6 +226,7 @@ void main() {
           recentFrequenciesStore: _FakeRecentFrequenciesStore(),
           discoveryService: _FakeDiscoveryService(),
           permissionWatcher: _FakePermissionWatcher(),
+          settingsStore: _FakeSettingsStore(),
         ),
       );
       // Two frames: boot splash, then Discovery after the bootstrap setState.
@@ -225,6 +251,7 @@ void main() {
               _FakeRecentFrequenciesStore(initial: const ['100.1', '92.4']),
           discoveryService: _FakeDiscoveryService(),
           permissionWatcher: _FakePermissionWatcher(),
+          settingsStore: _FakeSettingsStore(),
         ),
       );
       // bootstrap awaits two reads (display name, recent frequencies); pump

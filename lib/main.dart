@@ -65,14 +65,14 @@ void main() async {
             return _sanitizeEvent(event);
           };
         },
-        appRunner: () => runApp(const WalkieTalkieApp()),
+        appRunner: () => runApp(WalkieTalkieApp(settingsStore: settingsStore)),
       );
       return;
     }
   }
 
   // Opt-out path or missing DSN: run without Sentry
-  runApp(const WalkieTalkieApp());
+  runApp(WalkieTalkieApp(settingsStore: settingsStore));
 }
 
 // Matches any key/field containing a display-name identifier, regardless of
@@ -129,6 +129,11 @@ class WalkieTalkieApp extends StatefulWidget {
   /// the revocation flow without permission_handler's platform channel.
   final PermissionWatcher? permissionWatcher;
 
+  /// Production: the [SqfliteSettingsStore] created in [main] so the same
+  /// instance is shared between the Sentry init path and the widget tree.
+  /// Override in tests to inject a fake without touching the platform channel.
+  final SettingsStore? settingsStore;
+
   const WalkieTalkieApp({
     super.key,
     this.identityStore,
@@ -137,6 +142,7 @@ class WalkieTalkieApp extends StatefulWidget {
     this.discoveryService,
     this.audioService,
     this.permissionWatcher,
+    this.settingsStore,
   });
 
   @override
@@ -205,6 +211,9 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
           create: (_) =>
               widget.blockedPeersStore ?? SqfliteBlockedPeersStore(),
         ),
+        RepositoryProvider<SettingsStore>(
+          create: (_) => widget.settingsStore ?? SqfliteSettingsStore(),
+        ),
         RepositoryProvider<DiscoveryService>(
           create: (_) => widget.discoveryService ?? DiscoveryService(),
         ),
@@ -257,12 +266,58 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
 /// Selects a screen based on the runtime type of `FrequencySessionState`.
 /// State and the transitions between stages live in
 /// [FrequencySessionCubit]; this widget is a pure projection.
-class FrequencyApp extends StatelessWidget {
+///
+/// Stateful so it can cache user settings (PTT mode) without re-reading from
+/// sqflite on every BlocBuilder rebuild. Settings are loaded once in
+/// [initState] via a post-frame callback (context is available after the first
+/// frame) and refreshed when the app returns from the Settings screen.
+class FrequencyApp extends StatefulWidget {
   const FrequencyApp({super.key});
 
   @override
+  State<FrequencyApp> createState() => _FrequencyAppState();
+}
+
+class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver {
+  bool _pttMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Post-frame callback so context.read is available.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reloadSettings());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-read PTT mode when the app resumes — the user may have changed it
+    // in the Settings screen and returned without the navigator popping into
+    // a rebuild of this widget.
+    if (state == AppLifecycleState.resumed) _reloadSettings();
+  }
+
+  Future<void> _reloadSettings() async {
+    if (!mounted) return;
+    final ptt = await context.read<SettingsStore>().getPttModeEnabled();
+    if (mounted && ptt != _pttMode) setState(() => _pttMode = ptt);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
+    return BlocConsumer<FrequencySessionCubit, FrequencySessionState>(
+      // Reload PTT mode whenever the state transitions into SessionRoom so that
+      // a setting changed in the Settings screen (navigator push/pop — which
+      // does NOT trigger AppLifecycleState.resumed) is picked up before the
+      // room screen renders.
+      listenWhen: (prev, next) => next is SessionRoom && prev is! SessionRoom,
+      listener: (context, state) => _reloadSettings(),
       builder: (context, state) {
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
@@ -323,7 +378,7 @@ class FrequencyApp extends StatelessWidget {
           isHost: roomIsHost,
           myName: myName,
           mediaKind: MediaKind.music,
-          pttMode: false,
+          pttMode: _pttMode,
           // Pass the singleton from the provider so the screen reuses the
           // one instance (#129) — its own fallback would otherwise build a
           // second AudioService whose audioEvents/controlBytes stream

@@ -439,5 +439,66 @@
     "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at https://github.com/ElodinLaarz/walkie-talkie/issues.",
     "@privacyPolicySectionContactBody": {
         "description": "Privacy policy body — contact."
+    },
+
+    "settingsTitle": "Settings",
+    "@settingsTitle": {
+        "description": "Title of the Settings screen."
+    },
+    "settingsTooltip": "Settings",
+    "@settingsTooltip": {
+        "description": "Tooltip / TalkBack label for the settings icon button in the discovery chrome."
+    },
+    "settingsVoiceSection": "Voice",
+    "@settingsVoiceSection": {
+        "description": "Section header for voice-related settings."
+    },
+    "settingsPttMode": "Push-to-talk mode",
+    "@settingsPttMode": {
+        "description": "Toggle label for push-to-talk vs hands-free mode."
+    },
+    "settingsPttModeDescription": "Hold the PTT button to transmit instead of always-on",
+    "@settingsPttModeDescription": {
+        "description": "Subtitle under the push-to-talk toggle."
+    },
+    "settingsDisplaySection": "Display",
+    "@settingsDisplaySection": {
+        "description": "Section header for display-related settings."
+    },
+    "settingsKeepScreenOn": "Keep screen on",
+    "@settingsKeepScreenOn": {
+        "description": "Toggle label for keeping the screen awake while in a room."
+    },
+    "settingsKeepScreenOnDescription": "Prevent the display from sleeping while in a room (coming soon)",
+    "@settingsKeepScreenOnDescription": {
+        "description": "Subtitle under the keep-screen-on toggle. Note: wakelock implementation is pending."
+    },
+    "settingsPrivacySection": "Privacy",
+    "@settingsPrivacySection": {
+        "description": "Section header for privacy-related settings."
+    },
+    "settingsCrashReporting": "Crash reporting",
+    "@settingsCrashReporting": {
+        "description": "Toggle label for opt-in crash reporting."
+    },
+    "settingsCrashReportingDescription": "Send anonymised crash reports to help fix bugs (opt-in)",
+    "@settingsCrashReportingDescription": {
+        "description": "Subtitle under the crash-reporting toggle."
+    },
+    "settingsAboutSection": "About",
+    "@settingsAboutSection": {
+        "description": "Section header for the About section of settings."
+    },
+    "settingsVersion": "Version",
+    "@settingsVersion": {
+        "description": "Row label for the app version in the About section."
+    },
+    "settingsPrivacyPolicy": "Privacy policy",
+    "@settingsPrivacyPolicy": {
+        "description": "Tappable row that opens the privacy policy screen."
+    },
+    "settingsLicenses": "Open source licenses",
+    "@settingsLicenses": {
+        "description": "Tappable row that opens the in-app LicensePage."
     }
 }
