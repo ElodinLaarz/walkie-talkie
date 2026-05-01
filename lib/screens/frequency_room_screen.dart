@@ -978,24 +978,45 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     );
   }
 
-  void _reportPeer(BuildContext drawerCtx, Person person) {
+  Future<void> _reportPeer(BuildContext drawerCtx, Person person) async {
+    // Optimistically update in-memory mute state so the room UI responds
+    // immediately; we revert below if the DB write fails.
     setState(() {
       _peerMuted.add(person.id);
     });
-    unawaited(_persistMute(person.id, true));
     Navigator.pop(drawerCtx);
-    FrequencyToastHost.of(context).push(FrequencyToastSpec(
-      tone: ToastTone.warn,
-      title: '${person.name} blocked',
-    ));
-    final report = _buildSanitizedReport(person);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => _ReportSentDialog(
-        peerName: person.name,
-        reportText: report,
-      ),
-    );
+
+    bool blocked = false;
+    try {
+      await _blockedPeersStore.block(person.id);
+      blocked = true;
+    } catch (_) {
+      // Persistence failed — revert the in-memory change and fall through
+      // to show an error toast.
+      if (mounted) setState(() => _peerMuted.remove(person.id));
+    }
+
+    if (!mounted) return;
+
+    if (blocked) {
+      FrequencyToastHost.of(context).push(FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: '${person.name} blocked',
+      ));
+      final report = _buildSanitizedReport(person);
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => _ReportSentDialog(
+          peerName: person.name,
+          reportText: report,
+        ),
+      );
+    } else {
+      FrequencyToastHost.of(context).push(FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: 'Could not block ${person.name} — try again',
+      ));
+    }
   }
 
   String _buildSanitizedReport(Person person) {
