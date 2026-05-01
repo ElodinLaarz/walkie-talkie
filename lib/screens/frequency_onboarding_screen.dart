@@ -6,13 +6,14 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/onboarding_permission_gateway.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
+import 'frequency_explainer_screen.dart';
 
 /// Total number of steps in the onboarding flow. Surfaces in the chrome
-/// indicator (e.g. "01/03"); kept here so adding a step does not require
+/// indicator (e.g. "01/04"); kept here so adding a step does not require
 /// updating the ARB or every locale's translation.
-const int _kOnboardingTotalSteps = 3;
+const int _kOnboardingTotalSteps = 4;
 
-/// 3-step onboarding: welcome → permissions → display name.
+/// 4-step onboarding: welcome → explainer → permissions → display name.
 class FrequencyOnboardingScreen extends StatefulWidget {
   final ValueChanged<String> onDone;
 
@@ -114,6 +115,11 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
       case 0:
         return _Welcome(onNext: () => setState(() => _step = 1));
       case 1:
+        return FrequencyExplainerScreen(
+          onDone: () => setState(() => _step = 2),
+          embedded: true,
+        );
+      case 2:
         return _Permissions(
           btStatus: _btStatus,
           micStatus: _micStatus,
@@ -122,7 +128,7 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
           onRequestBt: _requestBluetooth,
           onRequestMic: _requestMicrophone,
           onOpenSettings: _gateway.openAppSettings,
-          onContinue: _allGranted ? () => setState(() => _step = 2) : null,
+          onContinue: _allGranted ? () => setState(() => _step = 3) : null,
         );
       default:
         return _NamePicker(
