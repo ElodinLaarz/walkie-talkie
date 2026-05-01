@@ -78,9 +78,13 @@ class _PeerDrawerState extends State<PeerDrawer> {
                       children: [
                         Icon(Icons.bluetooth, size: 11, color: c.ink3),
                         const SizedBox(width: 4),
-                        Text(
-                          widget.person.btDevice,
-                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                        Expanded(
+                          child: Text(
+                            widget.person.btDevice,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                          ),
                         ),
                       ],
                     ),

@@ -21,8 +21,6 @@ import '../widgets/peer_row.dart';
 import '../widgets/push_to_talk_button.dart';
 import '../widgets/queue_sheet.dart';
 
-export '../widgets/output_sheet.dart' show AudioOutput;
-
 /// Main "On air" room — voice + now playing.
 class FrequencyRoomScreen extends StatefulWidget {
   final String freq;
