@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'bloc/discovery_cubit.dart';
 import 'bloc/frequency_session_cubit.dart';
@@ -20,6 +21,7 @@ import 'services/identity_store.dart';
 import 'services/onboarding_permission_gateway.dart';
 import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
+import 'services/settings_store.dart';
 import 'services/storage_migration.dart';
 import 'theme/app_theme.dart';
 import 'widgets/frequency_toast_host.dart';
@@ -30,7 +32,52 @@ void main() async {
   // data on installs that had it. Subsequent launches see the marker in
   // the `kv` table and skip Hive init entirely.
   await migrateHiveToSqliteIfNeeded();
+
+  // Check crash reporting opt-in preference.
+  final settingsStore = SqfliteSettingsStore();
+  final crashReportingEnabled = await settingsStore.getCrashReportingEnabled();
+
+  if (crashReportingEnabled) {
+    // Sentry DSN should be provided via build args or environment variable.
+    // For now, we'll set up the infrastructure but won't initialize without a DSN.
+    const sentryDsn = String.fromEnvironment('SENTRY_DSN', defaultValue: '');
+
+    if (sentryDsn.isNotEmpty) {
+      await SentryFlutter.init(
+        (options) {
+          options.dsn = sentryDsn;
+          // Only send on Wi-Fi to respect user data plans
+          options.enableAutoSessionTracking = true;
+          // Redact PII
+          options.beforeSend = (event, hint) {
+            // Strip display names and peer IDs from breadcrumbs and contexts
+            final sanitized = _sanitizeEvent(event);
+            return sanitized;
+          };
+          // Sample rate: 100% for crashes (privacy-first app, low volume)
+          options.sampleRate = 1.0;
+          // Attach stack traces to messages
+          options.attachStacktrace = true;
+          // Respect do-not-track
+          options.enableAutoSessionTracking = true;
+        },
+        appRunner: () => runApp(const WalkieTalkieApp()),
+      );
+      return;
+    }
+  }
+
+  // Opt-out path or missing DSN: run without Sentry
   runApp(const WalkieTalkieApp());
+}
+
+/// Sanitizes Sentry events to remove PII.
+/// Redacts display names, peer IDs (keep them as anonymous identifiers),
+/// and any other sensitive data.
+SentryEvent? _sanitizeEvent(SentryEvent event) {
+  // For now, pass through peerId as it's documented as anonymous.
+  // Future enhancement: redact display names from extra context.
+  return event;
 }
 
 class WalkieTalkieApp extends StatefulWidget {

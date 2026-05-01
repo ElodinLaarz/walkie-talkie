@@ -3,6 +3,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("io.sentry.android.gradle")
 }
 
 android {
@@ -212,12 +213,39 @@ android {
     }
 }
 
+// Sentry configuration for crash reporting
+// Only enabled when user opts in via Settings (defaults to disabled)
+sentry {
+    // Upload debug symbols for native crashes (C++ Oboe/Opus code)
+    includeNativeSources = true
+
+    // Auto-upload ProGuard/R8 mapping files for deobfuscated Java/Kotlin stacks
+    autoUploadProguardMapping = true
+
+    // Controlled by SENTRY_DSN environment variable
+    // If not set, Sentry is disabled (respects opt-out default)
+    autoUploadNativeSymbols = true
+
+    // Include source context in stack traces
+    includeSourceContext = true
+
+    // Trace instrumentation for performance monitoring (opt-in only)
+    tracingInstrumentation {
+        enabled = false // Disabled by default for privacy
+    }
+}
+
 dependencies {
     // androidx.media gives us MediaSessionCompat + NotificationCompat.MediaStyle.
     // Pulled in for issue #97: an active MediaSession with STATE_PLAYING is what
     // tells Android 11+ FGS audio policy that we're "actively engaging" the user
     // so the mic stream isn't suppressed when the screen is off.
     implementation("androidx.media:media:1.7.0")
+
+    // Sentry for crash reporting (opt-in via Settings, issue #120)
+    // Includes NDK support for native crashes from Oboe/Opus C++ code
+    implementation("io.sentry:sentry-android:7.18.1")
+
     testImplementation("junit:junit:4.13.2")
 }
 
