@@ -10,23 +10,19 @@
     native <methods>;
 }
 
-# Keep entire walkie_talkie package - native code calls many methods via JNI
--keep class com.elodin.walkie_talkie.** { *; }
+# Keep specific JNI classes and their callback methods invoked from C++
+-keep class com.elodin.walkie_talkie.AudioEngineManager { *; }
+-keep class com.elodin.walkie_talkie.AudioMixerManager { *; }
+-keep class com.elodin.walkie_talkie.PeerAudioManager { *; }
 
-# Explicit keep for classes with JNI callbacks invoked from C++
 -keepclassmembers class com.elodin.walkie_talkie.MainActivity {
     void sendLocalTalkingEvent(boolean);
     void sendAudioError(java.lang.String);
 }
 
--keepclassmembers class com.elodin.walkie_talkie.PeerAudioManager {
-    void onMixedAudioReady(java.lang.String, byte[], int);
-}
-
-# Keep AudioEngineManager and AudioMixerManager - used via reflection/JNI
--keep class com.elodin.walkie_talkie.AudioEngineManager { *; }
--keep class com.elodin.walkie_talkie.AudioMixerManager { *; }
--keep class com.elodin.walkie_talkie.PeerAudioManager { *; }
+# Keep GATT managers - accessed via platform channel and may use reflection
+-keep class com.elodin.walkie_talkie.GattClientManager { *; }
+-keep class com.elodin.walkie_talkie.GattServerManager { *; }
 
 # ============================================================================
 # flutter_blue_plus: Bluetooth LE library keep rules
@@ -49,15 +45,19 @@
 # Flutter framework keep rules
 # ============================================================================
 
-# Keep Flutter embedding classes - required for plugin integration
--keep class io.flutter.** { *; }
--keep class io.flutter.embedding.** { *; }
--keep class io.flutter.plugin.** { *; }
--keep class io.flutter.util.** { *; }
--keep class io.flutter.view.** { *; }
+# Keep Flutter embedding entry points
+-keep class io.flutter.app.FlutterApplication { *; }
+-keep class io.flutter.plugin.common.** { *; }
+-keep class io.flutter.plugin.platform.** { *; }
+-keep class io.flutter.embedding.engine.** { *; }
 
 # Keep generated plugin registrant
 -keep class io.flutter.plugins.GeneratedPluginRegistrant { *; }
+
+# Keep method channel handlers
+-keepclassmembers class * {
+    @io.flutter.embedding.engine.dart.DartExecutor$DartEntrypoint *;
+}
 
 # ============================================================================
 # AndroidX and Android SDK keep rules
