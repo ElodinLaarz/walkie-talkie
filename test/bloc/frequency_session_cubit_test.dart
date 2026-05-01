@@ -48,19 +48,73 @@ class _FakeStore implements IdentityStore {
   }
 }
 
+/// Internal row carrying the public [RecentFrequency] plus a synthetic
+/// `recordedAt` ordering key. Mirrors the real store's `(epochMs << 16) +
+/// seqWithinMs` sort key so flipping `pinned` doesn't change the row's
+/// recency — and unpinning a row demotes it back to its real recency
+/// position relative to other unpinned rows, the way the production
+/// store does.
+class _FakeRecentRow {
+  RecentFrequency entry;
+  int recordedAt;
+  _FakeRecentRow(this.entry, this.recordedAt);
+}
+
 class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
-  final List<String> _entries;
+  final List<_FakeRecentRow> _rows;
+  int _nextRecordedAt;
   bool throwOnGet = false;
   bool throwOnRecord = false;
+  bool throwOnSetNickname = false;
+  bool throwOnSetPinned = false;
   int recordCalls = 0;
+  int setNicknameCalls = 0;
+  int setPinnedCalls = 0;
 
-  _FakeRecentFrequenciesStore({List<String>? initial})
-      : _entries = List<String>.of(initial ?? const []);
+  _FakeRecentFrequenciesStore({
+    List<String>? initial,
+    List<RecentFrequency>? detailed,
+  })  : _rows = [],
+        _nextRecordedAt = 0 {
+    final seed = detailed ??
+        (initial ?? const <String>[]).map((f) => RecentFrequency(freq: f));
+    // Seed with descending recordedAt so the first item in the supplied
+    // list is the most-recent (matches how callers think of recents).
+    final asList = seed.toList();
+    for (var i = asList.length - 1; i >= 0; i--) {
+      _rows.add(_FakeRecentRow(asList[i], _nextRecordedAt++));
+    }
+  }
 
   @override
   Future<List<String>> getRecent() async {
+    final detailed = await getRecentDetailed();
+    return List<String>.unmodifiable(detailed.map((e) => e.freq));
+  }
+
+  @override
+  Future<List<RecentFrequency>> getRecentDetailed() async {
     if (throwOnGet) throw StateError('boom');
-    return List<String>.unmodifiable(_entries);
+    // Pinned-first then recordedAt DESC, mirroring the production
+    // `ORDER BY pinned DESC, recorded_at DESC`. Cap unpinned at
+    // maxEntries; pinned rows are exempt (#125).
+    final sorted = [..._rows]
+      ..sort((a, b) {
+        if (a.entry.pinned != b.entry.pinned) {
+          return a.entry.pinned ? -1 : 1;
+        }
+        return b.recordedAt.compareTo(a.recordedAt);
+      });
+    final result = <RecentFrequency>[];
+    var unpinnedCount = 0;
+    for (final row in sorted) {
+      if (!row.entry.pinned) {
+        if (unpinnedCount >= RecentFrequenciesStore.maxEntries) continue;
+        unpinnedCount++;
+      }
+      result.add(row.entry);
+    }
+    return List<RecentFrequency>.unmodifiable(result);
   }
 
   @override
@@ -69,21 +123,74 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
     if (throwOnRecord) throw StateError('boom');
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
-    _entries
-      ..remove(trimmed)
-      ..insert(0, trimmed);
-    // Mirror the production cap so the fake doesn't silently let tests
-    // drift past behavior the real store enforces.
-    if (_entries.length > RecentFrequenciesStore.maxEntries) {
-      _entries.removeRange(
-        RecentFrequenciesStore.maxEntries,
-        _entries.length,
-      );
+    final existing = _rows.firstWhere(
+      (r) => r.entry.freq == trimmed,
+      orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
+    );
+    if (existing.recordedAt < 0) {
+      _rows.add(_FakeRecentRow(existing.entry, _nextRecordedAt++));
+    } else {
+      // Bump the existing row's recordedAt; nickname + pinned preserved
+      // so re-recording a curated entry doesn't silently strip metadata.
+      existing.recordedAt = _nextRecordedAt++;
+    }
+    // Mirror the production cap on UNPINNED entries; pinned rows exempt.
+    final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
+      ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    final toDrop = unpinnedSorted
+        .skip(RecentFrequenciesStore.maxEntries)
+        .map((r) => r.entry.freq)
+        .toSet();
+    _rows.removeWhere((r) => toDrop.contains(r.entry.freq));
+  }
+
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {
+    setNicknameCalls++;
+    if (throwOnSetNickname) throw StateError('boom');
+    final idx = _rows.indexWhere((r) => r.entry.freq == freq);
+    if (idx < 0) return;
+    final trimmed = nickname?.trim();
+    final value = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    _rows[idx].entry = RecentFrequency(
+      freq: _rows[idx].entry.freq,
+      nickname: value,
+      pinned: _rows[idx].entry.pinned,
+    );
+  }
+
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {
+    setPinnedCalls++;
+    if (throwOnSetPinned) throw StateError('boom');
+    final idx = _rows.indexWhere((r) => r.entry.freq == freq);
+    if (idx < 0) return;
+    _rows[idx].entry = RecentFrequency(
+      freq: _rows[idx].entry.freq,
+      nickname: _rows[idx].entry.nickname,
+      pinned: pinned,
+    );
+    // Intentionally do NOT touch recordedAt — unpinning should demote a
+    // row back to its real recency position relative to other unpinned
+    // rows, matching the production store's `recorded_at`-driven order.
+    //
+    // Mirror production's cap-on-unpin: pinning exempts a row from the
+    // cap, so unpinning can push the unpinned bucket past maxEntries.
+    // Drop the oldest unpinned rows so the fake doesn't silently let
+    // tests drift past the on-disk semantics.
+    if (!pinned) {
+      final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
+        ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+      final toDrop = unpinnedSorted
+          .skip(RecentFrequenciesStore.maxEntries)
+          .map((r) => r.entry.freq)
+          .toSet();
+      _rows.removeWhere((r) => toDrop.contains(r.entry.freq));
     }
   }
 
   @override
-  Future<void> clear() async => _entries.clear();
+  Future<void> clear() async => _rows.clear();
 }
 
 // Zero delays so reconnect tests don't actually wait.
@@ -607,9 +714,12 @@ void main() {
       ),
       act: (cubit) => cubit.bootstrap(),
       expect: () => [
-        const SessionDiscovery(
+        SessionDiscovery(
           myName: 'Maya',
-          recentHostedFrequencies: ['100.1', '92.4'],
+          recentHostedFrequencies: const [
+            RecentFrequency(freq: '100.1'),
+            RecentFrequency(freq: '92.4'),
+          ],
         ),
       ],
     );
@@ -648,9 +758,11 @@ void main() {
       seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.completeOnboarding('Devon'),
       expect: () => [
-        const SessionDiscovery(
+        SessionDiscovery(
           myName: 'Devon',
-          recentHostedFrequencies: ['92.4'],
+          recentHostedFrequencies: const [
+            RecentFrequency(freq: '92.4'),
+          ],
         ),
       ],
     );
@@ -663,15 +775,21 @@ void main() {
       build: () => _makeCubit(
         identityStore: _FakeStore(initial: 'Maya'),
       ),
-      seed: () => const SessionDiscovery(
+      seed: () => SessionDiscovery(
         myName: 'Maya',
-        recentHostedFrequencies: ['100.1', '92.4'],
+        recentHostedFrequencies: const [
+          RecentFrequency(freq: '100.1'),
+          RecentFrequency(freq: '92.4'),
+        ],
       ),
       act: (cubit) => cubit.rename('Maya R.'),
       expect: () => [
-        const SessionDiscovery(
+        SessionDiscovery(
           myName: 'Maya R.',
-          recentHostedFrequencies: ['100.1', '92.4'],
+          recentHostedFrequencies: const [
+            RecentFrequency(freq: '100.1'),
+            RecentFrequency(freq: '92.4'),
+          ],
         ),
       ],
     );
@@ -751,11 +869,245 @@ void main() {
       ),
       act: (cubit) => cubit.leaveRoom(),
       expect: () => [
-        const SessionDiscovery(
+        SessionDiscovery(
           myName: 'Maya',
-          recentHostedFrequencies: ['104.3', '92.4'],
+          recentHostedFrequencies: const [
+            RecentFrequency(freq: '104.3'),
+            RecentFrequency(freq: '92.4'),
+          ],
         ),
       ],
+    );
+
+    // ── Recent-frequencies naming + pinning (#125) ─────────────────────
+
+    test(
+      'setRecentNickname persists the nickname and re-emits Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1'],
+        );
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await cubit.setRecentNickname('100.1', '  Family channel  ');
+
+        expect(recent.setNicknameCalls, 1);
+        final s = cubit.state as SessionDiscovery;
+        expect(s.recentHostedFrequencies, [
+          // The fake mirrors the production trim/normalize, so the
+          // surfaced state already shows the trimmed nickname.
+          const RecentFrequency(
+            freq: '100.1',
+            nickname: 'Family channel',
+          ),
+        ]);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentNickname with null clears an existing nickname',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          detailed: const [
+            RecentFrequency(freq: '100.1', nickname: 'Family channel'),
+          ],
+        );
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await cubit.setRecentNickname('100.1', null);
+
+        final s = cubit.state as SessionDiscovery;
+        expect(s.recentHostedFrequencies.single.nickname, isNull);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentNickname is a no-op outside Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        await cubit.setRecentNickname('104.3', 'Whatever');
+
+        // The store is never touched — naming a recent only makes sense
+        // from the screen that renders the recents list.
+        expect(recent.setNicknameCalls, 0);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentNickname swallows store failures and still completes',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1'],
+        )..throwOnSetNickname = true;
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        // The user has already committed the action from the UI; a disk
+        // hiccup must not bubble up as an unhandled async error.
+        await expectLater(
+          cubit.setRecentNickname('100.1', 'Family channel'),
+          completes,
+        );
+
+        // The persisted nickname remained absent (write failed) — the
+        // cubit's reload reflects the on-disk truth.
+        final after = cubit.state as SessionDiscovery;
+        expect(after.recentHostedFrequencies.single.freq, '100.1');
+        expect(after.recentHostedFrequencies.single.nickname, isNull);
+        // The setNickname call was attempted exactly once — the cubit
+        // didn't retry past the failure.
+        expect(recent.setNicknameCalls, 1);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentPinned floats the pinned row to the top and re-emits Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1', '92.4', '88.7'],
+        );
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await cubit.setRecentPinned('92.4', true);
+
+        expect(recent.setPinnedCalls, 1);
+        final s = cubit.state as SessionDiscovery;
+        // Pinned row floats above the unpinned rows; relative order
+        // among the unpinned rows is preserved.
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['92.4', '100.1', '88.7'],
+        );
+        expect(s.recentHostedFrequencies.first.pinned, isTrue);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentPinned(false) demotes a previously-pinned row to its real recency position',
+      () async {
+        // Seed order (newest → oldest): 100.1, 88.7, 92.4-pinned. The pin
+        // floats 92.4 to the top in the list view, but its underlying
+        // recordedAt is the oldest. After unpinning, 92.4 must land at
+        // the *bottom*, behind 100.1 and 88.7 — not stick at the top
+        // just because it used to be pinned. Asserting `every (!pinned)`
+        // alone would have passed even if the demotion logic were wrong;
+        // assert the full ordering instead.
+        final recent = _FakeRecentFrequenciesStore(
+          detailed: const [
+            RecentFrequency(freq: '100.1'),
+            RecentFrequency(freq: '88.7'),
+            RecentFrequency(freq: '92.4', pinned: true),
+          ],
+        );
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        // Pre-condition: pin floats 92.4 to the top.
+        var s = cubit.state as SessionDiscovery;
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['92.4', '100.1', '88.7'],
+        );
+
+        await cubit.setRecentPinned('92.4', false);
+
+        s = cubit.state as SessionDiscovery;
+        expect(s.recentHostedFrequencies.every((e) => !e.pinned), isTrue);
+        // 92.4 demotes to its real recency position (oldest), so the
+        // unpinned-by-recency order is 100.1, 88.7, 92.4.
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['100.1', '88.7', '92.4'],
+        );
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentPinned swallows store failures and still completes',
+      () async {
+        // Same failure-path coverage as the setRecentNickname test —
+        // user has already committed the toggle from the UI; a disk
+        // hiccup must not bubble up as an unhandled async error.
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1'],
+        )..throwOnSetPinned = true;
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await expectLater(
+          cubit.setRecentPinned('100.1', true),
+          completes,
+        );
+
+        // Pin write failed → on-disk row stays unpinned, and the
+        // cubit's reload reflects the on-disk truth.
+        final after = cubit.state as SessionDiscovery;
+        expect(after.recentHostedFrequencies.single.freq, '100.1');
+        expect(after.recentHostedFrequencies.single.pinned, isFalse);
+        // Exactly one attempt — the cubit doesn't retry past the failure.
+        expect(recent.setPinnedCalls, 1);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'setRecentPinned is a no-op outside Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        await cubit.setRecentPinned('104.3', true);
+
+        expect(recent.setPinnedCalls, 0);
+
+        await cubit.close();
+      },
     );
 
     // ── Wire-protocol surface ──────────────────────────────────────────
@@ -2610,7 +2962,8 @@ void main() {
         final s = cubit.state;
         expect(s, isA<SessionDiscovery>());
         expect((s as SessionDiscovery).myName, 'Maya');
-        expect(s.recentHostedFrequencies, ['100.1']);
+        expect(s.recentHostedFrequencies.map((e) => e.freq).toList(),
+            ['100.1']);
 
         await cubit.close();
         await watcher.dispose();
@@ -2755,8 +3108,8 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(cubit.state, isA<SessionPermissionDenied>());
 
-        // Wedge the next getRecent call so recovery's await blocks.
-        final blocker = Completer<List<String>>();
+        // Wedge the next getRecentDetailed call so recovery's await blocks.
+        final blocker = Completer<List<RecentFrequency>>();
         recent.gate = blocker.future;
 
         // User re-grants — recovery starts and awaits the slow disk read.
@@ -3278,19 +3631,26 @@ void main() {
   });
 }
 
-/// RecentFrequenciesStore whose `getRecent()` blocks on a caller-supplied
-/// future, letting a test wedge an awaiting cubit method mid-await to
-/// exercise races against state transitions that fire during the gap.
+/// RecentFrequenciesStore whose `getRecentDetailed()` blocks on a
+/// caller-supplied future, letting a test wedge an awaiting cubit method
+/// mid-await to exercise races against state transitions that fire
+/// during the gap.
 ///
 /// The first call always resolves immediately (so bootstrap can finish)
 /// and only later calls block. Tests that want to wedge mid-recovery set
 /// the gate before triggering the recovery path.
 class _GatedRecentFrequenciesStore implements RecentFrequenciesStore {
-  Future<List<String>>? gate;
+  Future<List<RecentFrequency>>? gate;
   int callCount = 0;
 
   @override
   Future<List<String>> getRecent() async {
+    final detailed = await getRecentDetailed();
+    return detailed.map((e) => e.freq).toList();
+  }
+
+  @override
+  Future<List<RecentFrequency>> getRecentDetailed() async {
     callCount++;
     final g = gate;
     if (g == null) return const [];
@@ -3299,6 +3659,12 @@ class _GatedRecentFrequenciesStore implements RecentFrequenciesStore {
 
   @override
   Future<void> record(String freq) async {}
+
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {}
+
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {}
 
   @override
   Future<void> clear() async {}

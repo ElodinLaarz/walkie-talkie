@@ -6,6 +6,7 @@ import 'package:walkie_talkie/bloc/discovery_cubit.dart';
 import 'package:walkie_talkie/bloc/discovery_state.dart';
 import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/screens/frequency_discovery_screen.dart';
+import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 
 class MockDiscoveryCubit extends Mock implements DiscoveryCubit {}
@@ -207,7 +208,10 @@ void main() {
             myName: 'Maya',
             onPick: (_) {},
             onRename: (_) {},
-            recentHostedFrequencies: const ['100.1', '92.4'],
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+              RecentFrequency(freq: '92.4'),
+            ],
           ),
         ));
         await tester.pump();
@@ -232,7 +236,10 @@ void main() {
             myName: 'Maya',
             onPick: (r) => picked = r,
             onRename: (_) {},
-            recentHostedFrequencies: const ['100.1', '92.4'],
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+              RecentFrequency(freq: '92.4'),
+            ],
           ),
         ));
         await tester.pump();
@@ -244,6 +251,226 @@ void main() {
         expect(picked, isNotNull);
         expect(picked!.isHost, isTrue);
         expect(picked!.freq, '92.4');
+      },
+    );
+
+    testWidgets(
+      'renders nickname instead of default title when one is set on a recent',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', nickname: 'Family channel'),
+              RecentFrequency(freq: '92.4'),
+            ],
+          ),
+        ));
+        await tester.pump();
+
+        // The nickname replaces the default 'Your channel' title for the
+        // nicknamed row; the un-nicknamed row still shows the default.
+        expect(find.text('Family channel'), findsOneWidget);
+        expect(find.text('Your channel'), findsOneWidget);
+        // Both rows still surface the freq subtitle so the user can see the
+        // underlying channel even after assigning a label.
+        expect(find.textContaining('Host on 100.1'), findsOneWidget);
+        expect(find.textContaining('Host on 92.4'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'renders the PINNED badge on rows that are pinned',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', pinned: true),
+              RecentFrequency(freq: '92.4'),
+            ],
+          ),
+        ));
+        await tester.pump();
+
+        expect(find.text('PINNED'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'opening the recent overflow menu and tapping Pin fires onSetRecentPinned',
+      (tester) async {
+        ({String freq, bool pinned})? pinned;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+            ],
+            onSetRecentNickname: (_, _) {},
+            onSetRecentPinned: (freq, p) =>
+                pinned = (freq: freq, pinned: p),
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Tap the InkWell wrapping the menu item rather than its Text — the
+        // Text's centre lands on RenderAbsorbPointer (the modal barrier of
+        // the popup), which dismisses the menu instead of triggering the
+        // item.
+        await tester.tap(find.widgetWithText(InkWell, 'Pin to top'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(pinned, isNotNull);
+        expect(pinned!.freq, '100.1');
+        expect(pinned!.pinned, isTrue);
+      },
+    );
+
+    testWidgets(
+      'opening the recent overflow menu on a pinned row shows Unpin and fires onSetRecentPinned(false)',
+      (tester) async {
+        ({String freq, bool pinned})? pinned;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', pinned: true),
+            ],
+            onSetRecentNickname: (_, _) {},
+            onSetRecentPinned: (freq, p) =>
+                pinned = (freq: freq, pinned: p),
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Pinned rows offer "Unpin" instead of "Pin to top".
+        expect(find.text('Unpin'), findsOneWidget);
+        expect(find.text('Pin to top'), findsNothing);
+
+        // Tap the InkWell wrapping the Text — the Text's centre lands on
+        // the popup's modal barrier in the test environment, so a direct
+        // text tap dismisses the menu without triggering the item.
+        await tester.tap(find.widgetWithText(InkWell, 'Unpin'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(pinned, isNotNull);
+        expect(pinned!.freq, '100.1');
+        expect(pinned!.pinned, isFalse);
+      },
+    );
+
+    testWidgets(
+      'opening Rename and saving a nickname fires onSetRecentNickname with the trimmed value',
+      (tester) async {
+        ({String freq, String? nickname})? saved;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+            ],
+            onSetRecentNickname: (freq, n) =>
+                saved = (freq: freq, nickname: n),
+            onSetRecentPinned: (_, _) {},
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.widgetWithText(InkWell, 'Rename'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.enterText(find.byType(TextField), '  Family channel  ');
+        // Submit through the IME `done` action — same submit path as the
+        // Save button. Avoids the test-environment quirk where the Save
+        // button can sit below the simulated keyboard inset.
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump(_settleWindow);
+
+        expect(saved, isNotNull);
+        expect(saved!.freq, '100.1');
+        expect(saved!.nickname, 'Family channel');
+      },
+    );
+
+    testWidgets(
+      'submitting an empty nickname clears the existing one (passes null)',
+      (tester) async {
+        ({String freq, String? nickname})? saved;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', nickname: 'Family channel'),
+            ],
+            onSetRecentNickname: (freq, n) =>
+                saved = (freq: freq, nickname: n),
+            onSetRecentPinned: (_, _) {},
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.widgetWithText(InkWell, 'Rename'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.enterText(find.byType(TextField), '');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump(_settleWindow);
+
+        expect(saved, isNotNull);
+        expect(saved!.freq, '100.1');
+        expect(saved!.nickname, isNull);
+      },
+    );
+
+    testWidgets(
+      'overflow menu is omitted when both nickname / pin callbacks are null',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+            ],
+            // Both nickname/pin handlers omitted — back-compat path for
+            // embeddings that don't wire the persistence layer.
+          ),
+        ));
+        await tester.pump();
+
+        expect(find.byTooltip('Recent options'), findsNothing);
       },
     );
 

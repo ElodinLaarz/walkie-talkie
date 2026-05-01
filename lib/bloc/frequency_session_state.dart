@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 import '../services/permission_watcher.dart';
+import '../services/recent_frequencies_store.dart';
 
 /// Sentinel marking an argument-not-supplied position in `copyWith`. A
 /// caller passing `null` explicitly is distinguishable from omitting
@@ -36,16 +37,18 @@ final class SessionOnboarding extends FrequencySessionState {
 /// User has a persisted display name and is on Discovery, but hasn't
 /// joined or created a frequency yet.
 ///
-/// [recentHostedFrequencies] is the most-recent-first list of channels
-/// the local user has hosted on this device, sourced from
-/// `RecentFrequenciesStore`. Empty when the user hasn't hosted before
-/// or the persisted store couldn't be read. The list is expected to
-/// already be unmodifiable (Equatable diffs it element-wise, so a
-/// caller mutating it in place would silently break state-change
-/// detection).
+/// [recentHostedFrequencies] is the pinned-first then most-recent-first
+/// list of channels the local user has hosted on this device, sourced
+/// from `RecentFrequenciesStore`. Each entry carries the freq itself
+/// plus the user-curated nickname / pin metadata so the Discovery row
+/// can render a label and a pin affordance without a follow-up read.
+/// Empty when the user hasn't hosted before or the persisted store
+/// couldn't be read. The list is expected to already be unmodifiable
+/// (Equatable diffs it element-wise, so a caller mutating it in place
+/// would silently break state-change detection).
 final class SessionDiscovery extends FrequencySessionState {
   final String myName;
-  final List<String> recentHostedFrequencies;
+  final List<RecentFrequency> recentHostedFrequencies;
   const SessionDiscovery({
     required this.myName,
     this.recentHostedFrequencies = const [],

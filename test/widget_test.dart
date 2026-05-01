@@ -25,33 +25,121 @@ class _FakeIdentityStore implements IdentityStore {
   Future<String> getPeerId() async => _peerId ??= 'fake-peer-id';
 }
 
+/// Internal row carrying the public [RecentFrequency] plus a synthetic
+/// `recordedAt` ordering key. Mirrors the real store's recency sort so
+/// flipping `pinned` doesn't change the row's recency position.
+class _FakeRecentRow {
+  RecentFrequency entry;
+  int recordedAt;
+  _FakeRecentRow(this.entry, this.recordedAt);
+}
+
 class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
-  final List<String> _entries;
+  final List<_FakeRecentRow> _rows;
+  int _nextRecordedAt;
   _FakeRecentFrequenciesStore({List<String>? initial})
-      : _entries = List<String>.of(initial ?? const []);
-
-  @override
-  Future<List<String>> getRecent() async => List<String>.unmodifiable(_entries);
-
-  @override
-  Future<void> record(String freq) async {
-    final trimmed = freq.trim();
-    if (trimmed.isEmpty) return;
-    _entries
-      ..remove(trimmed)
-      ..insert(0, trimmed);
-    // Mirror the production cap so the fake doesn't silently let tests
-    // drift past behavior the real store enforces.
-    if (_entries.length > RecentFrequenciesStore.maxEntries) {
-      _entries.removeRange(
-        RecentFrequenciesStore.maxEntries,
-        _entries.length,
+      : _rows = [],
+        _nextRecordedAt = 0 {
+    final asList = (initial ?? const <String>[]).toList();
+    // Seed in reverse so the first item ends up most-recent.
+    for (var i = asList.length - 1; i >= 0; i--) {
+      _rows.add(
+        _FakeRecentRow(RecentFrequency(freq: asList[i]), _nextRecordedAt++),
       );
     }
   }
 
   @override
-  Future<void> clear() async => _entries.clear();
+  Future<List<String>> getRecent() async {
+    final detailed = await getRecentDetailed();
+    return List<String>.unmodifiable(detailed.map((e) => e.freq));
+  }
+
+  @override
+  Future<List<RecentFrequency>> getRecentDetailed() async {
+    // Pinned-first then recordedAt DESC, mirroring the production
+    // `ORDER BY pinned DESC, recorded_at DESC`. Cap unpinned at
+    // maxEntries; pinned rows are exempt.
+    final sorted = [..._rows]
+      ..sort((a, b) {
+        if (a.entry.pinned != b.entry.pinned) {
+          return a.entry.pinned ? -1 : 1;
+        }
+        return b.recordedAt.compareTo(a.recordedAt);
+      });
+    final result = <RecentFrequency>[];
+    var unpinnedCount = 0;
+    for (final row in sorted) {
+      if (!row.entry.pinned) {
+        if (unpinnedCount >= RecentFrequenciesStore.maxEntries) continue;
+        unpinnedCount++;
+      }
+      result.add(row.entry);
+    }
+    return List<RecentFrequency>.unmodifiable(result);
+  }
+
+  @override
+  Future<void> record(String freq) async {
+    final trimmed = freq.trim();
+    if (trimmed.isEmpty) return;
+    final existing = _rows.firstWhere(
+      (r) => r.entry.freq == trimmed,
+      orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
+    );
+    if (existing.recordedAt < 0) {
+      _rows.add(_FakeRecentRow(existing.entry, _nextRecordedAt++));
+    } else {
+      existing.recordedAt = _nextRecordedAt++;
+    }
+    final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
+      ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    final toDrop = unpinnedSorted
+        .skip(RecentFrequenciesStore.maxEntries)
+        .map((r) => r.entry.freq)
+        .toSet();
+    _rows.removeWhere((r) => toDrop.contains(r.entry.freq));
+  }
+
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {
+    final idx = _rows.indexWhere((r) => r.entry.freq == freq);
+    if (idx < 0) return;
+    final trimmed = nickname?.trim();
+    final value = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    _rows[idx].entry = RecentFrequency(
+      freq: _rows[idx].entry.freq,
+      nickname: value,
+      pinned: _rows[idx].entry.pinned,
+    );
+  }
+
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {
+    final idx = _rows.indexWhere((r) => r.entry.freq == freq);
+    if (idx < 0) return;
+    _rows[idx].entry = RecentFrequency(
+      freq: _rows[idx].entry.freq,
+      nickname: _rows[idx].entry.nickname,
+      pinned: pinned,
+    );
+    // Intentionally do NOT touch recordedAt — unpinning should demote a
+    // row back to its real recency position relative to other unpinned
+    // rows. Mirror production's cap-on-unpin so unpinning can't leave
+    // the fake holding more unpinned rows than maxEntries.
+    if (!pinned) {
+      final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
+        ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+      final toDrop = unpinnedSorted
+          .skip(RecentFrequenciesStore.maxEntries)
+          .map((r) => r.entry.freq)
+          .toSet();
+      _rows.removeWhere((r) => toDrop.contains(r.entry.freq));
+    }
+  }
+
+  @override
+  Future<void> clear() async => _rows.clear();
 }
 
 class _FakeDiscoveryService implements DiscoveryService {

@@ -1283,9 +1283,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     await _permissionWatcher?.checkNow();
   }
 
-  Future<List<String>> _loadRecentFrequencies() async {
+  Future<List<RecentFrequency>> _loadRecentFrequencies() async {
     try {
-      return await recentFrequenciesStore.getRecent();
+      return await recentFrequenciesStore.getRecentDetailed();
     } catch (error, stackTrace) {
       if (kDebugMode) debugPrint('Failed to load recent frequencies: $error');
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
@@ -1300,6 +1300,62 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       if (kDebugMode) debugPrint('Failed to record recent frequency: $error');
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
+  }
+
+  /// Persists [nickname] (or clears it when null/empty) for the recent
+  /// frequency [freq], then re-emits [SessionDiscovery] so the Discovery
+  /// list updates without waiting for a leave/rejoin to refresh state.
+  /// No-op when the cubit is not in [SessionDiscovery] — naming a recent
+  /// only makes sense from the screen that renders them.
+  ///
+  /// Failures from the store are logged and swallowed so the user isn't
+  /// blocked on a transient sqlite error; the in-memory state is rolled
+  /// back to whatever the next read sees by re-loading the list.
+  ///
+  /// `myName` is read from the **latest** [SessionDiscovery] right
+  /// before emit (not from a snapshot taken before the awaits) so a
+  /// concurrent [rename] landing during the sqlite round-trip can't be
+  /// silently clobbered by a stale name.
+  Future<void> setRecentNickname(String freq, String? nickname) async {
+    if (state is! SessionDiscovery) return;
+    try {
+      await recentFrequenciesStore.setNickname(freq, nickname);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('Failed to set recent nickname: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+    }
+    if (isClosed) return;
+    final refreshed = await _loadRecentFrequencies();
+    if (isClosed) return;
+    final latest = state;
+    if (latest is! SessionDiscovery) return;
+    emit(SessionDiscovery(
+      myName: latest.myName,
+      recentHostedFrequencies: refreshed,
+    ));
+  }
+
+  /// Pins or unpins [freq] in the persisted recents, then re-emits
+  /// [SessionDiscovery] so the Discovery list resorts (pinned rows float
+  /// to the top). Same scope, failure, and rename-race semantics as
+  /// [setRecentNickname].
+  Future<void> setRecentPinned(String freq, bool pinned) async {
+    if (state is! SessionDiscovery) return;
+    try {
+      await recentFrequenciesStore.setPinned(freq, pinned);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('Failed to set recent pinned: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+    }
+    if (isClosed) return;
+    final refreshed = await _loadRecentFrequencies();
+    if (isClosed) return;
+    final latest = state;
+    if (latest is! SessionDiscovery) return;
+    emit(SessionDiscovery(
+      myName: latest.myName,
+      recentHostedFrequencies: refreshed,
+    ));
   }
 
   /// Apply a `JoinAccepted` from the host. Replaces the room's snapshot

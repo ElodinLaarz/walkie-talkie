@@ -833,7 +833,13 @@ class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
   @override
   Future<List<String>> getRecent() async => const [];
   @override
+  Future<List<RecentFrequency>> getRecentDetailed() async => const [];
+  @override
   Future<void> record(String freq) async {}
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {}
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {}
   @override
   Future<void> clear() async {}
 }

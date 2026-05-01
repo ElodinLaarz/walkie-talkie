@@ -9,6 +9,7 @@ import '../bloc/discovery_state.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
+import '../services/recent_frequencies_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import 'frequency_explainer_screen.dart';
@@ -57,12 +58,24 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   /// confirms an edit in the rename sheet.
   final ValueChanged<String> onRename;
 
-  /// Most-recent-first list of frequencies the local user has hosted on
-  /// this device. Surfaced as a "Recent" section so the user can re-host
-  /// a personal channel with one tap instead of accepting whichever
-  /// random frequency the create card happens to have minted this visit.
-  /// Empty (the default) hides the section entirely.
-  final List<String> recentHostedFrequencies;
+  /// Pinned-first then most-recent-first list of frequencies the local
+  /// user has hosted on this device. Surfaced as a "Recent" section so
+  /// the user can re-host a personal channel with one tap instead of
+  /// accepting whichever random frequency the create card happens to
+  /// have minted this visit. Each entry carries an optional nickname
+  /// and a `pinned` flag so the row can render a label and a pin
+  /// affordance. Empty (the default) hides the section entirely.
+  final List<RecentFrequency> recentHostedFrequencies;
+
+  /// Persists a nickname change for a recent frequency. Pass `null` (or an
+  /// empty string, which the store normalizes to null) to clear the
+  /// nickname so the row falls back to the default `discoveryRecentRowTitle`
+  /// label. No-op when the freq isn't already in the persisted list.
+  final void Function(String freq, String? nickname)? onSetRecentNickname;
+
+  /// Persists a pin/unpin toggle for a recent frequency. Pinned rows float
+  /// to the top of the list and are exempt from the cap.
+  final void Function(String freq, bool pinned)? onSetRecentPinned;
 
   const FrequencyDiscoveryScreen({
     super.key,
@@ -70,6 +83,8 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
     required this.myName,
     required this.onRename,
     this.recentHostedFrequencies = const [],
+    this.onSetRecentNickname,
+    this.onSetRecentPinned,
   });
 
   @override
@@ -340,19 +355,54 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
         children: [
           for (int i = 0; i < widget.recentHostedFrequencies.length; i++)
             _RecentRow(
-              key: ValueKey('recent-${widget.recentHostedFrequencies[i]}'),
-              freq: widget.recentHostedFrequencies[i],
+              // Key on freq alone — nickname / pinned can change without
+              // the row identity changing, so the framework can reuse the
+              // same Element and animate the label / pin badge in place.
+              key: ValueKey('recent-${widget.recentHostedFrequencies[i].freq}'),
+              entry: widget.recentHostedFrequencies[i],
               first: i == 0,
               accent: c.accentSoft,
               accentInk: c.accentInk,
               onResume: () => widget.onPick(DiscoveryResult(
-                freq: widget.recentHostedFrequencies[i],
+                freq: widget.recentHostedFrequencies[i].freq,
                 isHost: true,
               )),
+              onRename: widget.onSetRecentNickname == null
+                  ? null
+                  : () => _openRecentNicknameSheet(
+                        widget.recentHostedFrequencies[i],
+                      ),
+              onTogglePin: widget.onSetRecentPinned == null
+                  ? null
+                  : () => widget.onSetRecentPinned!(
+                        widget.recentHostedFrequencies[i].freq,
+                        !widget.recentHostedFrequencies[i].pinned,
+                      ),
             ),
         ],
       ),
     );
+  }
+
+  /// Bottom-sheet entry point for editing the nickname of a recent
+  /// frequency. Returns through `_RecentNicknameSheet`'s pop value, which
+  /// signals one of three intents: a new label to set, an explicit clear
+  /// of an existing label, or a cancel (no callback fired).
+  Future<void> _openRecentNicknameSheet(RecentFrequency entry) async {
+    final c = FrequencyTheme.of(context).colors;
+    final result = await showModalBottomSheet<_NicknameSheetResult>(
+      context: context,
+      backgroundColor: c.bg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _RecentNicknameSheet(entry: entry),
+    );
+    if (result == null) return;
+    final cb = widget.onSetRecentNickname;
+    if (cb == null) return;
+    cb(entry.freq, result.nickname);
   }
 
   Widget _buildNearbyList(BuildContext context) {
@@ -521,26 +571,38 @@ class _NearbyRow extends StatelessWidget {
 /// language (icon disc + title + freq mono), but the trailing affordance
 /// is a "Resume" hint instead of signal bars + selection state since
 /// recents are a one-tap action with no per-row sub-selection.
+///
+/// When [onRename] / [onTogglePin] are provided, an overflow menu
+/// appears between the title and the Resume button so the user can
+/// name or pin the recent without leaving Discovery. Both callbacks
+/// are nullable so test fixtures (and any embedding that doesn't wire
+/// up persistence) can render the row without inventing no-op handlers.
 class _RecentRow extends StatelessWidget {
-  final String freq;
+  final RecentFrequency entry;
   final bool first;
   final Color accent;
   final Color accentInk;
   final VoidCallback onResume;
+  final VoidCallback? onRename;
+  final VoidCallback? onTogglePin;
 
   const _RecentRow({
     super.key,
-    required this.freq,
+    required this.entry,
     required this.first,
     required this.accent,
     required this.accentInk,
     required this.onResume,
+    this.onRename,
+    this.onTogglePin,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final l10n = AppLocalizations.of(context);
+    final hasMenu = onRename != null || onTogglePin != null;
+    final title = entry.nickname ?? l10n.discoveryRecentRowTitle;
     return Material(
       color: c.surface,
       child: InkWell(
@@ -562,21 +624,41 @@ class _RecentRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
-                child: Icon(Icons.history, size: 16, color: accentInk),
+                // Pinned rows trade the generic history glyph for a pin
+                // so the user can tell at a glance which recents are
+                // user-curated vs auto-recorded.
+                child: Icon(
+                  entry.pinned ? Icons.push_pin : Icons.history,
+                  size: 16,
+                  color: accentInk,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      l10n.discoveryRecentRowTitle,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: c.ink,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: c.ink,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (entry.pinned) ...[
+                          const SizedBox(width: 6),
+                          _PinnedBadge(),
+                        ],
+                      ],
                     ),
                     // Text.rich (rather than a Row of Texts) so the
                     // freq + unit string can ellipsize gracefully when
@@ -591,7 +673,7 @@ class _RecentRow extends StatelessWidget {
                         ),
                         children: styledTemplate(
                           template: l10n.discoveryRecentRowHostFreq,
-                          value: freq,
+                          value: entry.freq,
                           valueStyle: kMonoStyle.copyWith(fontSize: 12),
                         ),
                       ),
@@ -601,7 +683,15 @@ class _RecentRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              if (hasMenu) ...[
+                const SizedBox(width: 4),
+                _RecentRowMenu(
+                  pinned: entry.pinned,
+                  onRename: onRename,
+                  onTogglePin: onTogglePin,
+                ),
+              ],
+              const SizedBox(width: 4),
               FreqButton(
                 accent: true,
                 label: l10n.discoveryRecentRowResume,
@@ -613,6 +703,249 @@ class _RecentRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact "PINNED" eyebrow shown next to the title of a pinned recent
+/// row. Pinned items already lead with a pin icon in the disc, so this
+/// is a redundant cue rather than the only one — it exists for users
+/// who skim row titles rather than glyphs.
+class _PinnedBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.accentSoft,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        l10n.discoveryRecentPinnedBadge,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: c.accentInk,
+        ),
+      ),
+    );
+  }
+}
+
+/// Overflow menu attached to a recent row. Renders a `PopupMenuButton`
+/// whose items are conditionally included based on which callbacks the
+/// parent supplied — a row that opts into rename only (or pin only)
+/// doesn't get a stub "no-op" entry.
+class _RecentRowMenu extends StatelessWidget {
+  final bool pinned;
+  final VoidCallback? onRename;
+  final VoidCallback? onTogglePin;
+
+  const _RecentRowMenu({
+    required this.pinned,
+    required this.onRename,
+    required this.onTogglePin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
+    return PopupMenuButton<_RecentRowMenuAction>(
+      tooltip: l10n.discoveryRecentRowMenuTooltip,
+      icon: Icon(Icons.more_vert, size: 18, color: c.ink2),
+      itemBuilder: (_) => [
+        if (onRename != null)
+          PopupMenuItem<_RecentRowMenuAction>(
+            value: _RecentRowMenuAction.rename,
+            child: Text(l10n.discoveryRecentMenuRename),
+          ),
+        if (onTogglePin != null)
+          PopupMenuItem<_RecentRowMenuAction>(
+            value: _RecentRowMenuAction.togglePin,
+            child: Text(
+              pinned
+                  ? l10n.discoveryRecentMenuUnpin
+                  : l10n.discoveryRecentMenuPin,
+            ),
+          ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case _RecentRowMenuAction.rename:
+            onRename?.call();
+          case _RecentRowMenuAction.togglePin:
+            onTogglePin?.call();
+        }
+      },
+    );
+  }
+}
+
+enum _RecentRowMenuAction { rename, togglePin }
+
+/// Result of [_RecentNicknameSheet]'s submission. Wrapped in a class
+/// rather than passing a bare `String?` because a null pop value already
+/// means "user dismissed without saving" — we need a third state to
+/// distinguish "user cleared the existing nickname" from "user closed
+/// the sheet."
+class _NicknameSheetResult {
+  /// New nickname to persist, or `null` to clear an existing one. The
+  /// store treats `null` and empty/whitespace-only equivalently, but the
+  /// sheet sends `null` explicitly so the intent is unambiguous.
+  final String? nickname;
+
+  const _NicknameSheetResult(this.nickname);
+}
+
+/// Bottom sheet for editing the nickname of a recent frequency. Same
+/// visual language as [_RenameSheet] (the identity rename), but with a
+/// secondary "Clear" affordance so a user with an existing nickname can
+/// remove it without typing in an empty string and tapping Save.
+class _RecentNicknameSheet extends StatefulWidget {
+  final RecentFrequency entry;
+  const _RecentNicknameSheet({required this.entry});
+
+  @override
+  State<_RecentNicknameSheet> createState() => _RecentNicknameSheetState();
+}
+
+class _RecentNicknameSheetState extends State<_RecentNicknameSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.entry.nickname ?? '');
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final n = _ctrl.text.trim();
+    // An empty submission collapses to "clear the nickname" — the same
+    // intent as tapping the Clear button. Pop with an explicit null so
+    // the parent's "user closed the sheet" branch (also null) doesn't
+    // fire instead.
+    Navigator.pop(
+      context,
+      n.isEmpty ? const _NicknameSheetResult(null) : _NicknameSheetResult(n),
+    );
+  }
+
+  void _clear() {
+    Navigator.pop(context, const _NicknameSheetResult(null));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
+    final hasExistingNickname = widget.entry.nickname != null;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 28,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(top: 8, bottom: 14),
+              decoration: BoxDecoration(
+                color: c.line2,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          Text(
+            l10n.discoveryRecentNicknameSheetTitle,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: c.ink,
+            ),
+          ),
+          Text.rich(
+            TextSpan(
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: c.ink3,
+              ),
+              children: styledTemplate(
+                template: l10n.discoveryRecentNicknameSheetSubtitle,
+                value: widget.entry.freq,
+                valueStyle: kMonoStyle.copyWith(fontSize: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          FreqCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              maxLength: 24,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _submit(),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 17,
+                fontWeight: FontWeight.w500,
+                color: c.ink,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                counterText: '',
+                border: InputBorder.none,
+                hintText: l10n.discoveryRecentNicknameHint,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: l10n.discoveryRecentNicknameSheetSave,
+            block: true,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            fontSize: 15,
+            onPressed: _submit,
+          ),
+          if (hasExistingNickname) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: _clear,
+                style: TextButton.styleFrom(
+                  foregroundColor: c.ink2,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                ),
+                child: Text(
+                  l10n.discoveryRecentNicknameSheetClear,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: c.ink2,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
