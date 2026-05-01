@@ -47,11 +47,17 @@ void registerNativeLicenses({AssetBundle? bundle}) {
 
   final assets = bundle ?? rootBundle;
 
+  // One `addLicense` call per package so a load failure on one asset
+  // doesn't prevent the other from showing up. Inside a single generator
+  // an exception on the first `await` would short-circuit the second
+  // `yield` — splitting them isolates the failure modes.
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(
       const ['Oboe'],
       await assets.loadString(oboeLicenseAsset),
     );
+  });
+  LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(
       const ['Opus'],
       await assets.loadString(opusLicenseAsset),
