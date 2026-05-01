@@ -272,7 +272,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     if (trimmedFreq.isEmpty) return;
     final db = await WalkieTalkieDatabase.open();
     await db.transaction((txn) async {
-      await txn.update(
+      final affected = await txn.update(
         _table,
         {'pinned': pinned ? 1 : 0},
         where: 'freq = ?',
@@ -285,7 +285,12 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
       // bucket stays bounded — without this, the next [getRecentDetailed]
       // would silently truncate in-memory but the on-disk row would
       // linger forever.
-      if (!pinned) {
+      //
+      // Only run the cap when the UPDATE actually changed a row — calling
+      // `setPinned(false)` for an unknown freq, or for a freq that was
+      // already unpinned, is documented as a no-op and shouldn't trigger
+      // a defensive evict.
+      if (!pinned && affected > 0) {
         await txn.execute(
           '''
           DELETE FROM $_table

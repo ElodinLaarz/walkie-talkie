@@ -173,6 +173,20 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
     // Intentionally do NOT touch recordedAt — unpinning should demote a
     // row back to its real recency position relative to other unpinned
     // rows, matching the production store's `recorded_at`-driven order.
+    //
+    // Mirror production's cap-on-unpin: pinning exempts a row from the
+    // cap, so unpinning can push the unpinned bucket past maxEntries.
+    // Drop the oldest unpinned rows so the fake doesn't silently let
+    // tests drift past the on-disk semantics.
+    if (!pinned) {
+      final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
+        ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+      final toDrop = unpinnedSorted
+          .skip(RecentFrequenciesStore.maxEntries)
+          .map((r) => r.entry.freq)
+          .toSet();
+      _rows.removeWhere((r) => toDrop.contains(r.entry.freq));
+    }
   }
 
   @override
