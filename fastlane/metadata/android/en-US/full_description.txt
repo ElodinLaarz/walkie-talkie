@@ -12,10 +12,8 @@ Open the app and either host your own frequency or join one a friend is broadcas
 
 ── PRIVACY FIRST ──
 
-• No internet. The app has no INTERNET permission — confirmed offline by design.
 • No accounts. Your display name is stored only on your device and shared only inside an active room.
-• No data transmitted to any server. Ever.
-• Audio is captured, transmitted over Bluetooth to nearby phones, and discarded. Nothing leaves local Bluetooth range.
+• No audio stored or uploaded. Voice is captured, transmitted over Bluetooth to nearby phones, and discarded in real time. Nothing leaves local Bluetooth range.
 • Bluetooth identifiers are used only for connection management between phones in the same room and are not stored beyond the active session.
 • Crash reporting is opt-in and off by default. If enabled, only anonymised crash stack traces are sent — no audio, no names, no peer IDs.
 
@@ -30,7 +28,7 @@ Walkie Talkie requests the minimum set of permissions needed to function:
 • Microphone: to capture your voice while you are in a room.
 • Notifications: to show the persistent room notification required by Android for microphone-enabled background services.
 
-No location, no contacts, no storage, no internet.
+No location, no contacts, no storage.
 
 ── OPEN SOURCE ──
 

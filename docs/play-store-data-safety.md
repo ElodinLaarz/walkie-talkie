@@ -40,17 +40,17 @@ All other data type rows should be answered **No**.
 
 ## Does your app share data with third parties?
 
-**No.**
+**No** — with one narrow, opt-in exception.
 
-The app has no `INTERNET` permission. It cannot make network connections. No data is shared with any third party or any server operated by the developer.
+All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server. No data is shared with any third party by default.
 
-Exception: if the user explicitly opts in to crash reporting (off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data.
+Exception: if the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data. Users who keep crash reporting disabled have zero outbound network traffic.
 
 ---
 
 ## Security practices
 
-- **Data is encrypted in transit:** Yes (BLE link-layer encryption for all peer-to-peer traffic; TLS for optional crash reporting).
+- **Data is encrypted in transit:** Yes (BLE link-layer encryption for all peer-to-peer traffic; TLS for the optional opt-in crash reporting channel).
 - **You follow the Families Policy:** N/A — the app is rated 13+ (audio capture).
 - **Independent security review:** No formal third-party review at v1 launch.
 

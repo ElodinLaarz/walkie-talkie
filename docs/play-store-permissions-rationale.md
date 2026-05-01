@@ -95,5 +95,5 @@ effectively making the app non-functional while backgrounded.
 | BLUETOOTH_ADVERTISE | Yes (Android 12+) | Yes | Cannot host a room |
 | RECORD_AUDIO | Yes | Yes | Cannot transmit voice |
 | MODIFY_AUDIO_SETTINGS | No (normal) | N/A | No headset routing |
-| FOREGROUND_SERVICE* | No (normal) | N/A | OS does not allow mic BG |
+| FOREGROUND_SERVICE (+ _MICROPHONE, + _CONNECTED_DEVICE) | No (normal) | N/A | OS does not allow mic/BLE BG |
 | POST_NOTIFICATIONS | Yes (Android 13+) | Yes | FGS notification hidden; BG operation degraded |
