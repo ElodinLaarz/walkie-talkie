@@ -1002,10 +1002,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     final timestamp = DateTime.now().toUtc().toIso8601String();
     return 'Walkie Talkie abuse report\n'
         'Time (UTC): $timestamp\n'
-        'Frequency: ${widget.freq}\n'
-        'Peer display name: ${person.name}\n'
-        'Peer BLE device: ${person.btDevice}\n';
+        'Frequency: ${_sanitizeField(widget.freq)}\n'
+        'Peer display name: ${_sanitizeField(person.name)}\n'
+        'Peer BLE device: ${_sanitizeField(person.btDevice)}\n';
   }
+
+  // Strip control characters from user-controlled strings so a malicious peer
+  // name or device name cannot inject extra lines into the report.
+  static String _sanitizeField(String s) =>
+      s.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').replaceAll(RegExp(r' +'), ' ').trim();
 
   Future<void> _showQueueSheet() async {
     final c = FrequencyTheme.of(context).colors;
