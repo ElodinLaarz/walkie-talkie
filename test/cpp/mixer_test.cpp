@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <type_traits>
 
 // Include the production audio_mixer header. The build script compiles this
 // test with `-I test/cpp` before `-I android/app/src/main/cpp`, so both this
@@ -357,33 +358,40 @@ void testGlobalSharedPtrLifetime() {
         "g_audioMixer must be a std::shared_ptr<AudioMixer> for the audio "
         "callback's UAF-safe atomic_load contract");
 
-    // Seed the global.
+    // Seed the global. After the atomic_store there are TWO strong refs:
+    //   1. `seeded` — our local handle from make_shared
+    //   2. the global itself
     auto seeded = std::make_shared<AudioMixer>();
     std::atomic_store(&g_audioMixer, seeded);
+    assert(seeded.use_count() == 2);
 
-    // Simulate the audio callback: take a local owning copy.
+    // Simulate the audio callback: take a local owning copy. Now THREE
+    // strong refs: seeded, global, readerLocal. The use_count check pins
+    // that exact number — a future regression that aliases or leaks one of
+    // these refs would shift the count.
     std::shared_ptr<AudioMixer> readerLocal = std::atomic_load(&g_audioMixer);
     assert(readerLocal);
-    // Two strong references now: the global, and the reader's local.
-    assert(readerLocal.use_count() >= 2);
+    assert(readerLocal.use_count() == 3);
 
-    // Concurrent "nativeClear" — drop the global ref.
+    // Concurrent "nativeClear" — drop the global ref. Two refs left:
+    // seeded (test-local) and readerLocal (the audio-thread snapshot).
     std::atomic_store(&g_audioMixer, std::shared_ptr<AudioMixer>{});
-    // Global is now empty.
     assert(!std::atomic_load(&g_audioMixer));
-    // But the reader's local copy is still alive — that is the UAF
-    // guarantee. Use the mixer through the local; if the underlying object
-    // had been freed this would crash under ASAN.
+    assert(readerLocal.use_count() == 2);
+
+    // The reader's local copy is still alive — that is the UAF guarantee.
+    // Use the mixer through the local; if the underlying object had been
+    // freed this would crash under ASAN.
     readerLocal->addDevice(1);
     readerLocal->removeDevice(1);
 
-    // Drop the local. The original mixer is freed here, deterministically.
-    readerLocal.reset();
-    // Global already null; the local was the last ref. No leak.
-
-    // Also confirm `seeded` is still our local handle to the same object,
-    // and dropping it now finalizes destruction without a double-free.
+    // Drop seeded so readerLocal is the only remaining ref.
     seeded.reset();
+    assert(readerLocal.use_count() == 1);
+
+    // Drop the last ref. The mixer is freed here, deterministically. No
+    // double-free, no leak.
+    readerLocal.reset();
 
     std::cout << "Test Global Shared-Ptr Lifetime: PASSED" << std::endl;
 }

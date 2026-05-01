@@ -136,31 +136,18 @@ static TalkingEventQueue g_talkingQueue;
 static std::atomic<bool> g_talkingWorkerStop{false};
 static std::thread g_talkingWorkerThread;
 
-// JNI dispatch for a single VAD edge. Runs on the worker thread, NOT the
-// audio thread — taking g_jniMutex and attaching to the JVM here is fine.
-static void emitTalkingEventJni(bool talking) {
-    JavaVM* jvm = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_jniMutex);
-        jvm = g_jvm;
-        if (jvm == nullptr || g_mainActivity == nullptr) return;
-    }
-
-    JNIEnv* env = nullptr;
-    bool needDetach = false;
-    if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            return;
-        }
-        needDetach = true;
-    }
-
+// JNI dispatch for a single VAD edge. Called only from the worker thread,
+// which has long-attached itself to the JVM (see talkingEventWorkerLoop) —
+// so `env` is guaranteed non-null and the per-call AttachCurrent/DetachCurrent
+// dance from the previous design is gone (one attach per worker lifetime,
+// not one per VAD edge).
+static void emitTalkingEventJni(JNIEnv* env, bool talking) {
     // Snapshot the global ref into a local ref while holding g_jniMutex.
     // This rules out the race where nativeUnregisterCallbacks runs
-    // DeleteGlobalRef between our earlier null-check and the GetObjectClass
-    // below — the local ref keeps the underlying jobject alive across the
-    // JNI calls regardless of what happens to the global. Outside the lock,
-    // we do all the JNI work on the local ref.
+    // DeleteGlobalRef between our null-check and the GetObjectClass below —
+    // the local ref keeps the underlying jobject alive across the JNI calls
+    // regardless of what happens to the global. Outside the lock, we do all
+    // the JNI work on the local ref.
     jobject activity = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_jniMutex);
@@ -169,7 +156,6 @@ static void emitTalkingEventJni(bool talking) {
         }
     }
     if (activity == nullptr) {
-        if (needDetach) jvm->DetachCurrentThread();
         return;
     }
 
@@ -187,30 +173,65 @@ static void emitTalkingEventJni(bool talking) {
         env->DeleteLocalRef(activityClass);
     }
     env->DeleteLocalRef(activity);
-
-    if (needDetach) {
-        jvm->DetachCurrentThread();
-    }
 }
 
-// Worker loop: drain everything in the queue, sleep, repeat. The 20 ms
-// cadence is below the human-perceivable limit for VAD UI feedback (typical
-// VAD edges fire on the order of seconds; 20 ms latency is invisible) while
-// keeping the worker mostly asleep — when no events are pending the loop is
+// Worker loop: drain the SPSC ring, sleep, repeat. The 20 ms cadence is
+// below the human-perceivable limit for VAD UI feedback (typical VAD edges
+// fire on the order of seconds; 20 ms latency is invisible) while keeping
+// the worker mostly asleep — when no events are pending the loop is
 // effectively a `nanosleep` once per tick.
+//
+// The worker attaches to the JVM ONCE at thread start and detaches ONCE at
+// thread exit, so the per-edge dispatch has zero attach/detach cost. If
+// the JVM isn't registered yet when the worker spins up (registerFor
+// Callbacks may race the engine start), we re-poll on each tick until it
+// appears. Once attached we stay attached for the rest of the worker's
+// lifetime.
 static void talkingEventWorkerLoop() {
-    while (!g_talkingWorkerStop.load(std::memory_order_acquire)) {
+    JNIEnv* env = nullptr;
+    JavaVM* attachedJvm = nullptr;  // non-null only if WE called AttachCurrentThread
+
+    auto ensureAttached = [&]() -> bool {
+        if (env != nullptr) return true;
+        JavaVM* jvm = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_jniMutex);
+            jvm = g_jvm;
+        }
+        if (jvm == nullptr) return false;
+        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+            // Already attached on this thread (Android may pre-attach
+            // worker threads under some configurations). Don't claim
+            // ownership of the eventual detach.
+            attachedJvm = nullptr;
+            return true;
+        }
+        if (jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            attachedJvm = jvm;
+            return true;
+        }
+        env = nullptr;
+        return false;
+    };
+
+    auto drainQueue = [&]() {
+        if (!ensureAttached()) return;
         bool talking;
         while (g_talkingQueue.pop(talking)) {
-            emitTalkingEventJni(talking);
+            emitTalkingEventJni(env, talking);
         }
+    };
+
+    while (!g_talkingWorkerStop.load(std::memory_order_acquire)) {
+        drainQueue();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    // Drain any residual events queued just before the stop flag was set so
-    // the Dart side gets a final consistent talking-state.
-    bool talking;
-    while (g_talkingQueue.pop(talking)) {
-        emitTalkingEventJni(talking);
+    // Final drain so any events queued just before the stop flag was set
+    // still reach the Dart side.
+    drainQueue();
+
+    if (attachedJvm != nullptr) {
+        attachedJvm->DetachCurrentThread();
     }
 }
 

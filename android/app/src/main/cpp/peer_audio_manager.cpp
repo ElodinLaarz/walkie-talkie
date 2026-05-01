@@ -48,8 +48,8 @@ int PeerAudioManager::registerPeer(const std::string& macAddress) {
     state->bitrate.store(audio_config::kDefaultBitrate,
                          std::memory_order_relaxed);
 
-    if (g_audioMixer) {
-        g_audioMixer->addDevice(state->deviceId);
+    if (auto mixer = std::atomic_load(&g_audioMixer)) {
+        mixer->addDevice(state->deviceId);
     }
 
     deviceIdToMac_[state->deviceId] = macAddress;
@@ -69,8 +69,8 @@ void PeerAudioManager::unregisterPeer(const std::string& macAddress) {
     }
     int deviceId = it->second->deviceId;
 
-    if (g_audioMixer) {
-        g_audioMixer->removeDevice(deviceId);
+    if (auto mixer = std::atomic_load(&g_audioMixer)) {
+        mixer->removeDevice(deviceId);
     }
 
     deviceIdToMac_.erase(deviceId);
@@ -250,6 +250,14 @@ void PeerAudioManager::mixerTickLoop() {
             }
         }
 
+        // Hoist the mixer snapshot to the top of the tick so the same
+        // strong reference covers both the decode pass and the mix-minus
+        // pass below — the load itself is cheap (one atomic word read) but
+        // doing it twice per tick would let `nativeClear` fire between the
+        // passes and leave the second one running against a stale or null
+        // pointer mid-encode.
+        auto mixer = std::atomic_load(&g_audioMixer);
+
         peerSnapshot.clear();
         macSnapshot.clear();
         {
@@ -309,9 +317,9 @@ void PeerAudioManager::mixerTickLoop() {
                 }
             }
 
-            if (decoded > 0 && g_audioMixer) {
-                g_audioMixer->updateDeviceAudio(state->deviceId,
-                                                decodedBuffer.data(), decoded);
+            if (decoded > 0 && mixer) {
+                mixer->updateDeviceAudio(state->deviceId,
+                                         decodedBuffer.data(), decoded);
             }
         }
 
@@ -320,8 +328,8 @@ void PeerAudioManager::mixerTickLoop() {
             auto& state = peerSnapshot[i];
             const std::string& mac = macSnapshot[i];
 
-            if (g_audioMixer) {
-                g_audioMixer->getMixedAudioForDevice(
+            if (mixer) {
+                mixer->getMixedAudioForDevice(
                     state->deviceId, mixedBuffer.data(), kFrameSize);
             } else {
                 std::fill(mixedBuffer.begin(), mixedBuffer.end(), 0);
@@ -464,9 +472,9 @@ void PeerAudioManager::clear() {
     stopMixerThread();
 
     std::lock_guard<std::mutex> lock(peerRegistryMutex_);
-    if (g_audioMixer) {
+    if (auto mixer = std::atomic_load(&g_audioMixer)) {
         for (const auto& [mac, state] : peers_) {
-            g_audioMixer->removeDevice(state->deviceId);
+            mixer->removeDevice(state->deviceId);
         }
     }
     peers_.clear();
