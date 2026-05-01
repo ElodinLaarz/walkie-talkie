@@ -9,16 +9,29 @@ on:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    # Minimal permissions: only contents:read for actions/checkout. The cache
+    # half of subosito/flutter-action and actions/upload-artifact both rely on
+    # ACTIONS_RUNTIME_TOKEN (runner-scoped, not GITHUB_TOKEN) so they need no
+    # actions:* scope on the GITHUB_TOKEN — confirmed in their respective
+    # action docs.
+    permissions:
+      contents: read
+    # Every action in this job is SHA-pinned. The release AAB this job produces
+    # is what attest-release signs a provenance statement for — if any of these
+    # actions could be retargeted (`@v4` resolving to a malicious commit), the
+    # AAB itself could be tampered with before signing, and the attestation
+    # would faithfully prove the wrong artifact's authenticity. The pin is
+    # what makes the whole supply-chain claim meaningful.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
@@ -100,7 +113,7 @@ jobs:
           fi
 
       - name: Upload release AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-aab
           path: build/app/outputs/bundle/release/app-release.aab
@@ -109,3 +122,42 @@ jobs:
       - name: Clean up keystore
         if: always()
         run: rm -f ${{ runner.temp }}/walkie-talkie.jks
+
+  attest-release:
+    # Isolated job so id-token:write + attestations:write don't bleed onto the
+    # build steps that touch the keystore, run third-party Dart/Gradle code, or
+    # could otherwise be coerced into minting a provenance statement under our
+    # OIDC identity. The attestation is bound to the AAB's SHA-256 digest, so
+    # generating it after a re-download from the workflow artifact store is
+    # equivalent to generating it in-place — same bytes, same subject.
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download release AAB
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-aab
+          path: aab
+
+      - name: Generate SLSA build provenance
+        # Emits a SLSA Provenance v1 statement bound to the AAB's SHA-256 digest,
+        # signed with this workflow's OIDC identity via Sigstore's public-good
+        # infrastructure (GitHub-hosted runners + reusable workflow detection
+        # qualify this for SLSA Build Level 3 per the action docs). Verifiable
+        # post-download with:
+        #   gh attestation verify <aab> --repo ElodinLaarz/walkie-talkie
+        # which lets a downloader confirm the AAB was produced by THIS workflow
+        # at this commit, before sideloading or shipping it through Play.
+        #
+        # Pinned to a full commit SHA — every action in this workflow is, on
+        # purpose: build-release produces the AAB this step signs, so a tag
+        # retarget on any of them would let an attacker tamper with the AAB
+        # while we still emit a "valid" provenance statement for it. The pin
+        # is what makes the supply-chain claim meaningful end-to-end.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: aab/app-release.aab
