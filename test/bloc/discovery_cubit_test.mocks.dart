@@ -5,6 +5,7 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'dart:async' as _i3;
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' as _i5;
 import 'package:mockito/mockito.dart' as _i1;
 import 'package:walkie_talkie/protocol/discovery.dart' as _i4;
 import 'package:walkie_talkie/services/bluetooth_discovery_service.dart' as _i2;
@@ -57,6 +58,11 @@ class MockDiscoveryService extends _i1.Mock implements _i2.DiscoveryService {
             returnValueForMissingStub: _i3.Future<void>.value(),
           )
           as _i3.Future<void>);
+
+  @override
+  _i4.DiscoveredSession? parseResult(_i5.ScanResult? r) =>
+      (super.noSuchMethod(Invocation.method(#parseResult, [r]))
+          as _i4.DiscoveredSession?);
 
   @override
   _i3.Future<void> dispose() =>
