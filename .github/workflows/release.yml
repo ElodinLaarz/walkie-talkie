@@ -9,15 +9,8 @@ on:
 jobs:
   build-release:
     runs-on: ubuntu-latest
-    # SLSA provenance signing (#131): id-token for the OIDC token used to sign
-    # the attestation via Sigstore, attestations for storing the SLSA Provenance
-    # v1 statement against the repo. contents:read is the default we'd otherwise
-    # inherit but is spelled out here so the full permission surface is visible
-    # in one place.
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -108,25 +101,6 @@ jobs:
             exit 1
           fi
 
-      - name: Generate SLSA build provenance
-        # Emits a SLSA Provenance v1 statement bound to the AAB's SHA-256 digest,
-        # signed with this workflow's OIDC identity via Sigstore's public-good
-        # infrastructure (GitHub-hosted runners + reusable workflow detection
-        # qualify this for SLSA Build Level 3 per the action docs). The
-        # attestation is stored on the repo and is verifiable with:
-        #   gh attestation verify <aab> --repo ElodinLaarz/walkie-talkie
-        # which lets a downloader confirm the AAB was produced by THIS workflow
-        # at this commit, before sideloading or shipping it through Play.
-        #
-        # Pinned to a full commit SHA (not the @v2 tag) because this is the only
-        # step in the workflow that holds id-token:write + attestations:write —
-        # a tag retarget on a privileged action could mint provenance for
-        # arbitrary subjects under our identity. Other actions in the repo use
-        # major-version tags because they don't carry that privilege.
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
-        with:
-          subject-path: build/app/outputs/bundle/release/app-release.aab
-
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
         with:
@@ -137,3 +111,41 @@ jobs:
       - name: Clean up keystore
         if: always()
         run: rm -f ${{ runner.temp }}/walkie-talkie.jks
+
+  attest-release:
+    # Isolated job so id-token:write + attestations:write don't bleed onto the
+    # build steps that touch the keystore, run third-party Dart/Gradle code, or
+    # could otherwise be coerced into minting a provenance statement under our
+    # OIDC identity. The attestation is bound to the AAB's SHA-256 digest, so
+    # generating it after a re-download from the workflow artifact store is
+    # equivalent to generating it in-place — same bytes, same subject.
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download release AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: release-aab
+          path: aab
+
+      - name: Generate SLSA build provenance
+        # Emits a SLSA Provenance v1 statement bound to the AAB's SHA-256 digest,
+        # signed with this workflow's OIDC identity via Sigstore's public-good
+        # infrastructure (GitHub-hosted runners + reusable workflow detection
+        # qualify this for SLSA Build Level 3 per the action docs). Verifiable
+        # post-download with:
+        #   gh attestation verify <aab> --repo ElodinLaarz/walkie-talkie
+        # which lets a downloader confirm the AAB was produced by THIS workflow
+        # at this commit, before sideloading or shipping it through Play.
+        #
+        # Pinned to a full commit SHA (not the @v2 tag) because this job holds
+        # id-token:write + attestations:write — a tag retarget on a privileged
+        # action could mint provenance for arbitrary subjects under our
+        # identity. Other (non-privileged) actions stay on major-version tags.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: aab/app-release.aab
