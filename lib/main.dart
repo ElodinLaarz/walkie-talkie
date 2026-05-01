@@ -75,36 +75,31 @@ void main() async {
   runApp(const WalkieTalkieApp());
 }
 
+// Matches any key/field containing a display-name identifier, regardless of
+// separator (camelCase, snake_case, or space-separated).
+final _piiKeyRegex = RegExp(r'display[_ ]?name', caseSensitive: false);
+// Matches "display_?name: <value>" in free-form text, capturing through the
+// next comma or semicolon so multi-word values are fully redacted.
+final _piiMessageRegex = RegExp(r'display[_ ]?name[:\s]*[^,;]+', caseSensitive: false);
+
 /// Sanitizes Sentry events to remove PII.
 /// Redacts display names from contexts and breadcrumbs.
 /// Keeps peerId as it's documented as an anonymous identifier.
 SentryEvent? _sanitizeEvent(SentryEvent event) {
-  // Direct mutation — SentryContexts is mutable in sentry 9.x
-  event.contexts.removeWhere((key, value) {
-    final keyLower = key.toLowerCase();
-    return keyLower.contains('displayname') || keyLower.contains('display_name');
-  });
+  // Direct mutation — SentryContexts is mutable in sentry 9.x.
+  event.contexts.removeWhere((key, _) => _piiKeyRegex.hasMatch(key));
 
-  // Mutate breadcrumbs in-place — SentryBreadcrumb is mutable in sentry 9.x
+  // Mutate breadcrumbs in-place — SentryBreadcrumb is mutable in sentry 9.x.
   for (final crumb in event.breadcrumbs ?? const []) {
     final msg = crumb.message;
-    if (msg != null &&
-        (msg.toLowerCase().contains('displayname') ||
-            msg.toLowerCase().contains('display name'))) {
-      crumb.message = msg.replaceAll(
-        RegExp(r'display[_ ]?name[:\s]*[^,;]+', caseSensitive: false),
-        'displayName: [REDACTED]',
-      );
+    if (msg != null && _piiMessageRegex.hasMatch(msg)) {
+      crumb.message = msg.replaceAll(_piiMessageRegex, 'displayName: [REDACTED]');
     }
 
     final data = crumb.data;
-    if (data != null) {
+    if (data != null && data.keys.any(_piiKeyRegex.hasMatch)) {
       crumb.data = Map.fromEntries(data.entries.map((e) {
-        final keyLower = e.key.toLowerCase();
-        if (keyLower.contains('displayname') || keyLower.contains('display_name')) {
-          return MapEntry(e.key, '[REDACTED]');
-        }
-        return e;
+        return _piiKeyRegex.hasMatch(e.key) ? MapEntry(e.key, '[REDACTED]') : e;
       }));
     }
   }
