@@ -79,48 +79,37 @@ void main() async {
 /// Redacts display names from contexts and breadcrumbs.
 /// Keeps peerId as it's documented as an anonymous identifier.
 SentryEvent? _sanitizeEvent(SentryEvent event) {
-  // Redact displayName from contexts
-  final sanitizedContexts = event.contexts.clone();
-  // Remove any context entries that might contain display names
-  sanitizedContexts.removeWhere((key, value) {
+  // Direct mutation — SentryContexts is mutable in sentry 9.x
+  event.contexts.removeWhere((key, value) {
     final keyLower = key.toLowerCase();
     return keyLower.contains('displayname') || keyLower.contains('display_name');
   });
 
-  // Redact displayName from breadcrumbs
-  final sanitizedBreadcrumbs = event.breadcrumbs?.map((crumb) {
-    var sanitizedMessage = crumb.message;
-    var sanitizedData = crumb.data;
-
-    // Redact from message if it contains display name patterns
-    if (sanitizedMessage != null &&
-        (sanitizedMessage.toLowerCase().contains('displayname') ||
-            sanitizedMessage.toLowerCase().contains('display name'))) {
-      sanitizedMessage = sanitizedMessage.replaceAll(
+  // Mutate breadcrumbs in-place — SentryBreadcrumb is mutable in sentry 9.x
+  for (final crumb in event.breadcrumbs ?? const []) {
+    final msg = crumb.message;
+    if (msg != null &&
+        (msg.toLowerCase().contains('displayname') ||
+            msg.toLowerCase().contains('display name'))) {
+      crumb.message = msg.replaceAll(
         RegExp(r'display[_ ]?name[:\s]*[^\s,;]+', caseSensitive: false),
         'displayName: [REDACTED]',
       );
     }
 
-    // Redact from data map
-    if (sanitizedData != null) {
-      sanitizedData = sanitizedData.map((key, value) {
-        if (key.toLowerCase().contains('displayname') ||
-            key.toLowerCase().contains('display_name')) {
-          return MapEntry(key, '[REDACTED]');
+    final data = crumb.data;
+    if (data != null) {
+      crumb.data = Map.fromEntries(data.entries.map((e) {
+        final keyLower = e.key.toLowerCase();
+        if (keyLower.contains('displayname') || keyLower.contains('display_name')) {
+          return MapEntry(e.key, '[REDACTED]');
         }
-        return MapEntry(key, value);
-      });
+        return e;
+      }));
     }
+  }
 
-    return crumb.copyWith(message: sanitizedMessage, data: sanitizedData);
-  }).toList();
-
-  // Return event with sanitized fields
-  return event.copyWith(
-    contexts: sanitizedContexts,
-    breadcrumbs: sanitizedBreadcrumbs,
-  );
+  return event;
 }
 
 class WalkieTalkieApp extends StatefulWidget {

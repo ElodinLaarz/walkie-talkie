@@ -39,8 +39,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   
   # State Management
-  flutter_bloc: ^9.0.0
-  equatable: ^2.0.7
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.8
   
   # Local Storage (sqflite for identity + recents; sqflite is Flutter-team
   # adjacent and right-sized for our small key-value scope. Hive v2 is
@@ -60,10 +60,10 @@ dependencies:
   flutter_blue_plus: ^2.2.1
   
   # UI/UX
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
 
   # Crash Reporting (opt-in, privacy-first)
-  sentry_flutter: ^8.0.0
+  sentry_flutter: ^9.0.0
 
 dev_dependencies:
   flutter_test:
