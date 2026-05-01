@@ -24,7 +24,61 @@ android {
         // Android 13+ required for Bluetooth LE Audio APIs
         minSdk = 33
         targetSdk = 36
-        versionCode = flutter.versionCode
+        // Resolve versionCode in this priority order. Play rejects duplicate
+        // versionCodes, so the goal is "every CI build uploads with a unique,
+        // strictly increasing code, with no manual pubspec bump":
+        //
+        //   1. VERSION_CODE env var — explicit override (e.g. recreating a
+        //      specific historical build, or pinning a hotfix code).
+        //   2. GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT — monotonic per CI
+        //      run AND per rerun-of-the-same-run. GITHUB_RUN_NUMBER alone
+        //      repeats across reruns of a failed workflow, so a rerun would
+        //      collide with the failed attempt's code if that attempt had
+        //      uploaded; folding GITHUB_RUN_ATTEMPT in makes reruns distinct.
+        //      The multiplier is 100 because GitHub re-runs are capped well
+        //      below that in practice (the docs cap automatic reruns at 10),
+        //      so adjacent run numbers can't overlap.
+        //   3. flutter.versionCode (the static `+N` in pubspec.yaml) — local
+        //      builds and any CI run without the GitHub env vars. These never
+        //      reach Play, so duplicates here don't matter.
+        //
+        // Deliberately no maxOf-with-flutter.versionCode clamp: CI runs are
+        // already monotonic, and clamping would collapse two consecutive CI
+        // builds onto the same flutter.versionCode whenever the static code
+        // happens to exceed the run-derived one (Play would then reject the
+        // second). If you need to force a specific code in CI, set VERSION_CODE.
+        //
+        // Math is in Long and validated against Android's hard ceiling
+        // (versionCode is a 32-bit signed int but Play caps it at 2.1B) so a
+        // pathological GITHUB_RUN_NUMBER can't silently overflow into a
+        // negative or out-of-range code that breaks releases late in the build.
+        versionCode = run {
+            val maxVersionCode = 2_100_000_000L
+            fun checked(value: Long, source: String): Int {
+                if (value <= 0L || value > maxVersionCode) {
+                    throw GradleException(
+                        "$source resolved to invalid versionCode $value. " +
+                            "versionCode must be in (0, $maxVersionCode]."
+                    )
+                }
+                return value.toInt()
+            }
+            val explicitRaw = System.getenv("VERSION_CODE")
+            if (explicitRaw != null) {
+                val explicit = explicitRaw.toLongOrNull()
+                    ?: throw GradleException(
+                        "VERSION_CODE must be an integer, got: \"$explicitRaw\"."
+                    )
+                return@run checked(explicit, "VERSION_CODE")
+            }
+            val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toLongOrNull()
+            val runAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toLongOrNull() ?: 1L
+            val ciDerived = runNumber?.let { it * 100L + runAttempt }
+            if (ciDerived != null) {
+                return@run checked(ciDerived, "GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT")
+            }
+            checked(flutter.versionCode.toLong(), "flutter.versionCode")
+        }
         versionName = flutter.versionName
         
         // NDK configuration for Oboe audio library
@@ -125,6 +179,23 @@ android {
             }
 
             signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // Explicit AAB split configuration. AGP currently defaults all three to
+    // enableSplit = true, but pinning them keeps a future default change from
+    // silently regressing per-device download size — the whole reason this app
+    // ships an AAB instead of a fat APK is to deliver only the ABI / density /
+    // language slice each device needs.
+    bundle {
+        language {
+            enableSplit = true
+        }
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true
         }
     }
 
