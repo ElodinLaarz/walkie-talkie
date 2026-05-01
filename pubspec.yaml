@@ -77,6 +77,11 @@ dev_dependencies:
   bloc_test: ^10.0.0
   mocktail: ^1.0.4
   flutter_launcher_icons: ^0.14.4
+  # Generates the Android 12+ SplashScreen API resources (windowSplashScreen*
+  # style attributes + drawable). Without these, cold start on Android 12/13/14
+  # shows a brief flash of the legacy LaunchTheme before the OS splash.
+  # Re-run `dart run flutter_native_splash:create` after editing the config.
+  flutter_native_splash: ^2.4.7
   # In-memory sqflite for unit tests via FFI. Production uses the real
   # `sqflite` plugin on Android; tests inject `databaseFactoryFfi` so
   # they don't depend on the platform channel.
@@ -137,3 +142,31 @@ flutter_launcher_icons:
   adaptive_icon_background: "#3498db"
   adaptive_icon_foreground: "assets/icon/icon.png"
   adaptive_icon_monochrome: "assets/icon/icon_monochrome.png"
+
+# Native splash configuration. The generator writes:
+#   - drawable/launch_background.xml + drawable-night/ (legacy / Android 11-)
+#   - values/styles.xml + values-night/ — adds windowSplashScreenBackground
+#     and windowSplashScreenAnimatedIcon for the Android 12+ SplashScreen API
+#   - mipmap-* / drawable-* assets for the splash icon
+# Light/dark backgrounds match the lib/theme palette so the splash blends into
+# the first frame instead of flashing a different color. The brand blue
+# (#3498db) used by the adaptive launcher icon is intentionally NOT used as the
+# splash background — the icon itself is mostly that same blue, so it would
+# disappear into the background.
+flutter_native_splash:
+  color: "#ffffff"
+  color_dark: "#121212"
+  image: "assets/icon/icon.png"
+  image_dark: "assets/icon/icon.png"
+  android_12:
+    # Android 12+ SplashScreen API: the OS clips the icon to a circle and
+    # restricts it to a 240x240 px area inside a 288x288 px window. Re-supplying
+    # the image here lets the generator produce the appropriately sized asset
+    # the windowSplashScreenAnimatedIcon attribute points at.
+    image: "assets/icon/icon.png"
+    image_dark: "assets/icon/icon.png"
+    color: "#ffffff"
+    color_dark: "#121212"
+  android: true
+  ios: false
+  web: false
