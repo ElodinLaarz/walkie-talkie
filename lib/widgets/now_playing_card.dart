@@ -136,11 +136,19 @@ class NowPlayingCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              GhostButton(icon: Icons.skip_previous, onPressed: onPrev),
+              Semantics(
+                button: true,
+                label: 'Previous track',
+                child: GhostButton(icon: Icons.skip_previous, onPressed: onPrev),
+              ),
               const SizedBox(width: 4),
               _PlayCircle(playing: playing, onTap: onPlay),
               const SizedBox(width: 4),
-              GhostButton(icon: Icons.skip_next, onPressed: onNext),
+              Semantics(
+                button: true,
+                label: 'Next track',
+                child: GhostButton(icon: Icons.skip_next, onPressed: onNext),
+              ),
               const Spacer(),
               FreqButton(
                 icon: Icons.queue_music,
@@ -225,19 +233,25 @@ class _PlayCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
-    return Material(
-      color: c.ink,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(
-            playing ? Icons.pause : Icons.play_arrow,
-            size: 22,
-            color: c.bg,
+    return Semantics(
+      button: true,
+      label: playing ? 'Pause' : 'Play',
+      hint: 'Toggles playback for the whole frequency',
+      excludeSemantics: true,
+      child: Material(
+        color: c.ink,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Icon(
+              playing ? Icons.pause : Icons.play_arrow,
+              size: 22,
+              color: c.bg,
+            ),
           ),
         ),
       ),

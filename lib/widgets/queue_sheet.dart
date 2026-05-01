@@ -63,7 +63,14 @@ class QueueSheet extends StatelessWidget {
                       ],
                     ),
                   ),
-                  GhostButton(icon: Icons.close, onPressed: () => Navigator.pop(context)),
+                  Semantics(
+                    button: true,
+                    label: 'Close queue',
+                    child: GhostButton(
+                      icon: Icons.close,
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -74,9 +81,14 @@ class QueueSheet extends StatelessWidget {
                   itemBuilder: (_, i) {
                     final t = lib.queue[i];
                     final current = i == currentIdx;
-                    return InkWell(
-                      onTap: () => onPlay(i),
-                      child: Container(
+                    return Semantics(
+                      button: true,
+                      label: '${t.title} by ${t.artist}',
+                      hint: current ? 'Currently playing' : 'Tap to play',
+                      excludeSemantics: true,
+                      child: InkWell(
+                        onTap: () => onPlay(i),
+                        child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
                         decoration: BoxDecoration(
                           border: Border(
@@ -132,6 +144,7 @@ class QueueSheet extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
                       ),
                     );
                   },

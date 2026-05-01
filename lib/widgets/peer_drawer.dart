@@ -91,7 +91,14 @@ class _PeerDrawerState extends State<PeerDrawer> {
                   ],
                 ),
               ),
-              GhostButton(icon: Icons.close, onPressed: () => Navigator.pop(context)),
+              Semantics(
+                button: true,
+                label: 'Close peer controls',
+                child: GhostButton(
+                  icon: Icons.close,
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -122,6 +129,8 @@ class _PeerDrawerState extends State<PeerDrawer> {
                 ),
                 FreqSwitch(
                   value: _muted,
+                  semanticLabel: 'Mute ${widget.person.name}',
+                  semanticHint: 'Only you stop hearing them',
                   onChanged: (v) {
                     setState(() => _muted = v);
                     _emit();
