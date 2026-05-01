@@ -10,8 +10,9 @@ exactly what data the app touches, where it lives, and how to remove it.
 ## TL;DR
 
 - **No internet is required for voice or control.** The app does not declare
-  the `INTERNET` permission in its main manifest and cannot transmit your
-  audio off-device.
+  the `INTERNET` permission in its main manifest and does not send your
+  audio to the internet or any server; voice is transmitted directly to
+  nearby peers over Bluetooth.
 - **No accounts.** There is nothing to sign up for and nothing to delete from
   a server because no server exists.
 - **No third-party analytics, ads, or tracking.**

@@ -158,15 +158,14 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Center(
                     child: TextButton(
                       onPressed: _openPrivacyPolicy,
                       style: TextButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: const Size(0, 0),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        minimumSize: const Size(48, 48),
                         foregroundColor: c.ink2,
                       ),
                       child: Text(

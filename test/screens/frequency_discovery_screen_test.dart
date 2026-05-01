@@ -246,6 +246,53 @@ void main() {
         expect(picked!.freq, '92.4');
       },
     );
+
+    testWidgets(
+      'tapping the footer Privacy link pushes the privacy policy screen, '
+      'and the close button pops back to Discovery',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+          ),
+        ));
+        await tester.pump();
+
+        // The link sits below the footer copy, so scroll the discovery
+        // ListView until the Privacy text is visible before tapping it.
+        final list = find.byType(ListView);
+        final privacyButton = find.widgetWithText(TextButton, 'Privacy');
+        await tester.dragUntilVisible(
+          privacyButton,
+          list,
+          const Offset(0, -120),
+        );
+        await tester.pump();
+        await tester.tap(privacyButton);
+        // Two pumps cover the route transition: one to start the push,
+        // one (with the settle window) to land the new page on top. We
+        // can't pumpAndSettle because Discovery's perpetual PulseDot
+        // animation never settles.
+        await tester.pump();
+        await tester.pump(_settleWindow);
+
+        // The privacy policy screen has a unique POLICY eyebrow that the
+        // discovery screen does not — anchoring on that avoids matching
+        // discovery's own "Privacy" footer link.
+        expect(find.text('POLICY'), findsOneWidget);
+        expect(find.text('Privacy policy'), findsOneWidget);
+
+        await tester.tap(find.bySemanticsLabel('Close privacy policy'));
+        await tester.pump();
+        await tester.pump(_settleWindow);
+
+        expect(find.text('POLICY'), findsNothing);
+        // We are back on Discovery, so its footer link is visible again.
+        expect(privacyButton, findsOneWidget);
+      },
+    );
   });
 
   group('DiscoveryResult invariants', () {
