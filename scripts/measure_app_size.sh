@@ -57,8 +57,16 @@ fi
 # current run and always cleaned up — see the build-apks invocation for why
 # passwords go to disk instead of the command line.
 PASS_DIR=$(mktemp -d)
+# Path to a partial bundletool download; assigned by the download block below
+# and emptied once the .jar is renamed into place. The cleanup trap removes
+# whatever it points at so an interrupted run doesn't leave a half-downloaded
+# .tmp behind.
+TMP_JAR=""
 cleanup() {
   rm -rf "$PASS_DIR"
+  if [ -n "$TMP_JAR" ]; then
+    rm -f "$TMP_JAR"
+  fi
   if [ "$CLEANUP_WORK_DIR" = true ]; then
     rm -rf "$WORK_DIR"
   fi
@@ -95,32 +103,60 @@ fi
 mkdir -p "$WORK_DIR"
 BUNDLETOOL_JAR="$WORK_DIR/bundletool-${BUNDLETOOL_VERSION}.jar"
 
+# Verifying the bundletool JAR before `java -jar` runs is the point of the
+# whole download dance — catching a swap after the JVM already started reading
+# class bytes would be too late. CI is Linux (sha256sum, GNU coreutils); we
+# also support `shasum -a 256` for macOS dev boxes and fall back to `openssl`
+# where neither is in PATH.
+compute_jar_sha() {
+  local jar="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$jar" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$jar" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 -r "$jar" | awk '{print $1}'
+  else
+    echo "<unknown — need sha256sum, shasum, or openssl>"
+    return 1
+  fi
+}
+
+verify_jar_sha() {
+  local jar="$1"
+  local actual
+  actual=$(compute_jar_sha "$jar") || return $?
+  [ "$actual" = "$BUNDLETOOL_SHA256" ]
+}
+
+# A cached JAR that no longer matches the expected SHA (interrupted prior run,
+# version bump, on-disk corruption) is removed up front so the download path
+# is self-healing rather than dying with a confusing checksum error.
+if [ -f "$BUNDLETOOL_JAR" ] && ! verify_jar_sha "$BUNDLETOOL_JAR"; then
+  echo "Cached bundletool JAR failed SHA check — refetching"
+  rm -f "$BUNDLETOOL_JAR"
+fi
+
 if [ ! -f "$BUNDLETOOL_JAR" ]; then
+  # Download to a sibling .tmp and only rename into place after SHA verifies.
+  # If curl is killed mid-download (network drop, runner timeout, disk full),
+  # the cleanup trap removes the .tmp instead of leaving a partial JAR that a
+  # later run would skip re-downloading and then fail to verify.
+  TMP_JAR="${BUNDLETOOL_JAR}.tmp.$$"
   # --connect-timeout / --max-time bound the worst case so a stalled GitHub
   # release mirror can't park the entire release workflow indefinitely. The
   # JAR is ~32 MB and routinely downloads in <5s; 60s is generous headroom.
   curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 \
     "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar" \
-    -o "$BUNDLETOOL_JAR"
-fi
-# Verify before invoking — catching a swap after `java -jar` would be too late.
-# CI is Linux (sha256sum, GNU coreutils), but support macOS dev boxes where the
-# command is `shasum -a 256`; fall back to `openssl dgst` as a last resort.
-if command -v sha256sum >/dev/null 2>&1; then
-  echo "${BUNDLETOOL_SHA256}  ${BUNDLETOOL_JAR}" | sha256sum -c -
-elif command -v shasum >/dev/null 2>&1; then
-  echo "${BUNDLETOOL_SHA256}  ${BUNDLETOOL_JAR}" | shasum -a 256 -c -
-elif command -v openssl >/dev/null 2>&1; then
-  actual=$(openssl dgst -sha256 -r "$BUNDLETOOL_JAR" | awk '{print $1}')
-  if [ "$actual" != "$BUNDLETOOL_SHA256" ]; then
-    echo "Error: bundletool SHA mismatch: expected $BUNDLETOOL_SHA256, got $actual" >&2
+    -o "$TMP_JAR"
+  if ! verify_jar_sha "$TMP_JAR"; then
+    echo "Error: bundletool SHA mismatch on download: expected $BUNDLETOOL_SHA256, got $(compute_jar_sha "$TMP_JAR")" >&2
     exit 1
   fi
-  echo "${BUNDLETOOL_JAR}: OK"
-else
-  echo "Error: need one of sha256sum, shasum, or openssl to verify bundletool" >&2
-  exit 1
+  mv "$TMP_JAR" "$BUNDLETOOL_JAR"
+  TMP_JAR=""
 fi
+echo "${BUNDLETOOL_JAR}: SHA verified"
 
 APKS_PATH="$WORK_DIR/app-release.apks"
 
@@ -131,9 +167,11 @@ APKS_PATH="$WORK_DIR/app-release.apks"
 #
 # Passwords go through `file:` rather than `pass:` so $KEYSTORE_PASSWORD /
 # $KEY_PASSWORD never appear in the runner's `ps aux` listing — bundletool
-# reads the first line of each file and the trap above shreds them on exit.
-# PASS_DIR was created by `mktemp -d` (mode 0700) and we umask 0077 inside
-# the subshell that writes the files, so they land at mode 0600.
+# reads the first line of each file and the cleanup trap removes them when
+# the script exits. PASS_DIR was created by `mktemp -d` (mode 0700) and we
+# umask 0077 inside the subshell that writes the files, so they land at
+# mode 0600. (Plain `rm -rf`, not secure overwrite — the runner's tmpfs is
+# already process-private, so a multi-pass shred would buy little.)
 KS_PASS_FILE="$PASS_DIR/ks_pass"
 KEY_PASS_FILE="$PASS_DIR/key_pass"
 ( umask 077; printf '%s' "$KEYSTORE_PASSWORD" > "$KS_PASS_FILE" )
