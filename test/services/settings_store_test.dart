@@ -79,5 +79,73 @@ void main() {
         expect(results, everyElement(isTrue));
       });
     });
+
+    group('pttModeEnabled', () {
+      test('defaults to false when never set', () async {
+        final store = SqfliteSettingsStore();
+        expect(await store.getPttModeEnabled(), isFalse);
+      });
+
+      test('round-trips true', () async {
+        final store = SqfliteSettingsStore();
+        await store.setPttModeEnabled(true);
+        expect(await store.getPttModeEnabled(), isTrue);
+      });
+
+      test('round-trips false', () async {
+        final store = SqfliteSettingsStore();
+        await store.setPttModeEnabled(true);
+        await store.setPttModeEnabled(false);
+        expect(await store.getPttModeEnabled(), isFalse);
+      });
+
+      test('persists across new SqfliteSettingsStore instances', () async {
+        await SqfliteSettingsStore().setPttModeEnabled(true);
+        expect(await SqfliteSettingsStore().getPttModeEnabled(), isTrue);
+      });
+
+      test('is independent of crashReportingEnabled', () async {
+        final store = SqfliteSettingsStore();
+        await store.setPttModeEnabled(true);
+        await store.setCrashReportingEnabled(false);
+        expect(await store.getPttModeEnabled(), isTrue);
+        expect(await store.getCrashReportingEnabled(), isFalse);
+      });
+    });
+
+    group('keepScreenOn', () {
+      test('defaults to false when never set', () async {
+        final store = SqfliteSettingsStore();
+        expect(await store.getKeepScreenOn(), isFalse);
+      });
+
+      test('round-trips true', () async {
+        final store = SqfliteSettingsStore();
+        await store.setKeepScreenOn(true);
+        expect(await store.getKeepScreenOn(), isTrue);
+      });
+
+      test('round-trips false', () async {
+        final store = SqfliteSettingsStore();
+        await store.setKeepScreenOn(true);
+        await store.setKeepScreenOn(false);
+        expect(await store.getKeepScreenOn(), isFalse);
+      });
+
+      test('persists across new SqfliteSettingsStore instances', () async {
+        await SqfliteSettingsStore().setKeepScreenOn(true);
+        expect(await SqfliteSettingsStore().getKeepScreenOn(), isTrue);
+      });
+
+      test('is independent of other settings', () async {
+        final store = SqfliteSettingsStore();
+        await store.setKeepScreenOn(true);
+        await store.setPttModeEnabled(false);
+        await store.setCrashReportingEnabled(false);
+        expect(await store.getKeepScreenOn(), isTrue);
+        expect(await store.getPttModeEnabled(), isFalse);
+        expect(await store.getCrashReportingEnabled(), isFalse);
+      });
+    });
   });
 }
