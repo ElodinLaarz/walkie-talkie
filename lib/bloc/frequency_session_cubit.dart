@@ -123,10 +123,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   StreamSubscription<List<AppPermission>>? _permissionSubscription;
   ReconnectController? _reconnectController;
 
+  /// Default watchdog duration after a successful GATT reconnect: how long
+  /// we wait for the host's JoinAccepted before bailing to lost + Discovery.
+  /// Tests can shorten this via the constructor parameter.
+  static const Duration defaultJoinAcceptedTimeout = Duration(seconds: 10);
+
+  final Duration _joinAcceptedTimeout;
+
   /// Watchdog timer started after a successful GATT reconnect to detect when
-  /// the host never sends a JoinAccepted. Fires after 10 s and transitions
-  /// to ConnectionPhase.lost if still reconnecting. Cancelled by
-  /// applyJoinAccepted or any state transition that exits SessionRoom.
+  /// the host never sends a JoinAccepted. Fires after [_joinAcceptedTimeout]
+  /// and transitions to ConnectionPhase.lost if still reconnecting.
+  /// Cancelled by applyJoinAccepted or any state transition that exits
+  /// SessionRoom.
   Timer? _joinAcceptedWatchdog;
 
   final _mediaCommandsController = StreamController<MediaCommand>.broadcast();
@@ -166,6 +174,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     SignalReporter? signalReporter,
     WeakSignalDetector? weakSignalDetector,
     String Function()? mintSessionUuid,
+    Duration joinAcceptedTimeout = defaultJoinAcceptedTimeout,
   })  : _transport = transport,
         _audio = audio,
         _permissionWatcher = permissionWatcher,
@@ -174,6 +183,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         _signalReporter = signalReporter ?? SignalReporter(),
         _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
         _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
+        _joinAcceptedTimeout = joinAcceptedTimeout,
         super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
@@ -1057,7 +1067,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // subscription failed silently, ...), bail to lost + Discovery rather
     // than waiting forever.
     _joinAcceptedWatchdog?.cancel();
-    _joinAcceptedWatchdog = Timer(const Duration(seconds: 10), () async {
+    _joinAcceptedWatchdog = Timer(_joinAcceptedTimeout, () async {
       if (isClosed) return;
       final watchdogState = state;
       // Guard: applyJoinAccepted already fired and cleared to online, or the

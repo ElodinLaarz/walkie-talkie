@@ -114,6 +114,8 @@ FrequencySessionCubit _makeCubit({
   SignalReporter? signalReporter,
   WeakSignalDetector? weakSignalDetector,
   String Function()? mintSessionUuid,
+  Duration joinAcceptedTimeout =
+      FrequencySessionCubit.defaultJoinAcceptedTimeout,
 }) =>
     FrequencySessionCubit(
       identityStore: identityStore ?? _FakeStore(),
@@ -127,6 +129,7 @@ FrequencySessionCubit _makeCubit({
       signalReporter: signalReporter,
       weakSignalDetector: weakSignalDetector,
       mintSessionUuid: mintSessionUuid ?? (() => _testHostSessionUuid),
+      joinAcceptedTimeout: joinAcceptedTimeout,
     );
 
 /// Drives the cubit's permission-revoked branch under test. The default
@@ -1417,13 +1420,18 @@ void main() {
       () async {
         // Scenario: native reconnect succeeds (GATT link re-established), but
         // the host never sends JoinAccepted (host died, session UUID changed,
-        // GATT subscription failed silently). The 10 s watchdog should fire,
+        // GATT subscription failed silently). The watchdog should fire,
         // transition to ConnectionPhase.lost, and call leaveRoom.
+        //
+        // The watchdog duration is injected so the test runs in milliseconds
+        // rather than seconds — production still uses the 10 s default.
         connectQueue.add(true); // Simulate successful reconnect
 
+        const watchdog = Duration(milliseconds: 50);
         final cubit = _makeCubit(
           audio: audio,
           reconnectDelays: _testReconnectDelays,
+          joinAcceptedTimeout: watchdog,
         );
         cubit.emit(const SessionRoom(
           myName: 'Maya',
@@ -1444,8 +1452,8 @@ void main() {
           ConnectionPhase.reconnecting,
         );
 
-        // Wait for the 10 s watchdog to fire. Add a small buffer.
-        await Future<void>.delayed(const Duration(seconds: 10, milliseconds: 100));
+        // Wait for the watchdog to fire, plus a small buffer.
+        await Future<void>.delayed(watchdog + const Duration(milliseconds: 50));
 
         // Watchdog should have fired and transitioned to Discovery.
         expect(cubit.state, isA<SessionDiscovery>());
@@ -1457,13 +1465,15 @@ void main() {
       'watchdog is cancelled when JoinAccepted arrives before timeout',
       () async {
         // Scenario: native reconnect succeeds and the host sends JoinAccepted
-        // before the 10 s watchdog expires. The watchdog must be cancelled
-        // and the state should transition to online.
+        // before the watchdog expires. The watchdog must be cancelled and
+        // the state should transition to online.
         connectQueue.add(true); // Simulate successful reconnect
 
+        const watchdog = Duration(milliseconds: 50);
         final cubit = _makeCubit(
           audio: audio,
           reconnectDelays: _testReconnectDelays,
+          joinAcceptedTimeout: watchdog,
         );
         cubit.emit(const SessionRoom(
           myName: 'Maya',
@@ -1499,7 +1509,7 @@ void main() {
         );
 
         // Wait past the watchdog timeout to ensure it was cancelled.
-        await Future<void>.delayed(const Duration(seconds: 10, milliseconds: 100));
+        await Future<void>.delayed(watchdog + const Duration(milliseconds: 50));
 
         // State should still be SessionRoom(online), not Discovery.
         expect(cubit.state, isA<SessionRoom>());
