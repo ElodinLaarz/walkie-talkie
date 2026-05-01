@@ -127,6 +127,10 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           WORK_DIR: ${{ runner.temp }}/bundletool
+          # Pin policy here so the release budget is visible at the call site
+          # and can't drift if measure_app_size.sh's defaults change.
+          DOWNLOAD_TARGET_MIB: 30
+          DOWNLOAD_CEILING_MIB: 50
         run: bash scripts/measure_app_size.sh
 
       - name: Upload release AAB
