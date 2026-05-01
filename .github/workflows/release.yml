@@ -80,6 +80,31 @@ jobs:
           fi
           flutter build appbundle --release --target-platform=android-arm64,android-arm,android-x64
 
+      - name: Assert vcsInfo metadata is present in AAB
+        # Guards against silent regressions of bundle.vcsInfo.include in
+        # build.gradle.kts (e.g. an autofix tool comments the block out as
+        # collateral during an unrelated cleanup, as happened in 1a763a1).
+        # Without this, only Play Console would notice — by which point a
+        # release is already shipped without source-linked crash traces.
+        # AGP serializes vcsInfo as a protobuf under BUNDLE-METADATA/; matching
+        # the prefix rather than the exact filename keeps the check stable
+        # across AGP versions that may rename the inner path.
+        run: |
+          AAB_PATH=build/app/outputs/bundle/release/app-release.aab
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "Error: $AAB_PATH not found"
+            exit 1
+          fi
+          if ! unzip -l "$AAB_PATH" | grep -qiE 'BUNDLE-METADATA/[^[:space:]]*vcs'; then
+            echo "Error: AAB is missing vcsInfo metadata under BUNDLE-METADATA/."
+            echo "       bundle.vcsInfo.include in android/app/build.gradle.kts"
+            echo "       must be true so Play Console can deep-link crashes to commits."
+            echo "       BUNDLE-METADATA contents in the built AAB:"
+            unzip -l "$AAB_PATH" | grep -E 'BUNDLE-METADATA/' || echo "       (none)"
+            exit 1
+          fi
+          echo "::notice title=vcsInfo::Found vcsInfo metadata in AAB"
+
       - name: Measure AAB size
         # Bundle-on-disk size is a coarse catastrophic-regression alarm — a 50
         # MiB ceiling well above the per-device target catches an accidental
