@@ -34,6 +34,14 @@
 set -euo pipefail
 
 BUNDLETOOL_VERSION="${BUNDLETOOL_VERSION:-1.18.3}"
+# BUNDLETOOL_VERSION feeds both the GitHub release URL and the on-disk cache
+# filename, so a malformed override (path separators, ../) could redirect
+# either. Pin to the tag shape Google actually publishes (digits-and-dots,
+# optionally with -alpha/-rc-style suffixes) before any interpolation.
+if ! [[ "$BUNDLETOOL_VERSION" =~ ^[0-9]+(\.[0-9]+)*(-[A-Za-z0-9.]+)?$ ]]; then
+  echo "Error: BUNDLETOOL_VERSION must look like a release tag (e.g. 1.18.3), got: '$BUNDLETOOL_VERSION'" >&2
+  exit 1
+fi
 # Default SHA pins bundletool 1.18.3 (verified against the JAR Google publishes
 # at github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar).
 # Bump in lockstep with BUNDLETOOL_VERSION — a tag retarget on Google's release
@@ -89,6 +97,14 @@ for var in DOWNLOAD_TARGET_MIB DOWNLOAD_CEILING_MIB; do
     exit 1
   fi
 done
+
+# Guard the soft-warn ≤ hard-fail invariant so an inverted override doesn't
+# silently break the warn-then-fail semantics — TARGET > CEILING would skip
+# the warning entirely and only ever fail.
+if [ "$DOWNLOAD_TARGET_MIB" -gt "$DOWNLOAD_CEILING_MIB" ]; then
+  echo "Error: DOWNLOAD_TARGET_MIB ($DOWNLOAD_TARGET_MIB) must be ≤ DOWNLOAD_CEILING_MIB ($DOWNLOAD_CEILING_MIB)" >&2
+  exit 1
+fi
 
 if [ ! -f "$AAB_PATH" ]; then
   echo "Error: AAB_PATH '$AAB_PATH' does not exist" >&2
