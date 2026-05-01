@@ -9,6 +9,15 @@ on:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    # SLSA provenance signing (#131): id-token for the OIDC token used to sign
+    # the attestation via Sigstore, attestations for storing the SLSA Provenance
+    # v1 statement against the repo. contents:read is the default we'd otherwise
+    # inherit but is spelled out here so the full permission surface is visible
+    # in one place.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +107,19 @@ jobs:
             echo "Error: AAB size ${AAB_BYTES} bytes exceeds budget ${AAB_MAX_BYTES} bytes"
             exit 1
           fi
+
+      - name: Generate SLSA build provenance
+        # Emits a SLSA Provenance v1 statement bound to the AAB's SHA-256 digest,
+        # signed with this workflow's OIDC identity via Sigstore's public-good
+        # infrastructure (GitHub-hosted runners + reusable workflow detection
+        # qualify this for SLSA Build Level 3 per the action docs). The
+        # attestation is stored on the repo and is verifiable with:
+        #   gh attestation verify <aab> --repo ElodinLaarz/walkie-talkie
+        # which lets a downloader confirm the AAB was produced by THIS workflow
+        # at this commit, before sideloading or shipping it through Play.
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/app/outputs/bundle/release/app-release.aab
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4
