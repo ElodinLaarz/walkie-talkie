@@ -818,6 +818,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// is absent, the seq counter still advances so messages stay monotonic once
   /// the transport connects. Uses cached [_localPeerId] to avoid async resolution
   /// and ensure sequence numbers are assigned at event time (no race).
+  ///
+  /// Wire ordering — preventing fragments from a flapping VAD detector
+  /// interleaving on the wire — is enforced by [BleControlTransport.send]
+  /// itself, which serialises concurrent callers through an internal
+  /// chain. This handler can therefore stay a fire-and-forget
+  /// `unawaited` while still satisfying the protocol's strict-monotonic
+  /// per-producer seq contract.
   void _onLocalTalking(bool talking) {
     final current = state;
     if (isClosed || current is! SessionRoom) return;
@@ -825,21 +832,31 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final t = _transport;
     final peerId = _localPeerId;
 
-    // Increment seq immediately at event time to preserve order
+    // Assign seq synchronously at event time. The listener runs to
+    // completion before the next VAD edge dispatches, so seq numbers
+    // strictly track the order edges were observed.
     final seq = ++_seq;
 
     if (t == null || peerId == null) {
-      return; // seq already incremented
+      return; // seq already incremented; talking-state isn't sendable
     }
 
-    // Build and send message synchronously
     final msg = TalkingState(
       peerId: peerId,
       seq: seq,
       atMs: DateTime.now().millisecondsSinceEpoch,
       talking: talking,
     );
-    unawaited(t.send(msg));
+    // Fire-and-forget send — the transport's internal chain serialises
+    // wire writes so seq order is preserved even under flapping VAD.
+    // `catchError` swallows transport-level failures (e.g. a write that
+    // throws on a closing GATT link) so an unawaited reject doesn't
+    // bubble to the unhandled-async-error handler.
+    unawaited(t.send(msg).catchError((Object error, StackTrace stackTrace) {
+      if (kDebugMode) debugPrint('TalkingState send failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      return false;
+    }));
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if

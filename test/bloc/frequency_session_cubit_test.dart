@@ -2677,6 +2677,253 @@ void main() {
     );
   });
 
+  // ── TalkingState (VAD outbound) ───────────────────────────────────────
+
+  group('TalkingState outbound', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    /// Same harness shape as the Heartbeats / SignalReport groups.
+    ({
+      BleControlTransport transport,
+      List<Uint8List> outbox,
+      StreamController<({String endpointId, Uint8List bytes})> inbox,
+    }) makeTestTransport() {
+      final outbox = <Uint8List>[];
+      final inbox =
+          StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+      final transport = BleControlTransport.forTest(
+        controlBytes: inbox.stream,
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      return (transport: transport, outbox: outbox, inbox: inbox);
+    }
+
+    /// Reassembles the test transport's [outbox] back into the
+    /// [FrequencyMessage]s the wire would carry.
+    List<FrequencyMessage> drainOutbox(List<Uint8List> outbox) {
+      final reassembler = FragmentReassembler();
+      final messages = <FrequencyMessage>[];
+      for (final bytes in outbox) {
+        final json = reassembler.feed(bytes);
+        if (json != null) messages.add(FrequencyMessage.decode(json));
+      }
+      return messages;
+    }
+
+    test(
+      'rapid alternating VAD edges produce TalkingStates with strictly '
+      'increasing seq numbers on the wire',
+      () async {
+        final t = makeTestTransport();
+        final talking = StreamController<bool>.broadcast();
+        addTearDown(talking.close);
+        final audio = _StubLocalTalkingAudio(talking.stream);
+
+        final cubit = _makeCubit(
+          transport: t.transport,
+          audio: audio,
+          // Provided to satisfy construction; this test enters the room
+          // via `emit(SessionRoom(...))` rather than `joinRoom()`, so
+          // the scheduler is never started and does not affect the
+          // wire assertions.
+          heartbeats:
+              HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+        );
+        await cubit.bootstrap(); // wires audio.localTalking → _onLocalTalking
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        // Eight rapid edges, alternating true / false.
+        for (var i = 0; i < 8; i++) {
+          talking.add(i.isEven);
+        }
+        // Drain the chained sends: each VAD edge enqueues a microtask
+        // that awaits the previous, so we need enough flushes to clear
+        // them all.
+        for (var i = 0; i < 16; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        final messages = drainOutbox(t.outbox);
+        expect(messages, hasLength(8));
+        for (final m in messages) {
+          expect(m, isA<TalkingState>());
+        }
+        for (var i = 1; i < messages.length; i++) {
+          expect(
+            messages[i].seq,
+            greaterThan(messages[i - 1].seq),
+            reason: 'seq must strictly increase on the wire',
+          );
+        }
+        // And the talking flags carry the original alternating pattern,
+        // proving no edge was coalesced or dropped.
+        for (var i = 0; i < messages.length; i++) {
+          expect((messages[i] as TalkingState).talking, i.isEven);
+        }
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'a slow in-flight send blocks subsequent VAD edges from racing onto '
+      'the wire',
+      () async {
+        // Replaces the per-write completer pattern: every writeBytes call
+        // returns a future the test controls. With the chain in place,
+        // only one write should be in flight at a time — the next VAD
+        // edge waits for the previous send to complete before its bytes
+        // hit the outbox.
+        final outbox = <Uint8List>[];
+        final completers = <Completer<void>>[];
+        final transport = BleControlTransport.forTest(
+          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
+              .empty(),
+          writeBytes: (bytes) {
+            outbox.add(bytes);
+            final c = Completer<void>();
+            completers.add(c);
+            return c.future;
+          },
+        );
+
+        final talking = StreamController<bool>.broadcast();
+        addTearDown(talking.close);
+        final audio = _StubLocalTalkingAudio(talking.stream);
+
+        final cubit = _makeCubit(
+          transport: transport,
+          audio: audio,
+          heartbeats:
+              HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        // Fire three edges before completing any write.
+        talking.add(true);
+        talking.add(false);
+        talking.add(true);
+        for (var i = 0; i < 4; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // Only the first write should be in flight; the next two wait
+        // behind it on the chain.
+        expect(outbox, hasLength(1));
+        expect(completers, hasLength(1));
+
+        // Release the first; the second's write should land next.
+        completers[0].complete();
+        for (var i = 0; i < 4; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(outbox, hasLength(2));
+
+        completers[1].complete();
+        for (var i = 0; i < 4; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(outbox, hasLength(3));
+
+        completers[2].complete();
+        for (var i = 0; i < 4; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // All three landed in the order they were enqueued.
+        final reassembler = FragmentReassembler();
+        final talkingFlags = <bool>[];
+        for (final bytes in outbox) {
+          final json = reassembler.feed(bytes);
+          if (json != null) {
+            final msg = FrequencyMessage.decode(json);
+            expect(msg, isA<TalkingState>());
+            talkingFlags.add((msg as TalkingState).talking);
+          }
+        }
+        expect(talkingFlags, [true, false, true]);
+
+        await cubit.close();
+        transport.dispose();
+      },
+    );
+
+    test(
+      'transport-level send failures do not poison the chain — later '
+      'edges still reach the wire',
+      () async {
+        // First send throws; the chain must catch it so the second send
+        // proceeds. Without the per-message try/catch, an exception
+        // thrown out of a `then` callback rejects the chain future, and
+        // the next `then(...)` runs in error mode rather than firing
+        // the next VAD edge.
+        final outbox = <Uint8List>[];
+        var sendCount = 0;
+        final transport = BleControlTransport.forTest(
+          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
+              .empty(),
+          writeBytes: (bytes) async {
+            sendCount++;
+            if (sendCount == 1) {
+              throw StateError('first write fails');
+            }
+            outbox.add(bytes);
+          },
+        );
+
+        final talking = StreamController<bool>.broadcast();
+        addTearDown(talking.close);
+        final audio = _StubLocalTalkingAudio(talking.stream);
+
+        final cubit = _makeCubit(
+          transport: transport,
+          audio: audio,
+          heartbeats:
+              HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        talking.add(true);
+        talking.add(false);
+        for (var i = 0; i < 8; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // The first write threw (so outbox stays empty for that one);
+        // the second still landed.
+        expect(sendCount, 2);
+        expect(outbox, hasLength(1));
+        final reassembler = FragmentReassembler();
+        final json = reassembler.feed(outbox.single);
+        final msg = FrequencyMessage.decode(json!);
+        expect(msg, isA<TalkingState>());
+        expect((msg as TalkingState).talking, isFalse);
+
+        await cubit.close();
+        transport.dispose();
+      },
+    );
+
+  });
+
   group('FrequencySessionState', () {
     test('Equatable equality treats identical fields as equal', () {
       const a = SessionDiscovery(myName: 'Maya');
@@ -2742,4 +2989,25 @@ class _GatedPeerIdStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() => _peerIdFuture;
+}
+
+/// AudioService stub that exposes a caller-supplied stream as
+/// [localTalking]. Subclassing the production class keeps the cubit's
+/// `audio: ` parameter strongly typed without forcing every other
+/// AudioService method into a fake. The host-teardown methods that
+/// `cubit.close()` reaches when `roomIsHost: true` are stubbed to
+/// no-ops so the tests stay hermetic and never hit the real
+/// MethodChannel.
+class _StubLocalTalkingAudio extends AudioService {
+  _StubLocalTalkingAudio(this._localTalking);
+  final Stream<bool> _localTalking;
+
+  @override
+  Stream<bool> get localTalking => _localTalking;
+
+  @override
+  Future<bool> stopAdvertising() async => true;
+
+  @override
+  Future<bool> stopGattServer() async => true;
 }

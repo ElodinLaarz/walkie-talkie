@@ -58,6 +58,26 @@ class BleControlTransport {
   /// `audio.writeNotification`), so the value stays null on that side.
   String? _activeEndpoint;
 
+  /// Serialiser for [send]. Each call chains its body onto this future
+  /// so concurrent senders never race their fragments onto the wire.
+  ///
+  /// Two unawaited `send` calls — common from VAD edges (see
+  /// [FrequencySessionCubit] `_onLocalTalking`) and from the cubit's
+  /// best-effort `_broadcastRosterUpdate` — would otherwise overlap
+  /// inside [send]'s `await _writeBytes(f)` loop and let fragments
+  /// belonging to different messages interleave on the wire. The
+  /// receiver's [FragmentReassembler] would then either drop both
+  /// (header mismatch) or splice them, and even for single-fragment
+  /// messages the [SequenceFilter] would discard the older `seq` as
+  /// out-of-order. This chain enforces strict serialisation on the
+  /// wire — each `send` waits for the previous to fully drain before
+  /// its first fragment goes out.
+  ///
+  /// Per-call errors are isolated: a failed send rejects only that
+  /// caller's returned future, not the chain itself, so the next
+  /// queued send still runs.
+  Future<void> _sendChain = Future<void>.value();
+
   /// Fully-assembled, idempotency-filtered messages from the remote side.
   Stream<FrequencyMessage> get incoming => _incoming.stream;
 
@@ -102,7 +122,11 @@ class BleControlTransport {
   ///
   /// Fragments are written sequentially — each `writeControlBytes` call
   /// awaits before the next begins, matching the GATT write-without-response
-  /// ordering contract.
+  /// ordering contract. Concurrent [send] calls are also serialised
+  /// through [_sendChain]: a second caller's fragments wait for the
+  /// previous send to fully drain before they go out, so two unawaited
+  /// sends from different producers (e.g. VAD edges and roster updates)
+  /// can't interleave on the wire.
   ///
   /// When an active endpoint is set (see [setActiveEndpoint]) and the
   /// transport has an MTU oracle wired, this queries the negotiated MTU
@@ -123,7 +147,26 @@ class BleControlTransport {
   /// uses this signal to decide whether to disconnect: a single drop is
   /// expected (just-connected, MTU not yet observed → retry); persistent
   /// drops over the heartbeat window mean the link is unusable.
-  Future<bool> send(FrequencyMessage msg) async {
+  Future<bool> send(FrequencyMessage msg) {
+    // Chain onto the previous send so concurrent callers don't interleave
+    // fragments on the wire. The completer lets each caller observe its
+    // own send's outcome (true / false / thrown) without coupling to the
+    // chain's collective state — a failed send must not poison the chain
+    // and stall every subsequent caller.
+    final completer = Completer<bool>();
+    _sendChain = _sendChain.then((_) async {
+      try {
+        final result = await _sendOne(msg);
+        if (!completer.isCompleted) completer.complete(result);
+      } catch (error, stackTrace) {
+        if (!completer.isCompleted) completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  /// Body of a single [send] — runs serially under [_sendChain].
+  Future<bool> _sendOne(FrequencyMessage msg) async {
     final maxFragmentSize = await _resolveFragmentSize();
     if (maxFragmentSize == null) {
       // MTU below the control-plane floor — drop the message rather than
