@@ -28,6 +28,27 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
   final PageController _controller = PageController();
   int _currentPage = 0;
 
+  /// Source of truth for page count. Derive every off-by-one /
+  /// last-page check from this list rather than hard-coding indices,
+  /// so adding or removing a page only touches this one place.
+  List<_ExplainerPage> _buildPages(AppLocalizations l10n) => [
+        _ExplainerPage(
+          icon: Icons.podcasts_outlined,
+          headline: l10n.explainerPage1Headline,
+          body: l10n.explainerPage1Body,
+        ),
+        _ExplainerPage(
+          icon: Icons.bluetooth,
+          headline: l10n.explainerPage2Headline,
+          body: l10n.explainerPage2Body,
+        ),
+        _ExplainerPage(
+          icon: Icons.cloud_off_outlined,
+          headline: l10n.explainerPage3Headline,
+          body: l10n.explainerPage3Body,
+        ),
+      ];
+
   @override
   void dispose() {
     _controller.dispose();
@@ -52,20 +73,20 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
   Widget _buildContent(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final l10n = AppLocalizations.of(context);
+    final pages = _buildPages(l10n);
+    final isLastPage = _currentPage >= pages.length - 1;
     return Column(
       children: [
         if (!widget.embedded)
           FreqChrome(
             left: const FrequencyWordmark(),
             right: [
-              if (_currentPage < 2)
+              if (!isLastPage)
                 TextButton(
                   onPressed: widget.onDone,
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
                     l10n.explainerSkip,
@@ -83,31 +104,19 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
           child: PageView(
             controller: _controller,
             onPageChanged: (page) => setState(() => _currentPage = page),
-            children: [
-              _ExplainerPage(
-                icon: Icons.podcasts_outlined,
-                headline: l10n.explainerPage1Headline,
-                body: l10n.explainerPage1Body,
-              ),
-              _ExplainerPage(
-                icon: Icons.bluetooth,
-                headline: l10n.explainerPage2Headline,
-                body: l10n.explainerPage2Body,
-              ),
-              _ExplainerPage(
-                icon: Icons.cloud_off_outlined,
-                headline: l10n.explainerPage3Headline,
-                body: l10n.explainerPage3Body,
-              ),
-            ],
+            children: pages,
           ),
         ),
-        _buildBottomBar(context),
+        _buildBottomBar(context, pageCount: pages.length, isLastPage: isLastPage),
       ],
     );
   }
 
-  Widget _buildBottomBar(BuildContext context) {
+  Widget _buildBottomBar(
+    BuildContext context, {
+    required int pageCount,
+    required bool isLastPage,
+  }) {
     final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
@@ -115,10 +124,10 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
         children: [
           _PageIndicator(
             currentPage: _currentPage,
-            pageCount: 3,
+            pageCount: pageCount,
           ),
           const SizedBox(height: 20),
-          if (_currentPage == 2)
+          if (isLastPage)
             PrimaryButton(
               label: l10n.explainerGetStarted,
               block: true,

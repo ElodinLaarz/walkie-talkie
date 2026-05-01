@@ -797,8 +797,13 @@ class _EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
-          GestureDetector(
-            onTap: onShowExplainer,
+          TextButton(
+            onPressed: onShowExplainer,
+            style: TextButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              foregroundColor: c.accent,
+            ),
             child: Text(
               l10n.discoveryEmptyHowItWorks,
               style: TextStyle(

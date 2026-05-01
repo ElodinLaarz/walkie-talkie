@@ -13,7 +13,7 @@ import 'frequency_explainer_screen.dart';
 /// updating the ARB or every locale's translation.
 const int _kOnboardingTotalSteps = 4;
 
-/// 3-step onboarding: welcome → permissions → display name.
+/// 4-step onboarding: welcome → explainer → permissions → display name.
 class FrequencyOnboardingScreen extends StatefulWidget {
   final ValueChanged<String> onDone;
 
