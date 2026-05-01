@@ -3054,6 +3054,222 @@ void main() {
       expect(r.roomIsHost, isTrue);
     });
   });
+
+  group('broadcastMute', () {
+    test('sends MuteState with correct shape and advances seq', () async {
+      final outbox = <Uint8List>[];
+      final transport = BleControlTransport.forTest(
+        controlBytes: const Stream<({String endpointId, Uint8List bytes})>.empty(),
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      final store = _FakeStore();
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: transport,
+      );
+      await cubit.bootstrap();
+
+      // Capture initial seq (should be 0 after bootstrap)
+      final initialSeq = cubit.debugSeq;
+
+      // Broadcast mute=true
+      await cubit.broadcastMute(true);
+      // Let the unawaited send complete
+      await Future<void>.delayed(Duration.zero);
+
+      // Seq should have advanced
+      expect(cubit.debugSeq, initialSeq + 1);
+
+      // Should have sent one message
+      expect(outbox.length, 1);
+
+      // Decode and verify the message shape
+      final reassembler = FragmentReassembler();
+      final json = reassembler.feed(outbox[0]);
+      expect(json, isNotNull);
+      final decoded = FrequencyMessage.decode(json!);
+      expect(decoded, isA<MuteState>());
+      final muteMsg = decoded as MuteState;
+      expect(muteMsg.muted, isTrue);
+      expect(muteMsg.peerId, 'fake-peer-id');
+      expect(muteMsg.seq, initialSeq + 1);
+
+      await cubit.close();
+    });
+
+    test('sends MuteState with muted=false when unmuting', () async {
+      final outbox = <Uint8List>[];
+      final transport = BleControlTransport.forTest(
+        controlBytes: const Stream<({String endpointId, Uint8List bytes})>.empty(),
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      final store = _FakeStore();
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: transport,
+      );
+      await cubit.bootstrap();
+
+      await cubit.broadcastMute(false);
+      // Let the unawaited send complete
+      await Future<void>.delayed(Duration.zero);
+
+      expect(outbox.length, 1);
+      final reassembler = FragmentReassembler();
+      final json = reassembler.feed(outbox[0]);
+      expect(json, isNotNull);
+      final decoded = FrequencyMessage.decode(json!);
+      expect(decoded, isA<MuteState>());
+      final muteMsg = decoded as MuteState;
+      expect(muteMsg.muted, isFalse);
+
+      await cubit.close();
+    });
+
+    test('advances seq when transport is null', () async {
+      final store = _FakeStore();
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: null, // No transport
+      );
+      await cubit.bootstrap();
+
+      final initialSeq = cubit.debugSeq;
+      await cubit.broadcastMute(true);
+
+      // Seq should advance even without transport
+      expect(cubit.debugSeq, initialSeq + 1);
+
+      await cubit.close();
+    });
+
+    test('advances seq and returns early when getPeerId fails', () async {
+      final outbox = <Uint8List>[];
+      final transport = BleControlTransport.forTest(
+        controlBytes: const Stream<({String endpointId, Uint8List bytes})>.empty(),
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      final store = _FakeStore();
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: transport,
+      );
+      await cubit.bootstrap();
+
+      // Set the flag after bootstrap so it only affects broadcastMute
+      store.throwOnGetPeerId = true;
+
+      final initialSeq = cubit.debugSeq;
+      await cubit.broadcastMute(true);
+
+      // Seq should advance even when getPeerId fails
+      expect(cubit.debugSeq, initialSeq + 1);
+      // No message should be sent
+      expect(outbox, isEmpty);
+
+      await cubit.close();
+    });
+
+    test('does not send when cubit is closed during await', () async {
+      final peerIdCompleter = Completer<String>();
+      final outbox = <Uint8List>[];
+      final transport = BleControlTransport.forTest(
+        controlBytes: const Stream<({String endpointId, Uint8List bytes})>.empty(),
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      final store = _GatedPeerIdStore(peerIdCompleter.future);
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: transport,
+      );
+      // Emit a room state directly to avoid calling bootstrap (which also
+      // calls getPeerId and would block on the completer).
+      cubit.emit(const SessionRoom(
+        myName: 'Test User',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ));
+
+      // Start broadcastMute but don't await it yet — it will block on getPeerId
+      final broadcastFuture = cubit.broadcastMute(true);
+
+      // Close the cubit while broadcastMute is waiting for peerId
+      await cubit.close();
+
+      // Now unblock the peerId
+      peerIdCompleter.complete('fake-peer-id');
+
+      // Wait for broadcastMute to complete
+      await broadcastFuture;
+
+      // Should not have sent anything because cubit was closed
+      expect(outbox, isEmpty);
+    });
+
+    test('multiple broadcastMute calls advance seq monotonically', () async {
+      final outbox = <Uint8List>[];
+      final transport = BleControlTransport.forTest(
+        controlBytes: const Stream<({String endpointId, Uint8List bytes})>.empty(),
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      final store = _FakeStore();
+      final cubit = _makeCubit(
+        identityStore: store,
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        transport: transport,
+      );
+      await cubit.bootstrap();
+
+      final initialSeq = cubit.debugSeq;
+
+      // Send multiple mute state changes
+      await cubit.broadcastMute(true);
+      await cubit.broadcastMute(false);
+      await cubit.broadcastMute(true);
+      // Let the unawaited sends complete
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.debugSeq, initialSeq + 3);
+      expect(outbox.length, 3);
+
+      // Verify seq numbers are monotonic
+      final reassembler = FragmentReassembler();
+      final json1 = reassembler.feed(outbox[0]);
+      expect(json1, isNotNull);
+      final msg1 = FrequencyMessage.decode(json1!) as MuteState;
+
+      reassembler.reset();
+      final json2 = reassembler.feed(outbox[1]);
+      expect(json2, isNotNull);
+      final msg2 = FrequencyMessage.decode(json2!) as MuteState;
+
+      reassembler.reset();
+      final json3 = reassembler.feed(outbox[2]);
+      expect(json3, isNotNull);
+      final msg3 = FrequencyMessage.decode(json3!) as MuteState;
+
+      expect(msg1.seq, initialSeq + 1);
+      expect(msg2.seq, initialSeq + 2);
+      expect(msg3.seq, initialSeq + 3);
+
+      await cubit.close();
+    });
+  });
 }
 
 /// RecentFrequenciesStore whose `getRecent()` blocks on a caller-supplied

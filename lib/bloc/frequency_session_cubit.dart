@@ -195,6 +195,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   int _seq = 0;
   String? _localPeerId;
 
+  /// Expose the current sequence number for testing. Tests use this to verify
+  /// that seq advances even when the transport is null or when errors occur.
+  @visibleForTesting
+  int get debugSeq => _seq;
+
   FrequencySessionCubit({
     required this.identityStore,
     required this.recentFrequenciesStore,
