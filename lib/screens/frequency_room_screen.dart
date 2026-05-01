@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/frequency_session_cubit.dart';
@@ -971,9 +972,39 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               title: '${person.name} was removed',
             ));
           },
+          onReport: () => _reportPeer(ctx, person),
         );
       },
     );
+  }
+
+  void _reportPeer(BuildContext drawerCtx, Person person) {
+    setState(() {
+      _peerMuted.add(person.id);
+    });
+    unawaited(_persistMute(person.id, true));
+    Navigator.pop(drawerCtx);
+    FrequencyToastHost.of(context).push(FrequencyToastSpec(
+      tone: ToastTone.warn,
+      title: '${person.name} blocked',
+    ));
+    final report = _buildSanitizedReport(person);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _ReportSentDialog(
+        peerName: person.name,
+        reportText: report,
+      ),
+    );
+  }
+
+  String _buildSanitizedReport(Person person) {
+    final timestamp = DateTime.now().toUtc().toIso8601String();
+    return 'Walkie Talkie abuse report\n'
+        'Time (UTC): $timestamp\n'
+        'Frequency: ${widget.freq}\n'
+        'Peer display name: ${person.name}\n'
+        'Peer BLE device: ${person.btDevice}\n';
   }
 
   Future<void> _showQueueSheet() async {
@@ -1047,6 +1078,63 @@ class _LastAction {
   final String action;
   final String when;
   const _LastAction({required this.by, required this.action, required this.when});
+}
+
+class _ReportSentDialog extends StatefulWidget {
+  final String peerName;
+  final String reportText;
+
+  const _ReportSentDialog({required this.peerName, required this.reportText});
+
+  @override
+  State<_ReportSentDialog> createState() => _ReportSentDialogState();
+}
+
+class _ReportSentDialogState extends State<_ReportSentDialog> {
+  bool _copied = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.peerName} blocked'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'They have been muted and blocked. To report this incident to support, copy the report below and email it to support@elodin.app.',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SelectableText(
+              widget.reportText,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Dismiss'),
+        ),
+        FilledButton.icon(
+          icon: Icon(_copied ? Icons.check : Icons.copy),
+          label: Text(_copied ? 'Copied' : 'Copy report'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: widget.reportText));
+            if (mounted) setState(() => _copied = true);
+          },
+        ),
+      ],
+    );
+  }
 }
 
 

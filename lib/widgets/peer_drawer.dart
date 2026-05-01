@@ -11,6 +11,7 @@ class PeerDrawer extends StatefulWidget {
   final bool initialMuted;
   final void Function(double volume, bool muted) onChanged;
   final VoidCallback onRemove;
+  final VoidCallback? onReport;
 
   const PeerDrawer({
     super.key,
@@ -20,6 +21,7 @@ class PeerDrawer extends StatefulWidget {
     required this.initialMuted,
     required this.onChanged,
     required this.onRemove,
+    this.onReport,
   });
 
   @override
@@ -205,6 +207,21 @@ class _PeerDrawerState extends State<PeerDrawer> {
                     style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
                   ),
                 ],
+              ),
+            ),
+          ],
+          if (widget.onReport != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.only(top: 14),
+              decoration: BoxDecoration(border: Border(top: BorderSide(color: c.line))),
+              child: FreqButton(
+                label: 'Block & Report',
+                icon: Icons.flag_outlined,
+                block: true,
+                labelColor: c.danger,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                onPressed: widget.onReport,
               ),
             ),
           ],

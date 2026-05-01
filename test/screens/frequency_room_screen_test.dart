@@ -37,7 +37,7 @@ const _viewport = Size(432, 1200);
 /// Long enough to settle modal-sheet entry (~250 ms).
 const _settle = Duration(milliseconds: 500);
 
-Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) {
+Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio, BlockedPeersStore? store}) {
   final mockCubit = cubit ?? MockFrequencySessionCubit();
   final mockStore = MockIdentityStore();
   final providedAudio = audio ?? AudioService();
@@ -97,7 +97,7 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) 
           providers: [
             RepositoryProvider<AudioService>.value(value: providedAudio),
             RepositoryProvider<BlockedPeersStore>(
-              create: (_) => _FakeBlockedPeersStore(),
+              create: (_) => store ?? _FakeBlockedPeersStore(),
             ),
           ],
           child: BlocProvider<FrequencySessionCubit>.value(
@@ -777,11 +777,6 @@ void main() {
     testWidgets(
       'leaveRoom event from notification or MediaSession.onStop fires onLeave',
       (tester) async {
-        // The MediaSession onStop callback and the service's Leave
-        // PendingIntent both route through `dispatchEventFromService`,
-        // which emits a leaveRoom event on the audio EventChannel. This
-        // test exercises that path end-to-end from the EventChannel into
-        // the screen's leave handler.
         final eventEmitter =
             _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
         addTearDown(eventEmitter.dispose);
@@ -798,11 +793,36 @@ void main() {
     );
 
     testWidgets(
+      'peer drawer shows Block & Report button (#133)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+        await tester.pump();
+
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+          ],
+        ));
+        await tester.pump();
+
+        await tester.tap(find.text('Devon'));
+        await tester.pump(_settle);
+
+        expect(find.text('Block & Report'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'pttToggle in open-mic mode mutes (notification PTT button in open-mic)',
       (tester) async {
-        // In open-mic mode pttToggle and muteToggle are symmetrical —
-        // both toggle the persistent mute. A notification labeled "PTT"
-        // that fires pttToggle should still mute the open-mic stream.
         final eventEmitter =
             _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
         addTearDown(eventEmitter.dispose);
@@ -810,11 +830,9 @@ void main() {
         await tester.pumpWidget(_wrap(_room()));
         await tester.pump();
 
-        // Initial: open-mic, not muted.
         expect(find.text('Mute'), findsOneWidget);
         expect(find.text('Caleb · muted'), findsNothing);
 
-        // First toggle → muted.
         eventEmitter.emit({'type': 'pttToggle'});
         await tester.pump();
         expect(find.text('Caleb · muted'), findsOneWidget);
@@ -824,7 +842,6 @@ void main() {
           isMethodCall('setMuted', arguments: {'muted': true}),
         );
 
-        // Second toggle → back to unmuted.
         eventEmitter.emit({'type': 'pttToggle'});
         await tester.pump();
         expect(find.text('Mute'), findsOneWidget);
@@ -839,10 +856,6 @@ void main() {
     testWidgets(
       'muteToggle in PTT mode toggles PTT holding (notification Mute button in PTT mode)',
       (tester) async {
-        // In PTT mode muteToggle and pttToggle are symmetrical — both
-        // flip the PTT-held state. A notification "Mute" button emitting
-        // muteToggle should unmute the stream when held state is false,
-        // and re-mute it on a second press.
         final eventEmitter =
             _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
         addTearDown(eventEmitter.dispose);
@@ -850,10 +863,8 @@ void main() {
         await tester.pumpWidget(_wrap(_room(pttMode: true)));
         await tester.pump();
 
-        // PTT mode starts muted-until-held.
         expect(find.text('Caleb · muted'), findsOneWidget);
 
-        // First toggle → held → unmuted.
         eventEmitter.emit({'type': 'muteToggle'});
         await tester.pump();
         expect(find.text('Caleb · muted'), findsNothing);
@@ -863,7 +874,6 @@ void main() {
           isMethodCall('setMuted', arguments: {'muted': false}),
         );
 
-        // Second toggle → released → muted again.
         eventEmitter.emit({'type': 'muteToggle'});
         await tester.pump();
         expect(find.text('Caleb · muted'), findsOneWidget);
@@ -871,6 +881,33 @@ void main() {
           audioCalls.last,
           isMethodCall('setMuted', arguments: {'muted': true}),
         );
+      },
+    );
+
+    testWidgets(
+      'pre-blocked peer starts muted on join (#133)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+        final store = _FakeBlockedPeersStore(initial: {'p-peer'});
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit, store: store));
+        await tester.pump();
+        await tester.pump();
+
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-peer',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-peer', displayName: 'Devon'),
+          ],
+        ));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text('muted'), findsOneWidget);
       },
     );
   });
