@@ -9,13 +9,28 @@
 #include "ring_buffer.h"
 
 #include <atomic>
-#include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <thread>
 #include <vector>
+
+// CHECK is preferred over assert(): assert() is a no-op when NDEBUG is
+// defined (release/optimized builds), which would let tests pass silently
+// without any validation. CHECK always fires and aborts the binary with a
+// clear diagnostic.
+#define CHECK(cond)                                                          \
+    do {                                                                     \
+        if (!(cond)) {                                                       \
+            std::cerr << "CHECK failed: " #cond                              \
+                      << " (" << __FILE__ << ":" << __LINE__ << ")"          \
+                      << std::endl;                                          \
+            std::exit(1);                                                    \
+        }                                                                    \
+    } while (0)
 
 // ── Basic single-threaded correctness ────────────────────────────────────────
 
@@ -23,8 +38,8 @@ void testEmptyReadReturnsZero() {
     RingBuffer<int16_t, 32> rb;
     int16_t out[8];
     size_t n = rb.read(out, 8);
-    assert(n == 0);
-    assert(rb.availableToRead() == 0);
+    CHECK(n == 0);
+    CHECK(rb.availableToRead() == 0);
     std::cout << "Test Empty Read Returns Zero: PASSED" << std::endl;
 }
 
@@ -33,13 +48,13 @@ void testWriteReadRoundTrip() {
     int16_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     int16_t out[8] = {};
     size_t written = rb.write(in, 8);
-    assert(written == 8);
-    assert(rb.availableToRead() == 8);
+    CHECK(written == 8);
+    CHECK(rb.availableToRead() == 8);
     size_t read = rb.read(out, 8);
-    assert(read == 8);
-    assert(rb.availableToRead() == 0);
+    CHECK(read == 8);
+    CHECK(rb.availableToRead() == 0);
     for (int i = 0; i < 8; ++i) {
-        assert(out[i] == in[i]);
+        CHECK(out[i] == in[i]);
     }
     std::cout << "Test Write/Read Round Trip: PASSED" << std::endl;
 }
@@ -49,11 +64,11 @@ void testPartialWriteOnFull() {
     RingBuffer<int16_t, 8> rb;  // holds 7 samples
     int16_t data[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     size_t written = rb.write(data, 8);
-    assert(written == 7);
-    assert(rb.availableToWrite() == 0);
+    CHECK(written == 7);
+    CHECK(rb.availableToWrite() == 0);
     // A further write must be rejected entirely.
     int16_t extra[1] = {99};
-    assert(rb.write(extra, 1) == 0);
+    CHECK(rb.write(extra, 1) == 0);
     std::cout << "Test Partial Write On Full: PASSED" << std::endl;
 }
 
@@ -63,9 +78,9 @@ void testPartialReadOnUnderrun() {
     rb.write(in, 4);
     int16_t out[8] = {};
     size_t read = rb.read(out, 8);  // ask for more than available
-    assert(read == 4);
+    CHECK(read == 4);
     for (int i = 0; i < 4; ++i) {
-        assert(out[i] == in[i]);
+        CHECK(out[i] == in[i]);
     }
     std::cout << "Test Partial Read On Underrun: PASSED" << std::endl;
 }
@@ -79,22 +94,22 @@ void testWraparoundCorrectness() {
     int16_t out[5] = {};
 
     // First write-read cycle — advance the write index to 5.
-    assert(rb.write(in, 5) == 5);
-    assert(rb.read(out, 5) == 5);
+    CHECK(rb.write(in, 5) == 5);
+    CHECK(rb.read(out, 5) == 5);
     for (int i = 0; i < 5; ++i) {
-        assert(out[i] == in[i]);
+        CHECK(out[i] == in[i]);
     }
 
     // Second write wraps around (writeIndex = 5, will reach 2 after mod 8).
     int16_t in2[5] = {10, 20, 30, 40, 50};
-    assert(rb.write(in2, 5) == 5);
+    CHECK(rb.write(in2, 5) == 5);
 
     int16_t out2[5] = {};
-    assert(rb.read(out2, 5) == 5);
+    CHECK(rb.read(out2, 5) == 5);
     for (int i = 0; i < 5; ++i) {
-        assert(out2[i] == in2[i]);
+        CHECK(out2[i] == in2[i]);
     }
-    assert(rb.availableToRead() == 0);
+    CHECK(rb.availableToRead() == 0);
     std::cout << "Test Wraparound Correctness: PASSED" << std::endl;
 }
 
@@ -106,17 +121,17 @@ void testPeekDoesNotConsume() {
 
     int16_t peeked[4] = {};
     size_t n = rb.peek(peeked, 4);
-    assert(n == 4);
+    CHECK(n == 4);
     for (int i = 0; i < 4; ++i) {
-        assert(peeked[i] == in[i]);
+        CHECK(peeked[i] == in[i]);
     }
-    assert(rb.availableToRead() == 4);  // still 4
+    CHECK(rb.availableToRead() == 4);  // still 4
 
     // A subsequent read must return the same data.
     int16_t out[4] = {};
-    assert(rb.read(out, 4) == 4);
+    CHECK(rb.read(out, 4) == 4);
     for (int i = 0; i < 4; ++i) {
-        assert(out[i] == in[i]);
+        CHECK(out[i] == in[i]);
     }
     std::cout << "Test Peek Does Not Consume: PASSED" << std::endl;
 }
@@ -125,17 +140,17 @@ void testClearResetsState() {
     RingBuffer<int16_t, 32> rb;
     int16_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     rb.write(in, 8);
-    assert(rb.availableToRead() == 8);
+    CHECK(rb.availableToRead() == 8);
     rb.clear();
-    assert(rb.availableToRead() == 0);
+    CHECK(rb.availableToRead() == 0);
     constexpr size_t kCap32 = RingBuffer<int16_t, 32>::capacity();
-    assert(rb.availableToWrite() == kCap32);
+    CHECK(rb.availableToWrite() == kCap32);
     // Write and read again after clear to confirm state is consistent.
     rb.write(in, 8);
     int16_t out[8] = {};
-    assert(rb.read(out, 8) == 8);
+    CHECK(rb.read(out, 8) == 8);
     for (int i = 0; i < 8; ++i) {
-        assert(out[i] == in[i]);
+        CHECK(out[i] == in[i]);
     }
     std::cout << "Test Clear Resets State: PASSED" << std::endl;
 }
@@ -143,14 +158,14 @@ void testClearResetsState() {
 void testAvailableToWriteAccountsForData() {
     RingBuffer<int16_t, 16> rb;  // capacity = 15
     constexpr size_t kCap = RingBuffer<int16_t, 16>::capacity();
-    assert(rb.availableToWrite() == kCap);
+    CHECK(rb.availableToWrite() == kCap);
 
     int16_t data[5] = {};
     rb.write(data, 5);
-    assert(rb.availableToWrite() == kCap - 5);
-    assert(rb.availableToRead() == 5);
+    CHECK(rb.availableToWrite() == kCap - 5);
+    CHECK(rb.availableToRead() == 5);
     rb.read(data, 5);
-    assert(rb.availableToWrite() == kCap);
+    CHECK(rb.availableToWrite() == kCap);
     std::cout << "Test AvailableToWrite Accounts For Data: PASSED" << std::endl;
 }
 
@@ -162,6 +177,11 @@ void testAvailableToWriteAccountsForData() {
 //
 // This exercises the release/acquire ordering on writeIndex/readIndex under
 // genuine concurrent access — a sanitizer run (TSAN) would catch races here.
+//
+// Watchdog: a regression in RingBuffer (or a platform-specific atomic bug)
+// could leave a thread spinning forever inside the unbounded write/yield
+// loop. The kWatchdogTimeout below caps the total wall-clock time so a hung
+// test fails the CI job in seconds rather than minutes.
 void testSpscStress() {
     // Use a small ring so wrap-around happens frequently.
     constexpr size_t kRingSize = 64;
@@ -171,18 +191,26 @@ void testSpscStress() {
     // We use values 1..32767 cycling; 0 is reserved as "unwritten".
     constexpr int16_t kMod = 32767;
 
+    // Generous on a slow CI runner but still well below a "hang" threshold.
+    constexpr auto kWatchdogTimeout = std::chrono::seconds(30);
+
     std::atomic<bool> producerDone{false};
+    std::atomic<bool> abort{false};
     std::atomic<long long> totalWritten{0};
     std::atomic<long long> totalRead{0};
     std::atomic<bool> orderViolation{false};
 
     std::atomic<int16_t> nextExpected{1};
 
+    const auto start = std::chrono::steady_clock::now();
+
     std::thread producer([&] {
         for (int i = 0; i < kFrames; ++i) {
+            if (abort.load(std::memory_order_acquire)) return;
             int16_t v = static_cast<int16_t>((i % kMod) + 1);
-            // Spin until the ring has room.
+            // Spin until the ring has room — but bail if the watchdog fires.
             while (rb.write(&v, 1) == 0) {
+                if (abort.load(std::memory_order_acquire)) return;
                 std::this_thread::yield();
             }
             totalWritten.fetch_add(1, std::memory_order_relaxed);
@@ -193,6 +221,7 @@ void testSpscStress() {
     std::thread consumer([&] {
         while (!producerDone.load(std::memory_order_acquire) ||
                rb.availableToRead() > 0) {
+            if (abort.load(std::memory_order_acquire)) return;
             int16_t v;
             if (rb.read(&v, 1) == 1) {
                 // Check FIFO ordering.
@@ -209,12 +238,51 @@ void testSpscStress() {
         }
     });
 
+    // Watchdog thread: trips the abort flag if either producer or consumer
+    // stalls past the budget. Without this, a regression in RingBuffer could
+    // leave the CI job hanging until the workflow-level timeout (typically
+    // many minutes).
+    std::thread watchdog([&] {
+        while (!producerDone.load(std::memory_order_acquire) ||
+               totalRead.load(std::memory_order_relaxed) < kFrames) {
+            if (std::chrono::steady_clock::now() - start > kWatchdogTimeout) {
+                abort.store(true, std::memory_order_release);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    });
+
     producer.join();
     consumer.join();
+    // Wake the watchdog so it doesn't sleep out the rest of its budget when
+    // the test completed successfully — its loop exit condition already
+    // covers the success case, but a stale `abort=false` would just mean a
+    // few extra polls before it observes producerDone+totalRead.
+    abort.store(true, std::memory_order_release);
+    watchdog.join();
 
-    assert(!orderViolation.load());
-    assert(totalWritten.load() == kFrames);
-    assert(totalRead.load() == kFrames);
+    // Belt-and-suspenders drain after the producer has joined: the consumer
+    // loop's TOCTOU between `producerDone` and `availableToRead()` is
+    // already covered by the producer's release-store sequencing, but an
+    // explicit drain here makes the contract obvious and catches any
+    // future regression where the ordering invariant slips.
+    while (rb.availableToRead() > 0) {
+        int16_t v;
+        if (rb.read(&v, 1) == 1) {
+            int16_t expected = nextExpected.load(std::memory_order_relaxed);
+            if (v != expected) {
+                orderViolation.store(true, std::memory_order_relaxed);
+            }
+            int16_t next = static_cast<int16_t>((expected % kMod) + 1);
+            nextExpected.store(next, std::memory_order_relaxed);
+            totalRead.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    CHECK(!orderViolation.load());
+    CHECK(totalWritten.load() == kFrames);
+    CHECK(totalRead.load() == kFrames);
     std::cout << "Test SPSC Stress (" << kFrames << " frames): PASSED"
               << std::endl;
 }

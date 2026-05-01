@@ -23,7 +23,9 @@ jobs:
           dart --version
 
       - name: Install native dependencies
-        run: sudo apt-get install -y libopus-dev
+        run: |
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q libopus-dev pkg-config
 
       - name: Install dependencies
         run: flutter pub get
