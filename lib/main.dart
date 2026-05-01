@@ -36,10 +36,10 @@ void main() async {
   // Make Oboe (Apache-2.0) + Opus (BSD-3-Clause) license texts available to
   // the in-app `LicensePage`. Pure-Dart deps are auto-discovered, but our
   // vendored C++ libs aren't, so we register their `LICENSE`/`COPYING`
-  // files explicitly. Sync registration is fine — the closure passed to
-  // `LicenseRegistry.addLicense` is only invoked when the LicensePage is
-  // opened, so this doesn't add startup latency.
-  unawaited(registerNativeLicenses());
+  // files explicitly. The closure passed to `LicenseRegistry.addLicense`
+  // is only invoked when the LicensePage is opened, so this doesn't add
+  // startup latency — and the registration call itself is synchronous.
+  registerNativeLicenses();
 
   // Check crash reporting opt-in preference.
   final settingsStore = SqfliteSettingsStore();

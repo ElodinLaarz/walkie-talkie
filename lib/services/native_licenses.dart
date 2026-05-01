@@ -37,7 +37,11 @@ void resetNativeLicenseRegistrationForTests() {
 /// Call once during app startup, before the first frame. Safe to invoke
 /// multiple times — only the first call has any effect. The optional
 /// [bundle] parameter is for tests; production reads from [rootBundle].
-Future<void> registerNativeLicenses({AssetBundle? bundle}) async {
+///
+/// Synchronous: this function only hands [LicenseRegistry] a closure to
+/// invoke later. The asset reads happen lazily inside that closure, when
+/// the LicensePage is first opened — they don't block startup.
+void registerNativeLicenses({AssetBundle? bundle}) {
   if (_registered) return;
   _registered = true;
 

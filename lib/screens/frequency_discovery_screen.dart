@@ -181,12 +181,16 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                         label: l10n.discoveryFooterPrivacy,
                         onPressed: _openPrivacyPolicy,
                       ),
-                      Text(
-                        '·',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: c.ink3,
+                      // Visual separator only — TalkBack would otherwise
+                      // announce "dot" between the two footer buttons.
+                      ExcludeSemantics(
+                        child: Text(
+                          '·',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: c.ink3,
+                          ),
                         ),
                       ),
                       _FooterLink(

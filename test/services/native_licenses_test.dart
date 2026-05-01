@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+// `Uint8List` arrives via `package:flutter/foundation.dart` (which re-exports
+// `dart:typed_data`), so a direct `dart:typed_data` import would be flagged
+// `unnecessary_import` by the analyzer.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +24,7 @@ void main() {
         oboeLicenseAsset: 'OBOE LICENSE TEXT — Apache-2.0',
         opusLicenseAsset: 'OPUS LICENSE TEXT — BSD-3-Clause',
       });
-      await registerNativeLicenses(bundle: bundle);
+      registerNativeLicenses(bundle: bundle);
 
       final entries = await LicenseRegistry.licenses.toList();
       // The native licenses we just registered live alongside any other
@@ -41,8 +44,8 @@ void main() {
         oboeLicenseAsset: 'OBOE',
         opusLicenseAsset: 'OPUS',
       });
-      await registerNativeLicenses(bundle: bundle);
-      await registerNativeLicenses(bundle: bundle);
+      registerNativeLicenses(bundle: bundle);
+      registerNativeLicenses(bundle: bundle);
 
       final entries = await LicenseRegistry.licenses.toList();
       final oboeCount = entries.where((e) => e.packages.contains('Oboe')).length;
