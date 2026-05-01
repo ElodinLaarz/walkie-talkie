@@ -3098,6 +3098,7 @@ void main() {
       expect(muteMsg.seq, initialSeq + 1);
 
       await cubit.close();
+      transport.dispose();
     });
 
     test('sends MuteState with muted=false when unmuting', () async {
@@ -3130,6 +3131,7 @@ void main() {
       expect(muteMsg.muted, isFalse);
 
       await cubit.close();
+      transport.dispose();
     });
 
     test('advances seq when transport is null', () async {
@@ -3178,6 +3180,7 @@ void main() {
       expect(outbox, isEmpty);
 
       await cubit.close();
+      transport.dispose();
     });
 
     test('does not send when cubit is closed during await', () async {
@@ -3217,6 +3220,8 @@ void main() {
 
       // Should not have sent anything because cubit was closed
       expect(outbox, isEmpty);
+
+      transport.dispose();
     });
 
     test('multiple broadcastMute calls advance seq monotonically', () async {
@@ -3268,6 +3273,7 @@ void main() {
       expect(msg3.seq, initialSeq + 3);
 
       await cubit.close();
+      transport.dispose();
     });
   });
 }
