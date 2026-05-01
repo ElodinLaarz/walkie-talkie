@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/settings_store.dart';
@@ -24,6 +27,7 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
   bool _pttMode = false;
   bool _keepScreenOn = false;
   bool _crashReporting = false;
+  String _version = '';
   bool _loaded = false;
 
   @override
@@ -33,14 +37,24 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final ptt = await widget.settingsStore.getPttModeEnabled();
-    final keepOn = await widget.settingsStore.getKeepScreenOn();
-    final crash = await widget.settingsStore.getCrashReportingEnabled();
+    final results = await Future.wait([
+      widget.settingsStore.getPttModeEnabled(),
+      widget.settingsStore.getKeepScreenOn(),
+      widget.settingsStore.getCrashReportingEnabled(),
+    ]);
+    // `package_info_plus` reads from the manifest — fast, no network.
+    // Failures fall back to the empty string set in the field initializer.
+    String version = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      version = info.version;
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
-      _pttMode = ptt;
-      _keepScreenOn = keepOn;
-      _crashReporting = crash;
+      _pttMode = results[0];
+      _keepScreenOn = results[1];
+      _crashReporting = results[2];
+      _version = version;
       _loaded = true;
     });
   }
@@ -91,9 +105,9 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           subtitle: l10n.settingsPttModeDescription,
           value: _pttMode,
           c: c,
-          onChanged: (v) async {
+          onChanged: (v) {
             setState(() => _pttMode = v);
-            await widget.settingsStore.setPttModeEnabled(v);
+            unawaited(widget.settingsStore.setPttModeEnabled(v));
           },
         ),
         // Display
@@ -103,9 +117,9 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           subtitle: l10n.settingsKeepScreenOnDescription,
           value: _keepScreenOn,
           c: c,
-          onChanged: (v) async {
+          onChanged: (v) {
             setState(() => _keepScreenOn = v);
-            await widget.settingsStore.setKeepScreenOn(v);
+            unawaited(widget.settingsStore.setKeepScreenOn(v));
           },
         ),
         // Privacy
@@ -115,16 +129,27 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           subtitle: l10n.settingsCrashReportingDescription,
           value: _crashReporting,
           c: c,
-          onChanged: (v) async {
+          onChanged: (v) {
             setState(() => _crashReporting = v);
-            await widget.settingsStore.setCrashReportingEnabled(v);
+            unawaited(widget.settingsStore.setCrashReportingEnabled(v));
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  v
+                      ? 'Crash reporting enabled. Restart the app to apply.'
+                      : 'Crash reporting disabled. Restart the app to apply.',
+                ),
+                duration: const Duration(seconds: 4),
+              ),
+            );
           },
         ),
         // About
         _SectionHeader(label: l10n.settingsAboutSection, c: c),
         _SettingsInfoRow(
           title: l10n.settingsVersion,
-          value: '1.0.0',
+          value: _version.isEmpty ? '—' : _version,
           c: c,
         ),
         _SettingsLink(

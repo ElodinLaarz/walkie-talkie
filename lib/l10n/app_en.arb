@@ -469,9 +469,9 @@
     "@settingsKeepScreenOn": {
         "description": "Toggle label for keeping the screen awake while in a room."
     },
-    "settingsKeepScreenOnDescription": "Prevent the display from sleeping while you are in a room",
+    "settingsKeepScreenOnDescription": "Prevent the display from sleeping while in a room (coming soon)",
     "@settingsKeepScreenOnDescription": {
-        "description": "Subtitle under the keep-screen-on toggle."
+        "description": "Subtitle under the keep-screen-on toggle. Note: wakelock implementation is pending."
     },
     "settingsPrivacySection": "Privacy",
     "@settingsPrivacySection": {

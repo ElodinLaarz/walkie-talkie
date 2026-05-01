@@ -311,7 +311,13 @@ class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
+    return BlocConsumer<FrequencySessionCubit, FrequencySessionState>(
+      // Reload PTT mode whenever the state transitions into SessionRoom so that
+      // a setting changed in the Settings screen (navigator push/pop — which
+      // does NOT trigger AppLifecycleState.resumed) is picked up before the
+      // room screen renders.
+      listenWhen: (prev, next) => next is SessionRoom && prev is! SessionRoom,
+      listener: (context, state) => _reloadSettings(),
       builder: (context, state) {
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
