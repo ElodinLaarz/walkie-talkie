@@ -7,6 +7,7 @@ them when responding to a policy review query.
 ---
 
 ## BLUETOOTH_SCAN
+
 > *"To discover other Walkie Talkie rooms broadcasting nearby over Bluetooth LE.
 > The `neverForLocation` flag is set — this scan cannot be used to derive the
 > user's location."*
@@ -21,6 +22,7 @@ the OS enforces that scan results cannot be used to derive location.
 ---
 
 ## BLUETOOTH_CONNECT
+
 > *"To connect to a nearby Walkie Talkie host and exchange voice and control
 > messages over GATT and L2CAP CoC (Bluetooth LE connection-oriented channels)."*
 
@@ -31,6 +33,7 @@ the voice plane (Opus-encoded audio).
 ---
 
 ## BLUETOOTH_ADVERTISE
+
 > *"To broadcast the local frequency so nearby devices can discover and join
 > your room when you are acting as host."*
 
@@ -40,6 +43,7 @@ find the room. Without this permission, a user cannot create their own channel.
 ---
 
 ## RECORD_AUDIO
+
 > *"To capture microphone input for real-time voice transmission to nearby peers
 > in the same room. Audio is Opus-encoded and sent directly over Bluetooth LE —
 > it is never stored, uploaded, or sent to any server."*
@@ -50,6 +54,7 @@ without microphone access.
 ---
 
 ## MODIFY_AUDIO_SETTINGS
+
 > *"To configure Android's audio routing so that voice output is directed to
 > the active audio device — phone speaker, wired headset, or paired Bluetooth
 > headset — according to the user's preference."*
@@ -60,6 +65,7 @@ to the correct output device when a Bluetooth headset is connected.
 ---
 
 ## FOREGROUND_SERVICE / FOREGROUND_SERVICE_MICROPHONE / FOREGROUND_SERVICE_CONNECTED_DEVICE
+
 > *"To keep the microphone and Bluetooth connection alive when the screen is off
 > or the app is in the background. A foreground service is required by Android
 > to sustain microphone capture and BLE connections outside the foreground;
@@ -74,6 +80,7 @@ maintain the BLE connection while backgrounded.
 ---
 
 ## POST_NOTIFICATIONS
+
 > *"To display the persistent 'Walkie Talkie Active' foreground notification.
 > Android 13+ requires notification permission before a foreground service
 > notification can appear; this notification is the mandatory indicator that
@@ -81,7 +88,7 @@ maintain the BLE connection while backgrounded.
 
 **Why needed:** Android 13+ (API 33) requires `POST_NOTIFICATIONS` to show any
 notification, including the mandatory foreground service notification. Denying
-this permission on API 33+ would prevent the foreground service from starting,
+this permission on API 33+ prevents the foreground service from starting,
 effectively making the app non-functional while backgrounded.
 
 ---
@@ -96,4 +103,4 @@ effectively making the app non-functional while backgrounded.
 | RECORD_AUDIO | Yes | Yes | Cannot transmit voice |
 | MODIFY_AUDIO_SETTINGS | No (normal) | N/A | No headset routing |
 | FOREGROUND_SERVICE (+ _MICROPHONE, + _CONNECTED_DEVICE) | No (normal) | N/A | OS does not allow mic/BLE BG |
-| POST_NOTIFICATIONS | Yes (Android 13+) | Yes | FGS notification hidden; BG operation degraded |
+| POST_NOTIFICATIONS | Yes (Android 13+) | Yes | On API 33+: prevents FGS from starting, app non-functional while backgrounded |

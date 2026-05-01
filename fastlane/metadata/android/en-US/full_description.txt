@@ -15,7 +15,7 @@ Open the app and either host your own frequency or join one a friend is broadcas
 • No accounts. Your display name is stored only on your device and shared only inside an active room.
 • No audio stored or uploaded. Voice is captured, transmitted over Bluetooth to nearby phones, and discarded in real time. Nothing leaves local Bluetooth range.
 • Bluetooth identifiers are used only for connection management between phones in the same room and are not stored beyond the active session.
-• Crash reporting is opt-in and off by default. If enabled, only anonymised crash stack traces are sent — no audio, no names, no peer IDs.
+• Crash reporting is opt-in and off by default. If enabled, only anonymised crash stack traces are sent — no audio, no display names.
 
 ── HOW VOICE WORKS ──
 
