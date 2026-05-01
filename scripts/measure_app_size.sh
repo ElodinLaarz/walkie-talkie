@@ -50,6 +50,16 @@ for var in AAB_PATH KEYSTORE_PATH KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
   fi
 done
 
+# Threshold env vars feed `$(( ... ))` arithmetic below; a non-integer (e.g.
+# "30.0") would crash with a confusing parse error under `set -e`. Reject
+# early with a clear message instead.
+for var in DOWNLOAD_TARGET_MIB DOWNLOAD_CEILING_MIB; do
+  if ! [[ "${!var}" =~ ^[0-9]+$ ]] || [ "${!var}" -le 0 ]; then
+    echo "Error: $var must be a positive integer (MiB), got: '${!var}'" >&2
+    exit 1
+  fi
+done
+
 if [ ! -f "$AAB_PATH" ]; then
   echo "Error: AAB_PATH '$AAB_PATH' does not exist" >&2
   exit 1
@@ -69,7 +79,23 @@ if [ ! -f "$BUNDLETOOL_JAR" ]; then
     -o "$BUNDLETOOL_JAR"
 fi
 # Verify before invoking — catching a swap after `java -jar` would be too late.
-echo "${BUNDLETOOL_SHA256}  ${BUNDLETOOL_JAR}" | sha256sum -c -
+# CI is Linux (sha256sum, GNU coreutils), but support macOS dev boxes where the
+# command is `shasum -a 256`; fall back to `openssl dgst` as a last resort.
+if command -v sha256sum >/dev/null 2>&1; then
+  echo "${BUNDLETOOL_SHA256}  ${BUNDLETOOL_JAR}" | sha256sum -c -
+elif command -v shasum >/dev/null 2>&1; then
+  echo "${BUNDLETOOL_SHA256}  ${BUNDLETOOL_JAR}" | shasum -a 256 -c -
+elif command -v openssl >/dev/null 2>&1; then
+  actual=$(openssl dgst -sha256 -r "$BUNDLETOOL_JAR" | awk '{print $1}')
+  if [ "$actual" != "$BUNDLETOOL_SHA256" ]; then
+    echo "Error: bundletool SHA mismatch: expected $BUNDLETOOL_SHA256, got $actual" >&2
+    exit 1
+  fi
+  echo "${BUNDLETOOL_JAR}: OK"
+else
+  echo "Error: need one of sha256sum, shasum, or openssl to verify bundletool" >&2
+  exit 1
+fi
 
 APKS_PATH="$WORK_DIR/app-release.apks"
 

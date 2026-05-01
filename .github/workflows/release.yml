@@ -84,9 +84,10 @@ jobs:
         # Bundle-on-disk size is a coarse catastrophic-regression alarm — a 50
         # MiB ceiling well above the per-device target catches an accidental
         # fat APK config or a vendored binary blob without flapping on small
-        # growth. The number that actually matters for #131's "< 30 MB AAB
-        # download" target is what Play serves to a device, measured by the
-        # bundletool step below.
+        # growth. The number that actually matters for #131's per-device
+        # download target (~30 MiB; the issue says "30 MB" which we round to
+        # the nearest MiB since CI math is in MiB throughout) is what Play
+        # serves to a device, measured by the bundletool step below.
         env:
           AAB_MAX_BYTES: 52428800 # 50 MiB
         run: |
@@ -115,8 +116,9 @@ jobs:
       - name: Measure per-device download size (bundletool)
         # Replays Play's split logic on the signed AAB to derive what a real
         # device would download — the number issue #131 budgets ("target < 30
-        # MB AAB download"). Soft-warns on > 30 MiB target; hard-fails on >
-        # 50 MiB ceiling. See scripts/measure_app_size.sh for the bundletool
+        # MB AAB download", which we treat as 30 MiB throughout for unit
+        # consistency). Soft-warns on > 30 MiB target; hard-fails on > 50 MiB
+        # ceiling. See scripts/measure_app_size.sh for the bundletool
         # invocation and SHA-pinning rationale.
         env:
           AAB_PATH: build/app/outputs/bundle/release/app-release.aab
