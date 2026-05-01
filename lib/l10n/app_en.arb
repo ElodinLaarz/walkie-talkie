@@ -339,6 +339,19 @@
         "description": "Footer link below the discovery list — opens the in-app privacy policy screen."
     },
 
+    "discoveryFooterLicenses": "Licenses",
+    "@discoveryFooterLicenses": {
+        "description": "Footer link below the discovery list — opens the in-app open-source license page."
+    },
+    "licensesPageTitle": "Open source licenses",
+    "@licensesPageTitle": {
+        "description": "Title of the in-app LicensePage shown above the package list."
+    },
+    "licensesPageLegalese": "Frequency uses open-source software, including vendored native libraries (Oboe, Opus). Each package is listed below with its full license text.",
+    "@licensesPageLegalese": {
+        "description": "Subtitle / legalese line shown under the LicensePage title."
+    },
+
     "privacyPolicyEyebrow": "POLICY",
     "@privacyPolicyEyebrow": {
         "description": "All-caps eyebrow above the privacy policy headline."

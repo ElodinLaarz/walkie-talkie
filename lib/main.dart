@@ -18,6 +18,7 @@ import 'services/ble_control_transport.dart';
 import 'services/blocked_peers_store.dart';
 import 'services/bluetooth_discovery_service.dart';
 import 'services/identity_store.dart';
+import 'services/native_licenses.dart';
 import 'services/onboarding_permission_gateway.dart';
 import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
@@ -32,6 +33,13 @@ void main() async {
   // data on installs that had it. Subsequent launches see the marker in
   // the `kv` table and skip Hive init entirely.
   await migrateHiveToSqliteIfNeeded();
+  // Make Oboe (Apache-2.0) + Opus (BSD-3-Clause) license texts available to
+  // the in-app `LicensePage`. Pure-Dart deps are auto-discovered, but our
+  // vendored C++ libs aren't, so we register their `LICENSE`/`COPYING`
+  // files explicitly. The closure passed to `LicenseRegistry.addLicense`
+  // is only invoked when the LicensePage is opened, so this doesn't add
+  // startup latency — and the registration call itself is synchronous.
+  registerNativeLicenses();
 
   // Check crash reporting opt-in preference.
   final settingsStore = SqfliteSettingsStore();

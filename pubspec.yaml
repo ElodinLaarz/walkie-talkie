@@ -107,6 +107,15 @@ flutter:
   # and `flutter pub get` regenerates the bindings.
   generate: true
 
+  # Bundled license texts for vendored native code (Oboe, Opus). These are
+  # registered with `LicenseRegistry` at startup (lib/services/native_licenses.dart)
+  # so the in-app LicensePage shows third-party notices for the C++ code in
+  # addition to the Dart packages Flutter discovers automatically. Required for
+  # Apache-2.0 (Oboe) attribution + BSD-3-Clause (Opus) notice retention.
+  assets:
+    - assets/licenses/oboe-LICENSE.txt
+    - assets/licenses/opus-COPYING.txt
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

@@ -174,26 +174,30 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Center(
-                    child: TextButton(
-                      onPressed: _openPrivacyPolicy,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        minimumSize: const Size(48, 48),
-                        foregroundColor: c.ink2,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _FooterLink(
+                        label: l10n.discoveryFooterPrivacy,
+                        onPressed: _openPrivacyPolicy,
                       ),
-                      child: Text(
-                        l10n.discoveryFooterPrivacy,
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: c.ink2,
-                          decoration: TextDecoration.underline,
-                          decorationColor: c.line2,
+                      // Visual separator only — TalkBack would otherwise
+                      // announce "dot" between the two footer buttons.
+                      ExcludeSemantics(
+                        child: Text(
+                          '·',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: c.ink3,
+                          ),
                         ),
                       ),
-                    ),
+                      _FooterLink(
+                        label: l10n.discoveryFooterLicenses,
+                        onPressed: _openLicenses,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -460,6 +464,50 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => const FrequencyPrivacyPolicyScreen(),
+      ),
+    );
+  }
+
+  void _openLicenses() {
+    final l10n = AppLocalizations.of(context);
+    // `showLicensePage` builds Flutter's stock LicensePage. The page lazily
+    // pulls every entry registered with `LicenseRegistry`, including the
+    // native Oboe/Opus entries registered at startup in
+    // [registerNativeLicenses], in addition to all dependencies that ship
+    // license metadata via pub.
+    showLicensePage(
+      context: context,
+      applicationName: l10n.licensesPageTitle,
+      applicationLegalese: l10n.licensesPageLegalese,
+    );
+  }
+}
+
+class _FooterLink extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+
+  const _FooterLink({required this.label, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: const Size(48, 48),
+        foregroundColor: c.ink2,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          color: c.ink2,
+          decoration: TextDecoration.underline,
+          decorationColor: c.line2,
+        ),
       ),
     );
   }
