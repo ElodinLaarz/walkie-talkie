@@ -8,7 +8,7 @@ import 'package:walkie_talkie/services/bluetooth_discovery_service.dart';
 
 import 'bluetooth_discovery_service_test.mocks.dart';
 
-/// Tests for BluetoothDiscoveryService.parseResult, covering:
+/// Tests for DiscoveryService.parseResult, covering:
 /// - Manufacturer data filtering (valid v1 payloads accepted, invalid rejected)
 /// - RSSI propagation from scan results to DiscoveredSession
 /// - Advertisement name (advName) passthrough to DiscoveredSession.hostName
@@ -22,7 +22,7 @@ void main() {
   // Ensure Flutter bindings are initialized for any widget-dependent code
   WidgetsFlutterBinding.ensureInitialized();
 
-  group('BluetoothDiscoveryService parseResult', () {
+  group('DiscoveryService parseResult', () {
     late DiscoveryService service;
 
     setUp(() {
@@ -133,7 +133,7 @@ void main() {
 
       final scanResult = makeScanResult(
         manufacturerData: {
-          0x0001: junkPayload.toList(), // Invalid company ID
+          0x0001: junkPayload.toList(), // Truncated payload; too short to parse
           0x05A0: validPayload.toList(), // Valid Frequency payload
         },
         advName: 'MultiMfg',
@@ -256,15 +256,12 @@ void main() {
 
       // Should return the first valid session found during iteration
       expect(session, isNotNull);
-      // The session UUID should be from one of the payloads
-      expect(
-        [uuid1.toLowerCase(), uuid2.toLowerCase()].contains(session!.sessionUuidLow8),
-        true,
-      );
+      // Dart maps iterate in insertion order, so should return uuid1
+      expect(session!.sessionUuidLow8, uuid1.toLowerCase());
     });
   });
 
-  group('BluetoothDiscoveryService freshness window', () {
+  group('DiscoveryService freshness window', () {
     test('freshnessWindow constant is 10 seconds', () {
       expect(DiscoveryService.freshnessWindow, const Duration(seconds: 10));
     });
