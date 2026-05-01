@@ -10,6 +10,7 @@ import '../data/frequency_models.dart';
 import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 import '../services/audio_service.dart';
+import '../services/blocked_peers_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import '../widgets/frequency_toast_host.dart';
@@ -67,7 +68,16 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   final Map<String, double> _volumes = {};
   static const double _kDefaultPeerVolume = 0.7;
   double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;
+  /// Mirrors the contents of [BlockedPeersStore] for the lifetime of
+  /// this screen. Hydrated on initState (asynchronously — until the
+  /// first read resolves the set is empty, which means a freshly-joined
+  /// room renders unmuted-by-default for a frame or two before the
+  /// persisted choices land). Mutations here are mirrored back to the
+  /// store so the user's mute survives leave/rejoin and app restart
+  /// (#125). Keyed by stable peerId; `_me`'s 'me' sentinel is never
+  /// persisted (we early-return before touching the store).
   final Set<String> _peerMuted = {};
+  late final BlockedPeersStore _blockedPeersStore;
   final Set<String> _removed = {};
 
   Timer? _progressTimer;
@@ -140,6 +150,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _lastAction = const _LastAction(by: '', action: '', when: '');
 
     _audio = widget.audioService ?? context.read<AudioService>();
+    _blockedPeersStore = context.read<BlockedPeersStore>();
+    unawaited(_hydratePersistedMutes());
     // Guard against a future caller silently constructing a second
     // AudioService and passing it through `widget.audioService` while a
     // different instance is also wired into the provider — their
@@ -260,6 +272,44 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // Identity store failure is non-fatal here: if this one-time read
       // fails, attribution falls back to "remote sender" for this
       // screen session, which doesn't matter for in-frame UX.
+    }
+  }
+
+  /// Mirrors a peer-drawer mute toggle to [BlockedPeersStore]. The
+  /// 'me' sentinel is never persisted — it isn't a real peerId and
+  /// would corrupt the table for any other peer that happens to share
+  /// the literal id. Errors are swallowed so a transient sqflite hiccup
+  /// can't crash the screen from the drawer's `onChanged` callback;
+  /// the in-memory set already reflects the user's intent for this
+  /// session.
+  Future<void> _persistMute(String peerId, bool muted) async {
+    if (peerId == _me.id) return;
+    try {
+      if (muted) {
+        await _blockedPeersStore.block(peerId);
+      } else {
+        await _blockedPeersStore.unblock(peerId);
+      }
+    } catch (_) {
+      // Best-effort write; see doc above.
+    }
+  }
+
+  /// Pulls the persisted blocked-peer set into [_peerMuted] on first
+  /// build. Failures are non-fatal — a sqflite read error means the
+  /// session simply renders without prior blocks (the next user-driven
+  /// toggle still tries to write through, which is the right behaviour
+  /// for a transient open failure).
+  Future<void> _hydratePersistedMutes() async {
+    try {
+      final persisted = await _blockedPeersStore.getAll();
+      if (!mounted || persisted.isEmpty) return;
+      setState(() {
+        _peerMuted.addAll(persisted);
+      });
+    } catch (_) {
+      // Same rationale as [_resolveMyPeerId]: a one-time read miss
+      // doesn't justify aborting the room render.
     }
   }
 
@@ -903,6 +953,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _peerMuted.remove(person.id);
               }
             });
+            // Mirror the toggle to disk so the next session sees the
+            // same mute state. Fire-and-forget: the in-memory set is
+            // the source of truth for the current frame, the persisted
+            // copy only matters across restarts. Failures here would
+            // surface on the next session as a missed-block; we accept
+            // that over blocking the UI on the write.
+            unawaited(_persistMute(person.id, muted));
           },
           onRemove: () {
             setState(() {

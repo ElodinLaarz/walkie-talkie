@@ -12,6 +12,7 @@ import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_room_screen.dart';
 import 'package:walkie_talkie/services/audio_service.dart';
+import 'package:walkie_talkie/services/blocked_peers_store.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
@@ -92,8 +93,13 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio}) 
         // Mirror production: AudioService comes from the provider so the
         // room screen's identity-assertion (#129) finds the same instance
         // it stored in `_audio`.
-        child: RepositoryProvider<AudioService>.value(
-          value: providedAudio,
+        child: MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<AudioService>.value(value: providedAudio),
+            RepositoryProvider<BlockedPeersStore>(
+              create: (_) => _FakeBlockedPeersStore(),
+            ),
+          ],
           child: BlocProvider<FrequencySessionCubit>.value(
             value: mockCubit,
             child: c!,
@@ -830,4 +836,34 @@ class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
   Future<void> record(String freq) async {}
   @override
   Future<void> clear() async {}
+}
+
+/// In-memory BlockedPeersStore for room-screen tests. The room screen
+/// reads from this on initState (#125) so a real provider has to exist
+/// in the tree even when no test asserts on its contents — the fake
+/// keeps tests off sqflite without losing the wiring.
+class _FakeBlockedPeersStore implements BlockedPeersStore {
+  final Set<String> _blocked;
+  _FakeBlockedPeersStore({Set<String>? initial})
+      : _blocked = {...?initial};
+
+  @override
+  Future<Set<String>> getAll() async => Set<String>.unmodifiable(_blocked);
+
+  @override
+  Future<void> block(String peerId) async {
+    final trimmed = peerId.trim();
+    if (trimmed.isEmpty) return;
+    _blocked.add(trimmed);
+  }
+
+  @override
+  Future<void> unblock(String peerId) async {
+    final trimmed = peerId.trim();
+    if (trimmed.isEmpty) return;
+    _blocked.remove(trimmed);
+  }
+
+  @override
+  Future<void> clear() async => _blocked.clear();
 }

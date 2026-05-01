@@ -13,7 +13,10 @@ class WalkieTalkieDatabase {
   WalkieTalkieDatabase._();
 
   static const String _dbName = 'walkie_talkie.db';
-  static const int _dbVersion = 1;
+  // v2 (2026-04): added `blocked_peers` for #125 (persistent block list).
+  // Existing v1 installs hit `_onUpgrade` which CREATE TABLE IF NOT EXISTS
+  // the new table without touching any data the user already has.
+  static const int _dbVersion = 2;
 
   static DatabaseFactory? _factoryOverride;
   static String? _pathOverride;
@@ -43,6 +46,7 @@ class WalkieTalkieDatabase {
         options: OpenDatabaseOptions(
           version: _dbVersion,
           onCreate: _onCreate,
+          onUpgrade: _onUpgrade,
         ),
       );
       _db = db;
@@ -77,6 +81,34 @@ class WalkieTalkieDatabase {
     await db.execute(
       'CREATE INDEX idx_recent_freq_time ON recent_frequencies (recorded_at)',
     );
+    await _createBlockedPeersTable(db);
+  }
+
+  /// Schema migrations run when an existing install opens a newer
+  /// `_dbVersion`. Each step is idempotent (CREATE TABLE IF NOT EXISTS,
+  /// add-column-if-missing) so re-running a step on a partially-migrated
+  /// install doesn't fail.
+  static Future<void> _onUpgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await _createBlockedPeersTable(db);
+    }
+  }
+
+  /// Persists the per-user "I've muted this peer" set keyed by stable
+  /// peerId. `blocked_at` is a DESC-sortable epoch millis kept for
+  /// diagnostic ordering only — the API surface returns an unordered
+  /// set, so an index on it would be wasted writes.
+  static Future<void> _createBlockedPeersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS blocked_peers (
+        peer_id TEXT PRIMARY KEY NOT NULL,
+        blocked_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   /// Test seam: swap in `databaseFactoryFfi` (and an in-memory path) so unit
