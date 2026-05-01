@@ -28,8 +28,8 @@ android {
         // versionCodes, so the goal is "every CI build uploads with a unique,
         // strictly increasing code, with no manual pubspec bump":
         //
-        //   1. VERSION_CODE env var — explicit override for one-off builds
-        //      (e.g. recreating a specific historical build).
+        //   1. VERSION_CODE env var — explicit override (e.g. recreating a
+        //      specific historical build, or pinning a hotfix code).
         //   2. GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT — monotonic per CI
         //      run AND per rerun-of-the-same-run. GITHUB_RUN_NUMBER alone
         //      repeats across reruns of a failed workflow, so a rerun would
@@ -39,18 +39,20 @@ android {
         //      below that in practice (the docs cap automatic reruns at 10),
         //      so adjacent run numbers can't overlap.
         //   3. flutter.versionCode (the static `+N` in pubspec.yaml) — local
-        //      builds and any CI run without the GitHub env vars.
+        //      builds and any CI run without the GitHub env vars. These never
+        //      reach Play, so duplicates here don't matter.
         //
-        // The CI-derived value is also clamped to >= flutter.versionCode so a
-        // manual pubspec bump (e.g. for a hotfix) still wins if it ever exceeds
-        // the run-number-derived code.
+        // Deliberately no maxOf-with-flutter.versionCode clamp: CI runs are
+        // already monotonic, and clamping would collapse two consecutive CI
+        // builds onto the same flutter.versionCode whenever the static code
+        // happens to exceed the run-derived one (Play would then reject the
+        // second). If you need to force a specific code in CI, set VERSION_CODE.
         versionCode = run {
             val explicit = System.getenv("VERSION_CODE")?.toIntOrNull()
             if (explicit != null) return@run explicit
             val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
             val runAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.toIntOrNull() ?: 1
-            val ciDerived = runNumber?.let { it * 100 + runAttempt }
-            if (ciDerived != null) maxOf(ciDerived, flutter.versionCode) else flutter.versionCode
+            runNumber?.let { it * 100 + runAttempt } ?: flutter.versionCode
         }
         versionName = flutter.versionName
         
