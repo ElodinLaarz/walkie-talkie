@@ -1,3 +1,4 @@
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/main.dart';
 import 'package:walkie_talkie/protocol/discovery.dart';
@@ -154,6 +155,9 @@ class _FakeDiscoveryService implements DiscoveryService {
 
   @override
   Future<void> dispose() async {}
+
+  @override
+  DiscoveredSession? parseResult(ScanResult r) => null;
 }
 
 /// No-op watcher for widget tests. The production [DefaultPermissionWatcher]
