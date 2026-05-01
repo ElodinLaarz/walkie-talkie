@@ -23,8 +23,6 @@ class GattServerManager(
 ) {
     companion object {
         private const val TAG = "GattServerManager"
-        private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
-        private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
     }
 
     private var gattServer: BluetoothGattServer? = null
@@ -40,8 +38,8 @@ class GattServerManager(
         ) {
             val address = device.address
 
-            // Check for authorization/authentication failures
-            if (status == GATT_INSUFFICIENT_AUTHORIZATION || status == GATT_INSUFFICIENT_AUTHENTICATION) {
+            // Check for authorization/authentication/encryption failures
+            if (status in GattConstants.AUTHORIZATION_ERRORS) {
                 Log.e(TAG, "GATT authorization failure from $address: status=$status")
                 onError?.invoke("GATT_AUTHORIZATION_DENIED")
                 connectedDevices.remove(address)

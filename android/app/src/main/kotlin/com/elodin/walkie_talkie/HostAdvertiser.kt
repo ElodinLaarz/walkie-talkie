@@ -27,8 +27,8 @@ class HostAdvertiser(private val context: Context) {
 
         // Same 128-bit UUID Dart guests filter on (see kWalkieTalkieServiceUuid
         // in lib/protocol/discovery.dart). Kept in sync with
-        // GattServerManager.SERVICE_UUID — they're the same wire identifier.
-        val SERVICE_UUID: UUID = GattServerManager.SERVICE_UUID
+        // GattConstants.SERVICE_UUID — they're the same wire identifier.
+        val SERVICE_UUID: UUID = GattConstants.SERVICE_UUID
 
         // Test/internal manufacturer ID range (0xFFFF). Fine for v1; if we
         // ever ship with a real Bluetooth SIG company ID this is the single

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -123,11 +125,11 @@ android {
                     keyPassword = envKeyPassword
                 }
                 hasFileConfig -> {
-                    val keyProps = java.util.Properties()
+                    val keyProps = Properties()
                     keyPropsFile.inputStream().use { keyProps.load(it) }
                     keyAlias = keyProps.getProperty("keyAlias")
                     keyPassword = keyProps.getProperty("keyPassword")
-                    storeFile = keyProps.getProperty("storeFile")?.let { rootProject.file(it) }
+                    storeFile = keyProps.getProperty("storeFile")?.let { path -> rootProject.file(path) }
                     storePassword = keyProps.getProperty("storePassword")
                 }
                 else -> {
@@ -203,9 +205,9 @@ android {
         abi {
             enableSplit = true
         }
-        vcsInfo {
-            include = true
-        }
+        // vcsInfo {
+        //     include = true
+        // }
     }
 
     testOptions {

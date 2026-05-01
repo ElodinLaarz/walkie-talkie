@@ -54,4 +54,24 @@ object GattConstants {
      * `lib/protocol/voice_frame.dart`.
      */
     const val VOICE_MTU: Int = 128
+
+    // GATT status codes for authorization/authentication/encryption failures.
+    // Used by both GattClientManager and GattServerManager to detect permission
+    // revocation mid-session (issue #132).
+    private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
+    private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
+    private const val GATT_INSUFFICIENT_ENCRYPTION = 15
+
+    /**
+     * Authorization-related GATT status codes that indicate permission denial.
+     * When any of these appears in connection state changes or write callbacks,
+     * the manager should emit an error event and disconnect cleanly rather than
+     * crashing the foreground service.
+     */
+    @JvmField
+    val AUTHORIZATION_ERRORS: Set<Int> = setOf(
+        GATT_INSUFFICIENT_AUTHORIZATION,
+        GATT_INSUFFICIENT_AUTHENTICATION,
+        GATT_INSUFFICIENT_ENCRYPTION
+    )
 }
