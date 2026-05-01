@@ -1,0 +1,43 @@
+default_platform(:android)
+
+platform :android do
+  # Upload store listing text + changelogs to Play Console without touching
+  # the AAB. Requires a service-account JSON key pointed to by
+  # PLAY_STORE_JSON_KEY_PATH (or play-store-credentials.json at repo root).
+  #
+  # Run locally:
+  #   bundle exec fastlane android upload_metadata
+  #
+  # Secrets needed (Play Console → Setup → API access):
+  #   PLAY_STORE_JSON_KEY_PATH — path to the service-account JSON key file
+  desc "Upload store listing metadata (no binary) to the Play Store internal track"
+  lane :upload_metadata do
+    supply(
+      track:                   "internal",
+      skip_upload_apk:         true,
+      skip_upload_aab:         true,
+      skip_upload_metadata:    false,
+      skip_upload_changelogs:  false,
+      skip_upload_images:      true,
+      skip_upload_screenshots: true,
+      metadata_path:           "fastlane/metadata/android",
+    )
+  end
+
+  # Upload screenshots + feature graphic captured under
+  # fastlane/metadata/android/en-US/images/.
+  # Run after `upload_metadata` once the visual assets exist.
+  desc "Upload screenshots and feature graphic (images only, no metadata or binary)"
+  lane :upload_images do
+    supply(
+      track:                   "internal",
+      skip_upload_apk:         true,
+      skip_upload_aab:         true,
+      skip_upload_metadata:    true,
+      skip_upload_changelogs:  true,
+      skip_upload_images:      false,
+      skip_upload_screenshots: false,
+      metadata_path:           "fastlane/metadata/android",
+    )
+  end
+end
