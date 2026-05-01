@@ -186,18 +186,27 @@ std::vector<int> AudioMixer::getActiveDevices() {
     return activeDevices;
 }
 
-// Global mixer instance
-AudioMixer* g_audioMixer = nullptr;
+// Global mixer instance. See header comment for why this is a shared_ptr
+// instead of a raw pointer.
+std::shared_ptr<AudioMixer> g_audioMixer;
 
 #ifdef __ANDROID__
 // JNI wrappers — only compiled on Android. Host CI tests link the mixer
 // directly via the C++ API above.
+//
+// All JNI methods access the global through `std::atomic_load` /
+// `std::atomic_store` so that the audio callback (which may be running on
+// another thread) can never see a torn pointer. The audio callback obtains
+// its own local shared_ptr copy in audio_engine.cpp and dereferences that
+// copy — the strong reference held there guarantees no use-after-free even
+// if `nativeClear` runs concurrently.
 extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeInit(JNIEnv *env, jobject thiz) {
-    if (g_audioMixer == nullptr) {
-        g_audioMixer = new AudioMixer();
+    auto current = std::atomic_load(&g_audioMixer);
+    if (!current) {
+        std::atomic_store(&g_audioMixer, std::make_shared<AudioMixer>());
         LOGI("Audio mixer initialized");
     }
 }
@@ -205,52 +214,61 @@ Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeInit(JNIEnv *env, jobject
 JNIEXPORT jboolean JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeAddDevice(
         JNIEnv *env, jobject thiz, jint deviceId) {
-    if (g_audioMixer == nullptr) {
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (!mixer) {
         return JNI_FALSE;
     }
-    return g_audioMixer->addDevice(deviceId) ? JNI_TRUE : JNI_FALSE;
+    return mixer->addDevice(deviceId) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeRemoveDevice(
         JNIEnv *env, jobject thiz, jint deviceId) {
-    if (g_audioMixer != nullptr) {
-        g_audioMixer->removeDevice(deviceId);
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (mixer) {
+        mixer->removeDevice(deviceId);
     }
 }
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeUpdateDeviceAudio(
         JNIEnv *env, jobject thiz, jint deviceId, jshortArray audioData) {
-    if (g_audioMixer == nullptr) {
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (!mixer) {
         return;
     }
     jsize length = env->GetArrayLength(audioData);
     jshort* buffer = env->GetShortArrayElements(audioData, nullptr);
-    g_audioMixer->updateDeviceAudio(deviceId, buffer, length);
+    mixer->updateDeviceAudio(deviceId, buffer, length);
     env->ReleaseShortArrayElements(audioData, buffer, JNI_ABORT);
 }
 
 JNIEXPORT jshortArray JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeGetMixedAudio(
         JNIEnv *env, jobject thiz, jint deviceId, jint numFrames) {
-    if (g_audioMixer == nullptr) {
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (!mixer) {
         return nullptr;
     }
     jshortArray result = env->NewShortArray(numFrames);
     jshort* buffer = env->GetShortArrayElements(result, nullptr);
-    g_audioMixer->getMixedAudioForDevice(deviceId, buffer, numFrames);
+    mixer->getMixedAudioForDevice(deviceId, buffer, numFrames);
     env->ReleaseShortArrayElements(result, buffer, 0);
     return result;
 }
 
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeClear(JNIEnv *env, jobject thiz) {
-    if (g_audioMixer != nullptr) {
-        g_audioMixer->clear();
-        delete g_audioMixer;
-        g_audioMixer = nullptr;
+    // Clear the registry first so any new audio-callback invocation sees an
+    // empty device list while we still hold the singleton reference.
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (mixer) {
+        mixer->clear();
     }
+    // Drop the global reference. The underlying AudioMixer is destroyed only
+    // when every other strong reference (notably the audio callback's local
+    // shared_ptr) drops — that is the UAF guarantee.
+    std::atomic_store(&g_audioMixer, std::shared_ptr<AudioMixer>{});
 }
 
 } // extern "C"

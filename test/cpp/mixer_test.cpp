@@ -1,6 +1,10 @@
-#include <iostream>
-#include <cstdio>
+#include <atomic>
 #include <cassert>
+#include <chrono>
+#include <cstdio>
+#include <iostream>
+#include <memory>
+#include <thread>
 
 // Include the production audio_mixer header. The build script compiles this
 // test with `-I test/cpp` before `-I android/app/src/main/cpp`, so both this
@@ -333,6 +337,116 @@ void testSeqWraparoundIsWrapSafe() {
     std::cout << "Test Seq Wraparound Is Wrap-Safe: PASSED" << std::endl;
 }
 
+// Lifetime regression for issue #99: the global mixer singleton is a
+// std::shared_ptr, accessed via std::atomic_load / std::atomic_store. The
+// audio callback used to read a bare `AudioMixer*` global that
+// `nativeClear` would `delete` concurrently — pure use-after-free.
+//
+// The fix is two-fold: (1) make the global a shared_ptr so the audio
+// thread's *local copy* keeps the mixer alive across the callback, and
+// (2) only ever swap the global through the atomic free functions so the
+// pointer-to-control-block update is non-tearing. This test pins the
+// lifetime contract: an "audio thread" reader holds a strong local
+// reference, then a "JNI thread" stores nullptr into the global, and the
+// reader still finds its mixer valid for as long as it holds the local.
+void testGlobalSharedPtrLifetime() {
+    // Static-assert the type so a future regression to a raw pointer fails
+    // at compile time, not just at runtime.
+    static_assert(
+        std::is_same<decltype(g_audioMixer), std::shared_ptr<AudioMixer>>::value,
+        "g_audioMixer must be a std::shared_ptr<AudioMixer> for the audio "
+        "callback's UAF-safe atomic_load contract");
+
+    // Seed the global.
+    auto seeded = std::make_shared<AudioMixer>();
+    std::atomic_store(&g_audioMixer, seeded);
+
+    // Simulate the audio callback: take a local owning copy.
+    std::shared_ptr<AudioMixer> readerLocal = std::atomic_load(&g_audioMixer);
+    assert(readerLocal);
+    // Two strong references now: the global, and the reader's local.
+    assert(readerLocal.use_count() >= 2);
+
+    // Concurrent "nativeClear" — drop the global ref.
+    std::atomic_store(&g_audioMixer, std::shared_ptr<AudioMixer>{});
+    // Global is now empty.
+    assert(!std::atomic_load(&g_audioMixer));
+    // But the reader's local copy is still alive — that is the UAF
+    // guarantee. Use the mixer through the local; if the underlying object
+    // had been freed this would crash under ASAN.
+    readerLocal->addDevice(1);
+    readerLocal->removeDevice(1);
+
+    // Drop the local. The original mixer is freed here, deterministically.
+    readerLocal.reset();
+    // Global already null; the local was the last ref. No leak.
+
+    // Also confirm `seeded` is still our local handle to the same object,
+    // and dropping it now finalizes destruction without a double-free.
+    seeded.reset();
+
+    std::cout << "Test Global Shared-Ptr Lifetime: PASSED" << std::endl;
+}
+
+// Concurrent stress: two threads continuously swap and load the global,
+// mirroring the worst case where `nativeClear` and the audio callback
+// race indefinitely. Without the atomic free functions a shared_ptr swap
+// would tear the control-block pointer; this test would then crash or
+// corrupt under ASAN/TSAN. With the atomic ops, the global is always
+// either null or a valid mixer, and the reader's local always either
+// fails to load or holds a live mixer for the duration of its use.
+void testConcurrentSwapAndLoadIsRaceFree() {
+    using namespace std::chrono_literals;
+
+    // Seed.
+    std::atomic_store(&g_audioMixer, std::make_shared<AudioMixer>());
+
+    std::atomic<bool> stop{false};
+    std::atomic<long> readerOps{0};
+    std::atomic<long> writerOps{0};
+
+    std::thread reader([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            auto local = std::atomic_load(&g_audioMixer);
+            if (local) {
+                // Touch the mixer's API on read-only paths only — if `local`
+                // aliased a freed mixer these would corrupt/crash. We avoid
+                // addDevice/removeDevice here because the LOG_TAG print
+                // floods CI output (the stress loop can spin millions of
+                // iterations under TSAN/ASAN).
+                (void)local->isPoisoned(0);
+                (void)local->getActiveDevices();
+            }
+            readerOps.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    std::thread writer([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            // Alternate: install a fresh mixer, then drop to null.
+            std::atomic_store(&g_audioMixer, std::make_shared<AudioMixer>());
+            std::atomic_store(&g_audioMixer, std::shared_ptr<AudioMixer>{});
+            writerOps.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    std::this_thread::sleep_for(100ms);
+    stop.store(true, std::memory_order_release);
+    reader.join();
+    writer.join();
+
+    // Both threads made progress — the test isn't trivially passing on a
+    // stalled thread.
+    assert(readerOps.load() > 0);
+    assert(writerOps.load() > 0);
+
+    // Restore a clean global for any test that runs after us.
+    std::atomic_store(&g_audioMixer, std::shared_ptr<AudioMixer>{});
+
+    std::cout << "Test Concurrent Swap And Load Is Race Free: PASSED"
+              << std::endl;
+}
+
 int main() {
     try {
         testMixMinus();
@@ -345,6 +459,8 @@ int main() {
         testOutOfOrderDoesNotPoisonOrAdvance();
         testRecoveryAcceptsAnyWithinThresholdFrame();
         testSeqWraparoundIsWrapSafe();
+        testGlobalSharedPtrLifetime();
+        testConcurrentSwapAndLoadIsRaceFree();
         std::cout << "All C++ Mixer tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed with exception: " << e.what() << std::endl;

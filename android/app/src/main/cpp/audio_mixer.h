@@ -99,6 +99,19 @@ public:
     std::vector<int> getActiveDevices();
 };
 
-extern AudioMixer* g_audioMixer;
+// The mixer singleton is a `shared_ptr` (not a raw pointer) so the audio
+// callback can take an owning local copy via `std::atomic_load` before
+// dereferencing — that local copy keeps the mixer alive even if a concurrent
+// `nativeClear` resets the global. With a raw pointer the audio thread's
+// load-then-deref window is a use-after-free; with the shared_ptr the
+// underlying mixer is destroyed only when the last reference drops, which
+// is necessarily after every in-flight callback has returned.
+//
+// Reads and writes of the global itself MUST go through `std::atomic_load`
+// and `std::atomic_store` (the C++17 free-function overloads on shared_ptr).
+// A plain assignment is not thread-safe for shared_ptr — even though the
+// underlying refcount is atomic, the pointer-to-control-block update is two
+// stores and would tear under contention.
+extern std::shared_ptr<AudioMixer> g_audioMixer;
 
 #endif // AUDIO_MIXER_H

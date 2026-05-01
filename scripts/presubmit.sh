@@ -16,7 +16,9 @@ for required in \
     test/cpp/mixer_test.cpp \
     test/cpp/jitter_buffer_test.cpp \
     test/cpp/resampler_test.cpp \
-    android/app/src/main/cpp/audio_mixer.cpp; do
+    test/cpp/talking_event_queue_test.cpp \
+    android/app/src/main/cpp/audio_mixer.cpp \
+    android/app/src/main/cpp/talking_event_queue.h; do
   if [ ! -f "$required" ]; then
     echo "$required missing — failing fast"
     exit 1
@@ -49,3 +51,12 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     test/cpp/resampler_test.cpp \
     -o build/cpp_test/resampler_test
 build/cpp_test/resampler_test
+
+# talking_event_queue_test exercises header-only talking_event_queue.h —
+# the SPSC ring that moves JNI dispatch off the audio thread (#99).
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    test/cpp/talking_event_queue_test.cpp \
+    -o build/cpp_test/talking_event_queue_test
+build/cpp_test/talking_event_queue_test
