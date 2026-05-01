@@ -124,6 +124,12 @@ BUNDLETOOL_JAR="$WORK_DIR/bundletool-${BUNDLETOOL_VERSION}.jar"
 # class bytes would be too late. CI is Linux (sha256sum, GNU coreutils); we
 # also support `shasum -a 256` for macOS dev boxes and fall back to `openssl`
 # where neither is in PATH.
+#
+# compute_jar_sha prints the digest to stdout on success, an empty string and
+# exit 2 on missing tooling (with the diagnostic on stderr so it isn't
+# captured by `$(...)`). verify_jar_sha threads that exit status through so
+# the download/cache logic can tell "no SHA tool installed" apart from a real
+# digest mismatch.
 compute_jar_sha() {
   local jar="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -133,24 +139,42 @@ compute_jar_sha() {
   elif command -v openssl >/dev/null 2>&1; then
     openssl dgst -sha256 -r "$jar" | awk '{print $1}'
   else
-    echo "<unknown — need sha256sum, shasum, or openssl>"
-    return 1
+    echo "Error: need sha256sum, shasum, or openssl to verify bundletool SHA-256" >&2
+    return 2
   fi
 }
 
 verify_jar_sha() {
   local jar="$1"
-  local actual
-  actual=$(compute_jar_sha "$jar") || return $?
+  local actual status
+  # Plain assignment (not `if ! actual=$(...)`) so `$?` below preserves
+  # compute_jar_sha's real exit code; the `if !` form would invert it to 0
+  # via `!` and lose the "no SHA tool" (rc=2) vs "mismatch" (rc=1) distinction.
+  # Safe under `set -e` because every caller wraps this in an if-test.
+  actual=$(compute_jar_sha "$jar")
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    return "$status"
+  fi
   [ "$actual" = "$BUNDLETOOL_SHA256" ]
 }
 
 # A cached JAR that no longer matches the expected SHA (interrupted prior run,
 # version bump, on-disk corruption) is removed up front so the download path
 # is self-healing rather than dying with a confusing checksum error.
-if [ -f "$BUNDLETOOL_JAR" ] && ! verify_jar_sha "$BUNDLETOOL_JAR"; then
-  echo "Cached bundletool JAR failed SHA check — refetching"
-  rm -f "$BUNDLETOOL_JAR"
+if [ -f "$BUNDLETOOL_JAR" ]; then
+  if verify_jar_sha "$BUNDLETOOL_JAR"; then
+    :
+  else
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      # No hashing tool — abort up front rather than risk running a
+      # bundletool we can't authenticate.
+      exit 2
+    fi
+    echo "Cached bundletool JAR failed SHA check — refetching"
+    rm -f "$BUNDLETOOL_JAR"
+  fi
 fi
 
 if [ ! -f "$BUNDLETOOL_JAR" ]; then
@@ -165,8 +189,13 @@ if [ ! -f "$BUNDLETOOL_JAR" ]; then
   curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 \
     "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar" \
     -o "$TMP_JAR"
-  if ! verify_jar_sha "$TMP_JAR"; then
-    echo "Error: bundletool SHA mismatch on download: expected $BUNDLETOOL_SHA256, got $(compute_jar_sha "$TMP_JAR")" >&2
+  # Compute once into a local; if the tool is missing this surfaces a
+  # different message than a real mismatch, and we never re-hash the file.
+  if ! actual_jar_sha=$(compute_jar_sha "$TMP_JAR"); then
+    exit 2
+  fi
+  if [ "$actual_jar_sha" != "$BUNDLETOOL_SHA256" ]; then
+    echo "Error: bundletool SHA mismatch on download: expected $BUNDLETOOL_SHA256, got $actual_jar_sha" >&2
     exit 1
   fi
   mv "$TMP_JAR" "$BUNDLETOOL_JAR"
@@ -186,8 +215,9 @@ APKS_PATH="$WORK_DIR/app-release.apks"
 # reads the first line of each file and the cleanup trap removes them when
 # the script exits. PASS_DIR was created by `mktemp -d` (mode 0700) and we
 # umask 0077 inside the subshell that writes the files, so they land at
-# mode 0600. (Plain `rm -rf`, not secure overwrite — the runner's tmpfs is
-# already process-private, so a multi-pass shred would buy little.)
+# mode 0600. (Plain `rm -rf`, not secure overwrite — access is already
+# constrained by the private temp dir + 0600 file permissions, and the
+# GitHub-hosted runner is ephemeral, so a multi-pass shred would buy little.)
 KS_PASS_FILE="$PASS_DIR/ks_pass"
 KEY_PASS_FILE="$PASS_DIR/key_pass"
 ( umask 077; printf '%s' "$KEYSTORE_PASSWORD" > "$KS_PASS_FILE" )
