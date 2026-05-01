@@ -3,15 +3,18 @@
 #include <oboe/Oboe.h>
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "audio_config.h"
 #include "audio_mixer.h"
 #include "resampler.h"
+#include "talking_event_queue.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -117,6 +120,133 @@ static void emitAudioErrorEvent(oboe::Result error) {
     }
 }
 
+// Talking-event worker plumbing. The audio callback used to do its own JNI
+// dispatch (AttachCurrentThread, GetMethodID, CallVoidMethod) plus take
+// g_jniMutex for the global ref snapshot. Both are unbounded-latency
+// operations on a real-time audio thread — JVM safepoints can stall an
+// AttachCurrentThread for milliseconds at a time, which corrupts playback.
+//
+// New plumbing: the audio callback push()es a single bool onto a lock-free
+// SPSC ring (no allocation, no syscalls, no mutex). A worker thread polls
+// the ring at a 20 ms cadence and runs the JNI dispatch on its own
+// (long-attached) JNIEnv. The worker is owned by the engine — it starts in
+// `start()` after the streams open and stops in `stop()` before the streams
+// close, so an in-flight audio callback cannot push to a dead queue.
+static TalkingEventQueue g_talkingQueue;
+static std::atomic<bool> g_talkingWorkerStop{false};
+static std::thread g_talkingWorkerThread;
+
+// JNI dispatch for a single VAD edge. Called only from the worker thread,
+// which has long-attached itself to the JVM (see talkingEventWorkerLoop) —
+// so `env` is guaranteed non-null and the per-call AttachCurrent/DetachCurrent
+// dance from the previous design is gone (one attach per worker lifetime,
+// not one per VAD edge).
+static void emitTalkingEventJni(JNIEnv* env, bool talking) {
+    // Snapshot the global ref into a local ref while holding g_jniMutex.
+    // This rules out the race where nativeUnregisterCallbacks runs
+    // DeleteGlobalRef between our null-check and the GetObjectClass below —
+    // the local ref keeps the underlying jobject alive across the JNI calls
+    // regardless of what happens to the global. Outside the lock, we do all
+    // the JNI work on the local ref.
+    jobject activity = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_jniMutex);
+        if (g_mainActivity != nullptr) {
+            activity = env->NewLocalRef(g_mainActivity);
+        }
+    }
+    if (activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method = env->GetMethodID(activityClass,
+                                            "sendLocalTalkingEvent", "(Z)V");
+        if (method != nullptr) {
+            env->CallVoidMethod(activity, method, talking);
+            if (env->ExceptionCheck()) {
+                env->ExceptionDescribe();
+                env->ExceptionClear();
+            }
+        }
+        env->DeleteLocalRef(activityClass);
+    }
+    env->DeleteLocalRef(activity);
+}
+
+// Worker loop: drain the SPSC ring, sleep, repeat. The 20 ms cadence is
+// below the human-perceivable limit for VAD UI feedback (typical VAD edges
+// fire on the order of seconds; 20 ms latency is invisible) while keeping
+// the worker mostly asleep — when no events are pending the loop is
+// effectively a `nanosleep` once per tick.
+//
+// The worker attaches to the JVM ONCE at thread start and detaches ONCE at
+// thread exit, so the per-edge dispatch has zero attach/detach cost. If
+// the JVM isn't registered yet when the worker spins up (registerFor
+// Callbacks may race the engine start), we re-poll on each tick until it
+// appears. Once attached we stay attached for the rest of the worker's
+// lifetime.
+static void talkingEventWorkerLoop() {
+    JNIEnv* env = nullptr;
+    JavaVM* attachedJvm = nullptr;  // non-null only if WE called AttachCurrentThread
+
+    auto ensureAttached = [&]() -> bool {
+        if (env != nullptr) return true;
+        JavaVM* jvm = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_jniMutex);
+            jvm = g_jvm;
+        }
+        if (jvm == nullptr) return false;
+        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+            // Already attached on this thread (Android may pre-attach
+            // worker threads under some configurations). Don't claim
+            // ownership of the eventual detach.
+            attachedJvm = nullptr;
+            return true;
+        }
+        if (jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            attachedJvm = jvm;
+            return true;
+        }
+        env = nullptr;
+        return false;
+    };
+
+    auto drainQueue = [&]() {
+        if (!ensureAttached()) return;
+        bool talking;
+        while (g_talkingQueue.pop(talking)) {
+            emitTalkingEventJni(env, talking);
+        }
+    };
+
+    while (!g_talkingWorkerStop.load(std::memory_order_acquire)) {
+        drainQueue();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // Final drain so any events queued just before the stop flag was set
+    // still reach the Dart side.
+    drainQueue();
+
+    if (attachedJvm != nullptr) {
+        attachedJvm->DetachCurrentThread();
+    }
+}
+
+static void startTalkingEventWorker() {
+    if (g_talkingWorkerThread.joinable()) return;
+    g_talkingWorkerStop.store(false, std::memory_order_release);
+    g_talkingWorkerThread = std::thread(talkingEventWorkerLoop);
+}
+
+static void stopTalkingEventWorker() {
+    if (!g_talkingWorkerThread.joinable()) return;
+    g_talkingWorkerStop.store(true, std::memory_order_release);
+    g_talkingWorkerThread.join();
+}
+
 // Error callback for Oboe streams. Emits structured events to Flutter rather
 // than crashing the foreground service. Handles permission revocation (which
 // presents as ErrorDisconnected or ErrorInternal) and other stream errors.
@@ -193,70 +323,17 @@ private:
         return std::sqrt(sum / numFrames);
     }
 
-    // Emit talking event to Flutter via JNI.
+    // Emit a VAD edge from the audio thread.
     //
-    // **Note on JNI from the audio callback.** This function is called from
-    // Oboe's audio thread, which is a strict-RT context. AttachCurrentThread
-    // and CallVoidMethod can both block / allocate, and the standard advice
-    // is to push these notifications onto a worker thread. We accept the
-    // current setup because (a) it fires only on VAD edges (~rare) and (b)
-    // the alternative — a lock-free queue + worker thread — is its own
-    // workstream. Tracked for follow-up.
+    // Lock-free, allocation-free, no JNI. We push onto a SPSC ring; a
+    // dedicated worker thread (see talkingEventWorkerLoop above) drains the
+    // ring and runs the actual JNI dispatch. If the ring is full the event
+    // is dropped — at the operating rate (one edge per VAD transition,
+    // hard-bounded by the audio callback cadence) the ring is effectively
+    // unfillable, so a drop signals catastrophic worker stall, not a
+    // recoverable condition.
     void emitTalkingEvent(bool talking) {
-        JavaVM* jvm = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(g_jniMutex);
-            jvm = g_jvm;
-            // Defer the activity reference to a NewLocalRef *under* the lock
-            // (after we attach the thread) — see below.
-            if (jvm == nullptr || g_mainActivity == nullptr) return;
-        }
-
-        JNIEnv* env = nullptr;
-        bool needDetach = false;
-        if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-            if (jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-                return;
-            }
-            needDetach = true;
-        }
-
-        // Snapshot the global ref into a local ref while holding g_jniMutex.
-        // This rules out the race where nativeUnregisterCallbacks runs
-        // DeleteGlobalRef between our earlier null-check and the
-        // GetObjectClass below — the local ref keeps the underlying jobject
-        // alive across the JNI calls regardless of what happens to the
-        // global. Outside the lock, we do all the JNI work on the local ref.
-        jobject activity = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(g_jniMutex);
-            if (g_mainActivity != nullptr) {
-                activity = env->NewLocalRef(g_mainActivity);
-            }
-        }
-        if (activity == nullptr) {
-            if (needDetach) jvm->DetachCurrentThread();
-            return;
-        }
-
-        jclass activityClass = env->GetObjectClass(activity);
-        if (activityClass != nullptr) {
-            jmethodID method = env->GetMethodID(activityClass,
-                                                "sendLocalTalkingEvent", "(Z)V");
-            if (method != nullptr) {
-                env->CallVoidMethod(activity, method, talking);
-                if (env->ExceptionCheck()) {
-                    env->ExceptionDescribe();
-                    env->ExceptionClear();
-                }
-            }
-            env->DeleteLocalRef(activityClass);
-        }
-        env->DeleteLocalRef(activity);
-
-        if (needDetach) {
-            jvm->DetachCurrentThread();
-        }
+        g_talkingQueue.push(talking);
     }
 
 public:
@@ -310,6 +387,10 @@ public:
         micResampler_.reset();
         playbackResampler_.reset();
 
+        // Bring the worker thread up before starting the streams so any
+        // VAD edge from the very first callback finds a draining consumer.
+        startTalkingEventWorker();
+
         result = recordingStream->requestStart();
         if (result != oboe::Result::OK) {
             LOGE("Failed to start recording stream: %s",
@@ -330,6 +411,10 @@ public:
     }
 
     void stop() {
+        // Close streams first so no more audio callbacks can run — close()
+        // blocks until any in-flight callback returns. After both close
+        // calls return, the audio thread is guaranteed quiescent and no new
+        // events can be pushed onto the talking queue.
         if (recordingStream) {
             recordingStream->requestStop();
             recordingStream->close();
@@ -338,6 +423,9 @@ public:
             playbackStream->requestStop();
             playbackStream->close();
         }
+        // Now stop the worker. It will drain any remaining queued events
+        // (including ones pushed during the close() drain above) and exit.
+        stopTalkingEventWorker();
         LOGI("Audio engine stopped");
     }
 
@@ -445,9 +533,16 @@ public:
         const int codecFrames =
             micResampler_.process(inputData, numFrames, codecScratch_);
 
-        if (g_audioMixer != nullptr && codecFrames > 0) {
+        // Snapshot the mixer singleton into an owning local shared_ptr.
+        // Holding this strong reference for the rest of the callback rules
+        // out the use-after-free that the bare-pointer global allowed:
+        // nativeClear can run concurrently and reset the global, but the
+        // underlying AudioMixer cannot be destroyed until this local ref
+        // drops at the end of the callback.
+        auto mixer = std::atomic_load(&g_audioMixer);
+        if (mixer && codecFrames > 0) {
             // Local mic occupies device id 0 in the mix-minus matrix.
-            g_audioMixer->updateDeviceAudio(0, codecScratch_, codecFrames);
+            mixer->updateDeviceAudio(0, codecScratch_, codecFrames);
 
             // Pull this device's mix-minus (everyone but us) back from the
             // mixer. The buffer it returns is at the codec rate.
@@ -460,7 +555,7 @@ public:
                      kMaxBurstCodecFrames);
                 return oboe::DataCallbackResult::Continue;
             }
-            g_audioMixer->getMixedAudioForDevice(0, mixedCodec, codecFrames);
+            mixer->getMixedAudioForDevice(0, mixedCodec, codecFrames);
 
             // Codec 16 kHz → playout 48 kHz. Always 3:1, so output count is
             // exactly `codecFrames * kResampleRatio`.
