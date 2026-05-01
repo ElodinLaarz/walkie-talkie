@@ -34,10 +34,10 @@ void main() async {
 }
 
 class WalkieTalkieApp extends StatefulWidget {
-  /// Override for tests; defaults to the Hive-backed implementation.
+  /// Override for tests; defaults to the sqflite-backed implementation.
   final IdentityStore? identityStore;
 
-  /// Override for tests; defaults to the Hive-backed implementation.
+  /// Override for tests; defaults to the sqflite-backed implementation.
   final RecentFrequenciesStore? recentFrequenciesStore;
 
   /// Override for tests; defaults to the sqflite-backed implementation.

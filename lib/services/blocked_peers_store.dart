@@ -16,8 +16,10 @@ abstract class BlockedPeersStore {
   /// caller's expected use is membership checks, not iteration order.
   Future<Set<String>> getAll();
 
-  /// Records [peerId] as blocked. Re-blocking an already-blocked peer
-  /// is a no-op (idempotent). Whitespace-only inputs are ignored so a
+  /// Records [peerId] as blocked. Idempotent with respect to membership
+  /// (re-blocking an already-blocked peer leaves the set unchanged),
+  /// though an implementation may refresh associated metadata such as
+  /// `blocked_at` on each call. Whitespace-only inputs are ignored so a
   /// caller that hands us a malformed peerId can't pollute the table.
   Future<void> block(String peerId);
 
@@ -35,10 +37,11 @@ abstract class BlockedPeersStore {
 class SqfliteBlockedPeersStore implements BlockedPeersStore {
   static const String _table = 'blocked_peers';
 
-  /// Serializes writes against themselves the same way
-  /// [`SqfliteRecentFrequenciesStore`] does: two concurrent block /
-  /// unblock calls otherwise race the read-modify-write inside the
-  /// upsert and last-write-wins one of them out of the table.
+  /// Serializes writes so rapid block / unblock / clear calls are
+  /// applied in invocation order. Each individual statement is already
+  /// atomic at the DB level, but without this chain two callers that
+  /// fire-and-forget interleaving toggles for the same peerId can
+  /// observe a non-deterministic final row state.
   Future<void> _writeChain = Future.value();
 
   @override
@@ -84,7 +87,13 @@ class SqfliteBlockedPeersStore implements BlockedPeersStore {
   }
 
   @override
-  Future<void> clear() async {
+  Future<void> clear() {
+    final next = _writeChain.then((_) => _doClear());
+    _writeChain = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _doClear() async {
     final db = await WalkieTalkieDatabase.open();
     await db.delete(_table);
   }
