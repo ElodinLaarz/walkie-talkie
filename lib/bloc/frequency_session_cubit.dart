@@ -1311,9 +1311,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Failures from the store are logged and swallowed so the user isn't
   /// blocked on a transient sqlite error; the in-memory state is rolled
   /// back to whatever the next read sees by re-loading the list.
+  ///
+  /// `myName` is read from the **latest** [SessionDiscovery] right
+  /// before emit (not from a snapshot taken before the awaits) so a
+  /// concurrent [rename] landing during the sqlite round-trip can't be
+  /// silently clobbered by a stale name.
   Future<void> setRecentNickname(String freq, String? nickname) async {
-    final current = state;
-    if (current is! SessionDiscovery) return;
+    if (state is! SessionDiscovery) return;
     try {
       await recentFrequenciesStore.setNickname(freq, nickname);
     } catch (error, stackTrace) {
@@ -1323,19 +1327,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final refreshed = await _loadRecentFrequencies();
     if (isClosed) return;
-    if (state is! SessionDiscovery) return;
+    final latest = state;
+    if (latest is! SessionDiscovery) return;
     emit(SessionDiscovery(
-      myName: current.myName,
+      myName: latest.myName,
       recentHostedFrequencies: refreshed,
     ));
   }
 
   /// Pins or unpins [freq] in the persisted recents, then re-emits
   /// [SessionDiscovery] so the Discovery list resorts (pinned rows float
-  /// to the top). Same scope and failure behavior as [setRecentNickname].
+  /// to the top). Same scope, failure, and rename-race semantics as
+  /// [setRecentNickname].
   Future<void> setRecentPinned(String freq, bool pinned) async {
-    final current = state;
-    if (current is! SessionDiscovery) return;
+    if (state is! SessionDiscovery) return;
     try {
       await recentFrequenciesStore.setPinned(freq, pinned);
     } catch (error, stackTrace) {
@@ -1345,9 +1350,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final refreshed = await _loadRecentFrequencies();
     if (isClosed) return;
-    if (state is! SessionDiscovery) return;
+    final latest = state;
+    if (latest is! SessionDiscovery) return;
     emit(SessionDiscovery(
-      myName: current.myName,
+      myName: latest.myName,
       recentHostedFrequencies: refreshed,
     ));
   }

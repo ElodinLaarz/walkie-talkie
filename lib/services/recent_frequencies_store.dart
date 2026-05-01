@@ -13,10 +13,11 @@ class RecentFrequency {
   /// `recent_frequencies` table.
   final String freq;
 
-  /// Optional user-supplied label. `null` (and only `null`) means "no
-  /// nickname set" — the empty string would round-trip as a stored value
-  /// and shadow the freq in the UI, so callers that want to clear the
-  /// nickname must pass `null`, not `""`.
+  /// Optional user-supplied label. `null` means "no nickname set". On the
+  /// read side, `null` is the only "cleared" sentinel — the store
+  /// normalizes blank labels to `null` on write (see
+  /// [RecentFrequenciesStore.setNickname]), so a row will never surface
+  /// here with an empty string.
   final String? nickname;
 
   /// Whether the user has pinned this freq. Pinned rows render with a pin
@@ -143,26 +144,30 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
   @override
   Future<List<RecentFrequency>> getRecentDetailed() async {
     final db = await WalkieTalkieDatabase.open();
-    // Pinned rows always sit above unpinned rows (`pinned DESC` puts the
-    // 1s before the 0s); within each group the most-recent host wins.
-    // Unpinned rows are capped at `maxEntries`; pinned rows are user-
-    // curated and exempt — see the comments on [record] for why a
-    // capped pin would feel arbitrary to the user.
-    final pinned = await db.query(
+    // Single snapshot query: pinned rows sit above unpinned rows
+    // (`pinned DESC` puts the 1s before the 0s); within each group the
+    // most-recent host wins. The unpinned cap is applied in-memory
+    // because sqlite has no `LIMIT` that's conditional on a column —
+    // splitting into two queries would race with concurrent
+    // [record] / [setPinned] calls and let a row disappear from the
+    // combined list (or land in the wrong half) if a flag flipped
+    // between the reads.
+    final rows = await db.query(
       _table,
       columns: ['freq', 'nickname', 'pinned'],
-      where: 'pinned = 1',
-      orderBy: 'recorded_at DESC',
+      orderBy: 'pinned DESC, recorded_at DESC',
     );
-    final unpinned = await db.query(
-      _table,
-      columns: ['freq', 'nickname', 'pinned'],
-      where: 'pinned = 0',
-      orderBy: 'recorded_at DESC',
-      limit: RecentFrequenciesStore.maxEntries,
-    );
-    final rows = [...pinned, ...unpinned];
-    return List<RecentFrequency>.unmodifiable(rows.map(_rowToRecent));
+    final result = <RecentFrequency>[];
+    var unpinnedCount = 0;
+    for (final row in rows) {
+      final recent = _rowToRecent(row);
+      if (!recent.pinned) {
+        if (unpinnedCount >= RecentFrequenciesStore.maxEntries) continue;
+        unpinnedCount++;
+      }
+      result.add(recent);
+    }
+    return List<RecentFrequency>.unmodifiable(result);
   }
 
   RecentFrequency _rowToRecent(Map<String, Object?> r) {

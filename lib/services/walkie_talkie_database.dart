@@ -107,9 +107,12 @@ class WalkieTalkieDatabase {
 
   /// Adds the v3 `nickname` (TEXT, NULL for "no nickname set") and `pinned`
   /// (INTEGER, 0/1 boolean — sqlite has no native bool) columns to
-  /// `recent_frequencies`. `IF NOT EXISTS` guards each ALTER so re-running
-  /// the migration on an install that's already at v3 (manual migration
-  /// scripts, partial upgrades) is a no-op rather than a hard error.
+  /// `recent_frequencies`. sqlite has no `ALTER TABLE … ADD COLUMN IF NOT
+  /// EXISTS`, so each ALTER is gated by a `PRAGMA table_info` check that
+  /// skips the statement when the column is already present — the migration
+  /// stays a no-op on installs that have already been upgraded (manual
+  /// migration scripts, partial upgrades) instead of throwing
+  /// `duplicate column` and stranding the user.
   static Future<void> _addRecentFrequenciesNicknameAndPinned(
     Database db,
   ) async {

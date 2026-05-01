@@ -738,11 +738,9 @@ class _PinnedBadge extends StatelessWidget {
 }
 
 /// Overflow menu attached to a recent row. Renders a `PopupMenuButton`
-/// keyed by `Key('recent-menu-${entry.freq}')` so widget tests can target
-/// a specific row's menu without hunting for the icon. Items are
-/// conditionally included based on which callbacks the parent supplied —
-/// a row that opts into rename only (or pin only) doesn't get a stub
-/// "no-op" entry.
+/// whose items are conditionally included based on which callbacks the
+/// parent supplied — a row that opts into rename only (or pin only)
+/// doesn't get a stub "no-op" entry.
 class _RecentRowMenu extends StatelessWidget {
   final bool pinned;
   final VoidCallback? onRename;

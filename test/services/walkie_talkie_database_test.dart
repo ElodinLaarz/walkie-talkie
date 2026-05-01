@@ -91,6 +91,58 @@ void main() {
     );
 
     test(
+      'partial v3 schema (only one of nickname / pinned exists) is recovered',
+      () async {
+        // Models a worst-case partial-migration corruption: someone
+        // ran the v2→v3 step halfway (e.g. process killed mid-ALTER on
+        // an old sqflite version), so the table is at version=2 on disk
+        // but already has the `nickname` column added. The PRAGMA
+        // table_info guard in _addRecentFrequenciesNicknameAndPinned
+        // must skip the duplicate ADD COLUMN and only run the missing
+        // `pinned` ADD — without the guard sqlite would throw
+        // `duplicate column name: nickname` and the install would be
+        // bricked.
+        final dbPath = p.join(tempDir.path, 'wt.db');
+        final partial = await databaseFactoryFfi.openDatabase(
+          dbPath,
+          options: OpenDatabaseOptions(version: 2, onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE recent_frequencies (
+                freq TEXT PRIMARY KEY NOT NULL,
+                recorded_at INTEGER NOT NULL,
+                nickname TEXT
+              )
+            ''');
+          }),
+        );
+        await partial.insert(
+          'recent_frequencies',
+          {'freq': '92.4', 'recorded_at': 1000, 'nickname': 'Family'},
+        );
+        await partial.close();
+
+        // Open via the production path — _onUpgrade fires (oldVersion < 3),
+        // and the guarded migration only adds the missing `pinned` column.
+        final detailed =
+            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+
+        expect(detailed.length, 1);
+        expect(detailed.single.freq, '92.4');
+        // The pre-existing nickname survived (the migration didn't drop it).
+        expect(detailed.single.nickname, 'Family');
+        // The newly-added `pinned` column defaulted to 0 / unpinned.
+        expect(detailed.single.pinned, isFalse);
+
+        // Writing through the new API works end-to-end against the
+        // recovered schema.
+        await SqfliteRecentFrequenciesStore().setPinned('92.4', true);
+        final after =
+            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+        expect(after.single.pinned, isTrue);
+      },
+    );
+
+    test(
       're-opening a v3 database is a no-op (idempotent ALTER)',
       () async {
         // First open creates fresh at the current version.
@@ -98,8 +150,8 @@ void main() {
 
         // Re-open the same file. The migration won't fire because the
         // version matches, but if it ever does (e.g. someone bumps the
-        // version then later reverts), the IF NOT EXISTS guards in
-        // `_addRecentFrequenciesNicknameAndPinned` keep this from
+        // version then later reverts), the PRAGMA table_info guard in
+        // `_addRecentFrequenciesNicknameAndPinned` keeps this from
         // double-ALTERing and crashing.
         await WalkieTalkieDatabase.resetForTesting();
         await expectLater(
