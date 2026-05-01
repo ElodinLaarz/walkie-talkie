@@ -55,6 +55,9 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # GITHUB_RUN_NUMBER is read by android/app/build.gradle.kts so each CI
+          # run produces a unique versionCode — Play rejects duplicate codes.
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: One or more signing secrets are not set"
@@ -62,6 +65,31 @@ jobs:
             exit 1
           fi
           flutter build appbundle --release --target-platform=android-arm64,android-arm,android-x64
+
+      - name: Measure AAB size
+        # Logs the AAB size and fails if it exceeds the budget. The 30 MB target
+        # in #131 is the goal; we set the hard ceiling well above that so this
+        # step catches catastrophic regressions (e.g. an accidental fat APK
+        # config or a vendored binary blob) without flapping on small growth.
+        # Note: this measures the AAB itself, not the per-device download —
+        # bundletool's Play-served APK split sizes are typically much smaller.
+        env:
+          AAB_MAX_BYTES: 52428800 # 50 MiB
+        run: |
+          AAB_PATH=build/app/outputs/bundle/release/app-release.aab
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "Error: $AAB_PATH not found"
+            exit 1
+          fi
+          AAB_BYTES=$(stat -c%s "$AAB_PATH")
+          AAB_MIB=$(awk "BEGIN { printf \"%.2f\", $AAB_BYTES / 1048576 }")
+          echo "AAB size: ${AAB_BYTES} bytes (${AAB_MIB} MiB)"
+          echo "::notice title=AAB size::${AAB_MIB} MiB (${AAB_BYTES} bytes)"
+          echo "aab_size_bytes=${AAB_BYTES}" >> "$GITHUB_OUTPUT"
+          if [ "$AAB_BYTES" -gt "$AAB_MAX_BYTES" ]; then
+            echo "Error: AAB size ${AAB_BYTES} bytes exceeds budget ${AAB_MAX_BYTES} bytes"
+            exit 1
+          fi
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v4

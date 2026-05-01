@@ -24,7 +24,15 @@ android {
         // Android 13+ required for Bluetooth LE Audio APIs
         minSdk = 33
         targetSdk = 36
-        versionCode = flutter.versionCode
+        // Auto-derive versionCode in CI from VERSION_CODE (explicit override) or
+        // GITHUB_RUN_NUMBER (one-per-CI-run, monotonic). Local builds and any CI
+        // run without those vars fall back to the static `+N` from pubspec.yaml,
+        // surfaced via flutter.versionCode. Play rejects duplicate versionCodes,
+        // so this is what lets back-to-back release builds upload without a
+        // manual pubspec bump.
+        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()
+            ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+            ?: flutter.versionCode)
         versionName = flutter.versionName
         
         // NDK configuration for Oboe audio library
@@ -117,6 +125,23 @@ android {
             }
 
             signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // Explicit AAB split configuration. AGP currently defaults all three to
+    // enableSplit = true, but pinning them keeps a future default change from
+    // silently regressing per-device download size — the whole reason this app
+    // ships an AAB instead of a fat APK is to deliver only the ABI / density /
+    // language slice each device needs.
+    bundle {
+        language {
+            enableSplit = true
+        }
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true
         }
     }
 
