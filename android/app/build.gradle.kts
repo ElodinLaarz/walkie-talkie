@@ -84,6 +84,14 @@ android {
 
     buildTypes {
         release {
+            // Enable R8 minification and resource shrinking for release builds
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
             // Fail fast if release build is requested but no signing config is available
             // Only check when a release task is actually being executed
             val isReleaseBuild = gradle.startParameter.taskNames.any {
