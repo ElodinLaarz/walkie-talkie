@@ -12,6 +12,7 @@ import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import 'frequency_explainer_screen.dart';
+import 'frequency_privacy_policy_screen.dart';
 
 class DiscoveryResult {
   final String freq;
@@ -154,6 +155,28 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                         fontFamily: 'Inter',
                         fontSize: 12,
                         color: c.ink3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: TextButton(
+                      onPressed: _openPrivacyPolicy,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        minimumSize: const Size(48, 48),
+                        foregroundColor: c.ink2,
+                      ),
+                      child: Text(
+                        l10n.discoveryFooterPrivacy,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink2,
+                          decoration: TextDecoration.underline,
+                          decorationColor: c.line2,
+                        ),
                       ),
                     ),
                   ),
@@ -379,6 +402,14 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
         builder: (_) => FrequencyExplainerScreen(
           onDone: () => Navigator.of(context).pop(),
         ),
+      ),
+    );
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const FrequencyPrivacyPolicyScreen(),
       ),
     );
   }

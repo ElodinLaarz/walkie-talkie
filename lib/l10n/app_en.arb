@@ -289,5 +289,99 @@
     "renameSheetSave": "Save",
     "@renameSheetSave": {
         "description": "Save button inside the rename bottom sheet."
+    },
+
+    "discoveryFooterPrivacy": "Privacy",
+    "@discoveryFooterPrivacy": {
+        "description": "Footer link below the discovery list — opens the in-app privacy policy screen."
+    },
+
+    "privacyPolicyEyebrow": "POLICY",
+    "@privacyPolicyEyebrow": {
+        "description": "All-caps eyebrow above the privacy policy headline."
+    },
+    "privacyPolicyHeadline": "Privacy policy",
+    "@privacyPolicyHeadline": {
+        "description": "Headline of the privacy policy screen."
+    },
+    "privacyPolicyLastUpdated": "Last updated 2026-04-30",
+    "@privacyPolicyLastUpdated": {
+        "description": "Subhead under the privacy policy headline showing when the policy was last revised. Update this date when docs/privacy-policy.md is revised."
+    },
+    "privacyPolicyClose": "Close privacy policy",
+    "@privacyPolicyClose": {
+        "description": "TalkBack/Semantics label for the close button on the privacy policy screen."
+    },
+    "privacyPolicySectionTldrTitle": "TL;DR",
+    "@privacyPolicySectionTldrTitle": {
+        "description": "Section title — short summary of the privacy policy."
+    },
+    "privacyPolicySectionTldrBody": "Frequency is an offline, peer-to-peer walkie-talkie app. It runs entirely on the phones in the conversation — there is no Frequency server, no cloud sync, no analytics SDK, and no account system. The app does not declare the INTERNET permission and does not send your audio to the internet or any server; voice is transmitted directly to nearby peers over Bluetooth. The only data Frequency stores is on your own device, and uninstalling the app removes all of it.",
+    "@privacyPolicySectionTldrBody": {
+        "description": "TL;DR section body of the privacy policy."
+    },
+    "privacyPolicySectionAudioTitle": "Audio (microphone)",
+    "@privacyPolicySectionAudioTitle": {
+        "description": "Privacy policy section title — what happens to mic audio."
+    },
+    "privacyPolicySectionAudioBody": "Frequency captures audio from your phone's microphone while you are in a voice room and you are talking (or transmitting if push-to-talk is held). The audio is encoded with Opus and streamed over a Bluetooth LE L2CAP channel directly to the other phones in the same room. Audio is not recorded to disk, not sent to any server, and not retained after it has been transmitted.",
+    "@privacyPolicySectionAudioBody": {
+        "description": "Privacy policy body — audio handling."
+    },
+    "privacyPolicySectionBluetoothTitle": "Bluetooth identifiers",
+    "@privacyPolicySectionBluetoothTitle": {
+        "description": "Privacy policy section title — Bluetooth identifiers."
+    },
+    "privacyPolicySectionBluetoothBody": "To find nearby phones running Frequency the app advertises and scans for a Frequency-specific Bluetooth service UUID. While in a room your phone exchanges its Bluetooth MAC address and a per-room session UUID with the host so packets can be routed to the right peer. Bluetooth identifiers are used solely to maintain the active connection and are not collected, aggregated, or sent anywhere. The Bluetooth scan permission is requested with the neverForLocation flag, and the app does not use scan results to derive your location.",
+    "@privacyPolicySectionBluetoothBody": {
+        "description": "Privacy policy body — Bluetooth identifiers."
+    },
+    "privacyPolicySectionStorageTitle": "On-device storage",
+    "@privacyPolicySectionStorageTitle": {
+        "description": "Privacy policy section title — what is stored locally."
+    },
+    "privacyPolicySectionStorageBody": "Frequency stores a small amount of data locally on your device so it can remember you between launches: the display name you chose during onboarding (shown to other peers in the same room), a stable peer ID generated on first launch so other peers can recognize your phone across reconnects, the most recently hosted frequencies surfaced as the Recent list on Discovery, and the peer IDs you have muted so the mute persists across reconnects. This data lives in the app's private storage on your phone and is never transmitted off the device by Frequency.",
+    "@privacyPolicySectionStorageBody": {
+        "description": "Privacy policy body — on-device storage."
+    },
+    "privacyPolicySectionCrashTitle": "Crash and diagnostic data",
+    "@privacyPolicySectionCrashTitle": {
+        "description": "Privacy policy section title — crash and diagnostics."
+    },
+    "privacyPolicySectionCrashBody": "Frequency does not include any crash reporter, telemetry SDK, or analytics library. If a crash reporter is added in a future version it will be opt-in and the in-app setting will state exactly what is sent.",
+    "@privacyPolicySectionCrashBody": {
+        "description": "Privacy policy body — crash reporting."
+    },
+    "privacyPolicySectionPermissionsTitle": "Permissions",
+    "@privacyPolicySectionPermissionsTitle": {
+        "description": "Privacy policy section title — Android permissions and why each is requested."
+    },
+    "privacyPolicySectionPermissionsBody": "Bluetooth scan (with neverForLocation), connect, and advertise are required to find nearby phones, open a GATT control connection to the host of the room you join, and advertise your own device when you are hosting. Microphone is required to capture your voice while you are talking. Modify audio settings is used to route audio to the speaker, a wired headset, or a paired Bluetooth headset. Foreground service permissions keep the mic and Bluetooth radio running while the screen is off so the room does not drop when the phone locks. Post notifications is used to show the foreground-service notification that lets you know a room is active.",
+    "@privacyPolicySectionPermissionsBody": {
+        "description": "Privacy policy body — permissions justification."
+    },
+    "privacyPolicySectionChildrenTitle": "Children's privacy",
+    "@privacyPolicySectionChildrenTitle": {
+        "description": "Privacy policy section title — children's privacy."
+    },
+    "privacyPolicySectionChildrenBody": "Frequency captures audio. The app is targeted at users 13 and older and we do not knowingly collect any data from children under that age.",
+    "@privacyPolicySectionChildrenBody": {
+        "description": "Privacy policy body — children's privacy."
+    },
+    "privacyPolicySectionDeletionTitle": "Data retention and deletion",
+    "@privacyPolicySectionDeletionTitle": {
+        "description": "Privacy policy section title — retention and deletion."
+    },
+    "privacyPolicySectionDeletionBody": "There is no remote account, so there is nothing to delete from a server. All data Frequency stores lives on your phone. To remove every piece of data the app has ever stored, open Settings → Apps → Frequency → Storage on your Android device, then tap Clear storage to wipe the app's data, or Uninstall to remove the app entirely. Uninstalling the app removes the local database, the display name, the peer ID, the recent-frequencies list, and the blocked-peers list.",
+    "@privacyPolicySectionDeletionBody": {
+        "description": "Privacy policy body — retention and deletion."
+    },
+    "privacyPolicySectionContactTitle": "Contact",
+    "@privacyPolicySectionContactTitle": {
+        "description": "Privacy policy section title — how to contact the maintainers."
+    },
+    "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at https://github.com/ElodinLaarz/walkie-talkie/issues.",
+    "@privacyPolicySectionContactBody": {
+        "description": "Privacy policy body — contact."
     }
 }
