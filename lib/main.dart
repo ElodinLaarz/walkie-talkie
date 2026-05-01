@@ -92,7 +92,7 @@ SentryEvent? _sanitizeEvent(SentryEvent event) {
         (msg.toLowerCase().contains('displayname') ||
             msg.toLowerCase().contains('display name'))) {
       crumb.message = msg.replaceAll(
-        RegExp(r'display[_ ]?name[:\s]*[^\s,;]+', caseSensitive: false),
+        RegExp(r'display[_ ]?name[:\s]*[^,;]+', caseSensitive: false),
         'displayName: [REDACTED]',
       );
     }
