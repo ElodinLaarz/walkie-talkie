@@ -117,7 +117,13 @@ jobs:
         #   gh attestation verify <aab> --repo ElodinLaarz/walkie-talkie
         # which lets a downloader confirm the AAB was produced by THIS workflow
         # at this commit, before sideloading or shipping it through Play.
-        uses: actions/attest-build-provenance@v2
+        #
+        # Pinned to a full commit SHA (not the @v2 tag) because this is the only
+        # step in the workflow that holds id-token:write + attestations:write —
+        # a tag retarget on a privileged action could mint provenance for
+        # arbitrary subjects under our identity. Other actions in the repo use
+        # major-version tags because they don't carry that privilege.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: build/app/outputs/bundle/release/app-release.aab
 
