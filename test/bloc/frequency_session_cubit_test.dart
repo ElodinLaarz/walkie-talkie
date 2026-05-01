@@ -2724,8 +2724,10 @@ void main() {
         final cubit = _makeCubit(
           transport: t.transport,
           audio: audio,
-          // Long-interval scheduler so the heartbeat plane doesn't fight
-          // the test for the wire.
+          // Provided to satisfy construction; this test enters the room
+          // via `emit(SessionRoom(...))` rather than `joinRoom()`, so
+          // the scheduler is never started and does not affect the
+          // wire assertions.
           heartbeats:
               HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
         );
@@ -2992,13 +2994,20 @@ class _GatedPeerIdStore implements IdentityStore {
 /// AudioService stub that exposes a caller-supplied stream as
 /// [localTalking]. Subclassing the production class keeps the cubit's
 /// `audio: ` parameter strongly typed without forcing every other
-/// AudioService method into a fake — tests that only exercise the VAD
-/// path don't touch the MethodChannel surface, so the inherited
-/// implementations stay dormant.
+/// AudioService method into a fake. The host-teardown methods that
+/// `cubit.close()` reaches when `roomIsHost: true` are stubbed to
+/// no-ops so the tests stay hermetic and never hit the real
+/// MethodChannel.
 class _StubLocalTalkingAudio extends AudioService {
   _StubLocalTalkingAudio(this._localTalking);
   final Stream<bool> _localTalking;
 
   @override
   Stream<bool> get localTalking => _localTalking;
+
+  @override
+  Future<bool> stopAdvertising() async => true;
+
+  @override
+  Future<bool> stopGattServer() async => true;
 }
