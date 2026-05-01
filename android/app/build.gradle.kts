@@ -204,9 +204,9 @@ android {
         abi {
             enableSplit = true
         }
-        // vcsInfo {
-        //     include = true
-        // }
+        vcsInfo {
+            include = true
+        }
     }
 
     testOptions {

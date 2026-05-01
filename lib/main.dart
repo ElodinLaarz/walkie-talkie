@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'bloc/discovery_cubit.dart';
+import 'screens/about_screen.dart';
 import 'bloc/frequency_session_cubit.dart';
 import 'bloc/frequency_session_state.dart';
 import 'data/frequency_models.dart';
@@ -26,6 +27,7 @@ import 'widgets/frequency_toast_host.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  registerNativeLicenses();
   // sqflite is the v1 store; this is a one-shot copy of any legacy Hive
   // data on installs that had it. Subsequent launches see the marker in
   // the `kv` table and skip Hive init entirely.

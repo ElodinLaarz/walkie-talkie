@@ -289,5 +289,14 @@
     "renameSheetSave": "Save",
     "@renameSheetSave": {
         "description": "Save button inside the rename bottom sheet."
+    },
+
+    "aboutMenuLabel": "Licenses",
+    "@aboutMenuLabel": {
+        "description": "Label for the overflow menu item that opens the third-party license page."
+    },
+    "aboutAppName": "Frequency",
+    "@aboutAppName": {
+        "description": "Application name shown on the LicensePage header."
     }
 }

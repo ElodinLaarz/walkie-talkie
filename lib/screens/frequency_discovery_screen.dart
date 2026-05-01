@@ -11,6 +11,7 @@ import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
+import 'about_screen.dart';
 import 'frequency_explainer_screen.dart';
 
 class DiscoveryResult {
@@ -127,6 +128,20 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                 _IdentityChip(
                   name: widget.myName,
                   onTap: _openRenameSheet,
+                ),
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert, size: 18, color: c.ink2),
+                  padding: EdgeInsets.zero,
+                  tooltip: '',
+                  onSelected: (value) {
+                    if (value == 'licenses') showAppLicensePage(context);
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'licenses',
+                      child: Text(l10n.aboutMenuLabel),
+                    ),
+                  ],
                 ),
               ],
             ),
