@@ -62,6 +62,9 @@ dependencies:
   # UI/UX
   google_fonts: ^6.2.1
 
+  # Crash Reporting (opt-in, privacy-first)
+  sentry_flutter: ^8.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

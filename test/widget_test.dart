@@ -143,9 +143,10 @@ void main() {
 
       expect(find.text('RECENT'), findsOneWidget);
       // Each row's freq is rendered inside a Text.rich span ("Host on X
-      // MHz"), so match by substring rather than exact text.
-      expect(find.textContaining('100.1'), findsOneWidget);
-      expect(find.textContaining('92.4'), findsOneWidget);
+      // MHz"). Match the full "Host on" prefix to distinguish from other
+      // UI elements that may also display the frequency.
+      expect(find.textContaining('Host on 100.1'), findsOneWidget);
+      expect(find.textContaining('Host on 92.4'), findsOneWidget);
     },
   );
 }
