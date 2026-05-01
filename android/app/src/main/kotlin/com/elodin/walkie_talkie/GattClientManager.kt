@@ -28,6 +28,7 @@ class GattClientManager(
         private const val TAG = "GattClientManager"
         private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
         private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
+        private const val GATT_INSUFFICIENT_ENCRYPTION = 15
 
         /**
          * Number of *additional* connect attempts after the initial one that
@@ -43,6 +44,16 @@ class GattClientManager(
          * above), 19 (GATT_CONN_TERMINATE_PEER_USER on flaky links).
          */
         private val TRANSIENT_GATT_ERRORS = setOf(133, 147, 19)
+
+        /**
+         * Authorization-related GATT status codes that indicate permission
+         * denial and should not be retried.
+         */
+        private val AUTHORIZATION_ERRORS = setOf(
+            GATT_INSUFFICIENT_AUTHORIZATION,
+            GATT_INSUFFICIENT_AUTHENTICATION,
+            GATT_INSUFFICIENT_ENCRYPTION
+        )
     }
 
     private var gatt: BluetoothGatt? = null
@@ -73,8 +84,8 @@ class GattClientManager(
             status: Int,
             newState: Int
         ) {
-            // Check for authorization/authentication failures
-            if (status == GATT_INSUFFICIENT_AUTHORIZATION || status == GATT_INSUFFICIENT_AUTHENTICATION) {
+            // Check for authorization/authentication/encryption failures
+            if (status in AUTHORIZATION_ERRORS) {
                 Log.e(TAG, "GATT authorization failure: status=$status")
                 onError?.invoke("GATT_AUTHORIZATION_DENIED")
                 negotiatedMtus.remove(gatt.device.address)
@@ -236,7 +247,14 @@ class GattClientManager(
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.i(TAG, "CCCD write successful, notifications active")
                 } else {
-                    Log.e(TAG, "CCCD write failed with status $status")
+                    // Check for authorization failures on descriptor writes
+                    if (status in AUTHORIZATION_ERRORS) {
+                        Log.e(TAG, "CCCD write authorization failure: status=$status")
+                        onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                        disconnect()
+                    } else {
+                        Log.e(TAG, "CCCD write failed with status $status")
+                    }
                 }
             }
         }
@@ -250,7 +268,15 @@ class GattClientManager(
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "REQUEST write successful")
                 } else {
-                    Log.w(TAG, "REQUEST write failed with status $status")
+                    // Check for authorization failures on write operations
+                    if (status in AUTHORIZATION_ERRORS) {
+                        Log.e(TAG, "REQUEST write authorization failure: status=$status")
+                        onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                        // Disconnect and clean up since we've lost authorization
+                        disconnect()
+                    } else {
+                        Log.w(TAG, "REQUEST write failed with status $status")
+                    }
                 }
             }
         }
