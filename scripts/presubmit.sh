@@ -17,8 +17,13 @@ for required in \
     test/cpp/jitter_buffer_test.cpp \
     test/cpp/resampler_test.cpp \
     test/cpp/talking_event_queue_test.cpp \
+    test/cpp/ring_buffer_test.cpp \
+    test/cpp/opus_codec_test.cpp \
     android/app/src/main/cpp/audio_mixer.cpp \
-    android/app/src/main/cpp/talking_event_queue.h; do
+    android/app/src/main/cpp/talking_event_queue.h \
+    android/app/src/main/cpp/ring_buffer.h \
+    android/app/src/main/cpp/opus_codec.h \
+    android/app/src/main/cpp/opus_codec.cpp; do
   if [ ! -f "$required" ]; then
     echo "$required missing — failing fast"
     exit 1
@@ -60,3 +65,25 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     test/cpp/talking_event_queue_test.cpp \
     -o build/cpp_test/talking_event_queue_test
 build/cpp_test/talking_event_queue_test
+
+# ring_buffer_test exercises header-only ring_buffer.h — SPSC lock-free audio
+# ring buffer (#128: previously had zero unit tests).
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    test/cpp/ring_buffer_test.cpp \
+    -o build/cpp_test/ring_buffer_test
+build/cpp_test/ring_buffer_test
+
+# opus_codec_test exercises OpusEncoder/OpusDecoder from opus_codec.cpp.
+# Requires libopus (install via: apt install libopus-dev).
+# pkg-config supplies the opus include path (-I/usr/include/opus on Debian/Ubuntu).
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    $(pkg-config --cflags opus) \
+    test/cpp/opus_codec_test.cpp \
+    android/app/src/main/cpp/opus_codec.cpp \
+    $(pkg-config --libs opus) \
+    -o build/cpp_test/opus_codec_test
+build/cpp_test/opus_codec_test
