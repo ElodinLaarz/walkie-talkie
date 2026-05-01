@@ -81,3 +81,33 @@ jobs:
               test/cpp/talking_event_queue_test.cpp \
               -o build/cpp_test/talking_event_queue_test
           build/cpp_test/talking_event_queue_test
+
+      # App size budget (issue #131): build a debug AAB and enforce the
+      # < 30 MB download-size target. Uses the debug keystore so no signing
+      # credentials are needed. `continue-on-error` keeps the main test
+      # suite unblocked while the full NDK/Gradle/Opus build path is being
+      # validated; flip to `false` once the native build is stable in CI.
+      - name: Measure AAB size (< 30 MB budget)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q openjdk-17-jdk-headless
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+          flutter build appbundle --debug
+
+          AAB="build/app/outputs/bundle/debug/app-debug.aab"
+          if [ ! -f "$AAB" ]; then
+            echo "AAB not found at $AAB — skipping size check"; exit 0
+          fi
+
+          SIZE_BYTES=$(stat -c%s "$AAB")
+          SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1048576" | bc)
+          echo "AAB size: ${SIZE_MB} MB  (${SIZE_BYTES} bytes)"
+
+          LIMIT_BYTES=$((30 * 1048576))
+          if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
+            echo "::error::AAB exceeds 30 MB budget (${SIZE_MB} MB). Reduce dependencies or assets."
+            exit 1
+          fi
+          echo "::notice::AAB size ${SIZE_MB} MB is within the 30 MB budget."
