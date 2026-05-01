@@ -271,12 +271,36 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     final trimmedFreq = freq.trim();
     if (trimmedFreq.isEmpty) return;
     final db = await WalkieTalkieDatabase.open();
-    await db.update(
-      _table,
-      {'pinned': pinned ? 1 : 0},
-      where: 'freq = ?',
-      whereArgs: [trimmedFreq],
-    );
+    await db.transaction((txn) async {
+      await txn.update(
+        _table,
+        {'pinned': pinned ? 1 : 0},
+        where: 'freq = ?',
+        whereArgs: [trimmedFreq],
+      );
+      // Unpinning can push the unpinned-row count past `maxEntries`: the
+      // pinned row was exempt from the cap, so dropping its exemption can
+      // leave the table with more unpinned rows than [record] would ever
+      // allow. Re-run the same cap query [_doRecord] uses so the unpinned
+      // bucket stays bounded — without this, the next [getRecentDetailed]
+      // would silently truncate in-memory but the on-disk row would
+      // linger forever.
+      if (!pinned) {
+        await txn.execute(
+          '''
+          DELETE FROM $_table
+          WHERE pinned = 0
+            AND freq NOT IN (
+              SELECT freq FROM $_table
+              WHERE pinned = 0
+              ORDER BY recorded_at DESC
+              LIMIT ?
+            )
+          ''',
+          [RecentFrequenciesStore.maxEntries],
+        );
+      }
+    });
   }
 
   @override

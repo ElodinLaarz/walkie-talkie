@@ -36,6 +36,10 @@ void main() {
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
+    // Drop the process-wide FFI factory + path override so a later test
+    // that doesn't install one (or that runs in a file ordering after
+    // this suite) doesn't accidentally pick up our temp path.
+    WalkieTalkieDatabase.clearDatabaseFactoryOverride();
   });
 
   group('recent_frequencies v2 → v3 migration', () {

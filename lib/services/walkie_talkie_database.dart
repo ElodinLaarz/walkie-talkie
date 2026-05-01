@@ -165,4 +165,15 @@ class WalkieTalkieDatabase {
       await db.close();
     }
   }
+
+  /// Test seam: drop the FFI factory + path overrides so a later test
+  /// that doesn't install one falls back to the platform default. Without
+  /// this, the override leaks process-wide and a later test relying on
+  /// the real factory either picks up the previous test's path or fails
+  /// because the FFI factory isn't available on its platform.
+  @visibleForTesting
+  static void clearDatabaseFactoryOverride() {
+    _factoryOverride = null;
+    _pathOverride = null;
+  }
 }

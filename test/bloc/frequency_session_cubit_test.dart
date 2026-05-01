@@ -1001,12 +1001,20 @@ void main() {
     );
 
     test(
-      'setRecentPinned(false) demotes a previously-pinned row',
+      'setRecentPinned(false) demotes a previously-pinned row to its real recency position',
       () async {
+        // Seed order (newest → oldest): 100.1, 88.7, 92.4-pinned. The pin
+        // floats 92.4 to the top in the list view, but its underlying
+        // recordedAt is the oldest. After unpinning, 92.4 must land at
+        // the *bottom*, behind 100.1 and 88.7 — not stick at the top
+        // just because it used to be pinned. Asserting `every (!pinned)`
+        // alone would have passed even if the demotion logic were wrong;
+        // assert the full ordering instead.
         final recent = _FakeRecentFrequenciesStore(
           detailed: const [
-            RecentFrequency(freq: '92.4', pinned: true),
             RecentFrequency(freq: '100.1'),
+            RecentFrequency(freq: '88.7'),
+            RecentFrequency(freq: '92.4', pinned: true),
           ],
         );
         final cubit = _makeCubit(
@@ -1015,10 +1023,23 @@ void main() {
         );
         await cubit.bootstrap();
 
+        // Pre-condition: pin floats 92.4 to the top.
+        var s = cubit.state as SessionDiscovery;
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['92.4', '100.1', '88.7'],
+        );
+
         await cubit.setRecentPinned('92.4', false);
 
-        final s = cubit.state as SessionDiscovery;
+        s = cubit.state as SessionDiscovery;
         expect(s.recentHostedFrequencies.every((e) => !e.pinned), isTrue);
+        // 92.4 demotes to its real recency position (oldest), so the
+        // unpinned-by-recency order is 100.1, 88.7, 92.4.
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['100.1', '88.7', '92.4'],
+        );
 
         await cubit.close();
       },

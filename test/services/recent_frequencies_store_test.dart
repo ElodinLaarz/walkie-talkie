@@ -234,6 +234,34 @@ void main() {
       expect(detailed.single.pinned, isTrue);
     });
 
+    test('unpinning re-applies the cap so the unpinned bucket stays bounded',
+        () async {
+      // The cap is on UNPINNED rows only, so a pinned row "borrows" a
+      // slot. Unpinning it can push the unpinned count past `maxEntries`
+      // — `_doSetPinned(false)` must drop the oldest unpinned to stay
+      // bounded, otherwise the on-disk row count drifts upward whenever
+      // a user pins-then-unpins.
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('70.0');
+      await store.setPinned('70.0', true);
+      // Fill the unpinned bucket to the cap with newer records.
+      for (var i = 0; i < RecentFrequenciesStore.maxEntries; i++) {
+        await store.record('${88 + i}.0');
+      }
+      // Pre-condition: maxEntries unpinned + 1 pinned = maxEntries + 1.
+      var detailed = await store.getRecentDetailed();
+      expect(detailed.length, RecentFrequenciesStore.maxEntries + 1);
+
+      // Unpin 70.0. It's the oldest unpinned now, so it itself should
+      // roll off the bottom of the unpinned bucket.
+      await store.setPinned('70.0', false);
+
+      detailed = await store.getRecentDetailed();
+      expect(detailed.length, RecentFrequenciesStore.maxEntries);
+      expect(detailed.every((e) => !e.pinned), isTrue);
+      expect(detailed.any((e) => e.freq == '70.0'), isFalse);
+    });
+
     test('pinned entries are exempt from the rolling cap', () async {
       // Otherwise a user-curated pin would silently roll off as soon as
       // the user hosted a few new channels — pinning would be meaningless.
