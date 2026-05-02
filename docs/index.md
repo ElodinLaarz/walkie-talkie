@@ -22,3 +22,5 @@ anonymised diagnostic data if enabled in Settings.
   Data Safety form.
 - **[Wire Protocol]({% link protocol.md %})** — the on-wire format for discovery
   advertisements, control messages, and audio framing.
+- **[Play Store Submission Guide]({% link play-store-submission-guide.md %})** — step-by-step
+  checklist for completing the Google Play Store listing and publishing the app.
