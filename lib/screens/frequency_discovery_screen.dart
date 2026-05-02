@@ -9,6 +9,7 @@ import '../bloc/discovery_state.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
+import '../protocol/frequency_session.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
@@ -100,17 +101,10 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   late final String _newFreq;
 
-  // FM band: 88.0–107.9 MHz at 0.1-MHz precision → 200 buckets stored as
-  // integer tenths (880–1079). Matches FrequencySession.mhzDisplay arithmetic.
-  static const _freqBaseTenths = 880;
-  static const _freqBuckets = 200;
-
   @override
   void initState() {
     super.initState();
-    final rnd = Random();
-    _newFreq =
-        ((_freqBaseTenths + rnd.nextInt(_freqBuckets)) / 10.0).toStringAsFixed(1);
+    _newFreq = FrequencySession.randomMhzDisplay(Random());
     
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
