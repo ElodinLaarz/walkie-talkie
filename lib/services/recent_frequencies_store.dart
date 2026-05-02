@@ -27,10 +27,22 @@ class RecentFrequency {
   /// applied during [RecentFrequenciesStore.record].
   final bool pinned;
 
+  /// The original `FrequencySession.sessionUuid` the user hosted on. `null`
+  /// for rows that pre-date #219 (DB schema v4) — the cubit's Resume path
+  /// falls back to minting a fresh UUID in that case, matching pre-#219
+  /// behaviour. Populated for any row recorded after the upgrade.
+  ///
+  /// Persisting this is what lets Resume reconstitute the *same* room the
+  /// user previously hosted: `mhzDisplay` is derived from the UUID, so
+  /// without it Resume would derive a fresh freq off a fresh UUID and the
+  /// user would silently land in a new room.
+  final String? sessionUuid;
+
   const RecentFrequency({
     required this.freq,
     this.nickname,
     this.pinned = false,
+    this.sessionUuid,
   });
 
   @override
@@ -38,14 +50,16 @@ class RecentFrequency {
       other is RecentFrequency &&
       other.freq == freq &&
       other.nickname == nickname &&
-      other.pinned == pinned;
+      other.pinned == pinned &&
+      other.sessionUuid == sessionUuid;
 
   @override
-  int get hashCode => Object.hash(freq, nickname, pinned);
+  int get hashCode => Object.hash(freq, nickname, pinned, sessionUuid);
 
   @override
   String toString() =>
-      'RecentFrequency(freq: $freq, nickname: $nickname, pinned: $pinned)';
+      'RecentFrequency(freq: $freq, nickname: $nickname, pinned: $pinned, '
+      'sessionUuid: $sessionUuid)';
 }
 
 /// Persisted "frequencies the local user has hosted" list, most-recent
@@ -93,7 +107,16 @@ abstract class RecentFrequenciesStore {
   /// you've nicknamed or pinned must not silently strip the metadata.
   /// Unpinned entries past [maxEntries] roll off; pinned entries are
   /// exempt from the cap.
-  Future<void> record(String freq);
+  ///
+  /// [sessionUuid] is the host's `FrequencySession.sessionUuid`. When
+  /// supplied (the post-#219 host path), it's persisted alongside the freq
+  /// so a later Resume can reconstitute the same room. On dedupe re-hosting
+  /// the same `freq`, a non-null incoming uuid **overwrites** any stored
+  /// uuid — the most recent host's session is the one Resume should target.
+  /// `null` leaves the stored uuid untouched on dedupe (preserves any value
+  /// from a previous post-#219 host) and writes `NULL` on a fresh row;
+  /// pre-#219 callers and tests don't need to thread a uuid through.
+  Future<void> record(String freq, {String? sessionUuid});
 
   /// Sets (or clears, when [nickname] is `null`) the display label for
   /// [freq]. No-op when [freq] hasn't been recorded yet — nicknames
@@ -156,7 +179,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     // between the reads.
     final rows = await db.query(
       _table,
-      columns: ['freq', 'nickname', 'pinned'],
+      columns: ['freq', 'nickname', 'pinned', 'session_uuid'],
       orderBy: 'pinned DESC, recorded_at DESC',
     );
     final result = <RecentFrequency>[];
@@ -174,6 +197,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
 
   RecentFrequency _rowToRecent(Map<String, Object?> r) {
     final rawNickname = r['nickname'] as String?;
+    final rawSessionUuid = r['session_uuid'] as String?;
     return RecentFrequency(
       freq: r['freq']! as String,
       // NULL stays null; an empty string in storage (shouldn't happen via
@@ -184,19 +208,33 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
           ? null
           : rawNickname,
       pinned: (r['pinned'] as int? ?? 0) != 0,
+      // Pre-v4 rows are NULL; an empty-string written by a buggy caller is
+      // normalized to null with the same rationale as [nickname].
+      sessionUuid: (rawSessionUuid == null || rawSessionUuid.isEmpty)
+          ? null
+          : rawSessionUuid,
     );
   }
 
   @override
-  Future<void> record(String freq) {
-    final next = _writeChain.then((_) => _doRecord(freq));
+  Future<void> record(String freq, {String? sessionUuid}) {
+    final next = _writeChain.then((_) => _doRecord(freq, sessionUuid));
     _writeChain = next.catchError((_) {});
     return next;
   }
 
-  Future<void> _doRecord(String freq) async {
+  Future<void> _doRecord(String freq, String? sessionUuid) async {
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
+    // Normalize an empty / whitespace-only sessionUuid to null on write so
+    // the COALESCE upsert below can't be tricked into "overwriting" a
+    // valid stored uuid with an empty string. Mirrors the [setNickname]
+    // trim-to-null rule and lines up with [_rowToRecent]'s read-side
+    // normalization, so an empty string never round-trips as a non-null
+    // value through the store.
+    final normalizedUuid = (sessionUuid == null || sessionUuid.trim().isEmpty)
+        ? null
+        : sessionUuid.trim();
     final db = await WalkieTalkieDatabase.open();
     final orderingTimestamp = _nextOrderingTimestamp();
     await db.transaction((txn) async {
@@ -205,14 +243,27 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
       // already set; new freq → insert with no nickname and unpinned.
       // ConflictAlgorithm.replace would wipe nickname + pinned, so use a
       // sqlite UPSERT (INSERT ... ON CONFLICT DO UPDATE) that touches
-      // only `recorded_at` on conflict.
+      // only `recorded_at` (and `session_uuid` when a non-null uuid is
+      // provided — see below) on conflict.
+      //
+      // session_uuid handling on conflict: COALESCE(excluded, existing)
+      // means a non-null incoming uuid overwrites whatever was stored,
+      // and a null incoming leaves the stored value alone. Rationale:
+      // - The most recent host's sessionUuid is what Resume should target,
+      //   so when the cubit re-records on a fresh host we want the new
+      //   uuid to win.
+      // - Pre-#219 callers (and any future caller that doesn't have a
+      //   uuid handy) pass `null` and shouldn't blow away a uuid that a
+      //   prior post-#219 host already persisted.
       await txn.rawInsert(
         '''
-        INSERT INTO $_table (freq, recorded_at, nickname, pinned)
-        VALUES (?, ?, NULL, 0)
-        ON CONFLICT(freq) DO UPDATE SET recorded_at = excluded.recorded_at
+        INSERT INTO $_table (freq, recorded_at, nickname, pinned, session_uuid)
+        VALUES (?, ?, NULL, 0, ?)
+        ON CONFLICT(freq) DO UPDATE SET
+          recorded_at = excluded.recorded_at,
+          session_uuid = COALESCE(excluded.session_uuid, $_table.session_uuid)
         ''',
-        [trimmed, orderingTimestamp],
+        [trimmed, orderingTimestamp, normalizedUuid],
       );
       await _capUnpinnedRows(txn);
     });

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
@@ -299,6 +301,131 @@ void main() {
       expect(await store.getRecentDetailed(), isEmpty);
     });
 
+    // ── sessionUuid (#219) ──────────────────────────────────────────
+
+    test('record(sessionUuid: ...) round-trips through getRecentDetailed',
+        () async {
+      // The Resume path on Discovery reads sessionUuid off the
+      // RecentFrequency record so it can reconstitute the same room
+      // instead of minting a fresh UUID.
+      final store = SqfliteRecentFrequenciesStore();
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      await store.record('104.3', sessionUuid: uuid);
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.freq, '104.3');
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
+    test('record without a sessionUuid leaves the column NULL', () async {
+      // Pre-#219 callers and any future caller without a uuid handy.
+      // Reads back as null on the model so the cubit's "fall back to
+      // minting" branch fires for legacy rows.
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('92.4');
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.sessionUuid, isNull);
+    });
+
+    test(
+        'record with empty / whitespace-only sessionUuid normalizes to null '
+        'and does NOT clobber a stored uuid',
+        () async {
+      // Without the write-side normalization, an empty string would be
+      // non-null to COALESCE and overwrite a valid stored uuid — Resume
+      // would then dial a blank session and silently fall back to mint.
+      final store = SqfliteRecentFrequenciesStore();
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      await store.record('104.3', sessionUuid: uuid);
+      // Empty + whitespace-only buggy callers must not clobber.
+      await store.record('104.3', sessionUuid: '');
+      await store.record('104.3', sessionUuid: '   ');
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
+    test(
+        'record with empty sessionUuid on a fresh row leaves the column NULL '
+        '(not the literal empty string)',
+        () async {
+      // The other half of the normalization: a fresh row with an empty
+      // incoming uuid must not be written as `''` and round-trip as
+      // null on read, since that would make `setNickname`-style updates
+      // misleading and break the equality of the model's null sentinel.
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('104.3', sessionUuid: '   ');
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.sessionUuid, isNull);
+    });
+
+    test(
+        're-recording the same freq with a new uuid overwrites the stored uuid',
+        () async {
+      // The most-recent host's sessionUuid is what Resume should target.
+      // If a user re-hosts the same freq from a different session, the
+      // stored uuid must move forward; otherwise Resume would dial a stale
+      // session that is no longer being advertised.
+      final store = SqfliteRecentFrequenciesStore();
+      const uuidA = '00000000-0000-4000-8000-0000000000a3';
+      const uuidB = '11111111-1111-4111-8111-1111111111a3';
+      await store.record('104.3', sessionUuid: uuidA);
+      await store.record('104.3', sessionUuid: uuidB);
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed, hasLength(1));
+      expect(detailed.single.sessionUuid, uuidB);
+    });
+
+    test(
+        're-recording with null does NOT clobber an already-stored uuid',
+        () async {
+      // COALESCE rule: a null incoming uuid means "I don't have one to
+      // contribute," not "clear the field." Important for migration —
+      // legacy callers that pass no uuid must not silently strip a uuid
+      // that a post-#219 caller already persisted.
+      final store = SqfliteRecentFrequenciesStore();
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      await store.record('104.3', sessionUuid: uuid);
+      await store.record('104.3'); // legacy-style, no uuid
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
+    test(
+        're-recording preserves nickname + pinned alongside the uuid update',
+        () async {
+      // Existing #125 invariant (record preserves user-curated metadata)
+      // continues to hold when the sessionUuid is being updated.
+      final store = SqfliteRecentFrequenciesStore();
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      await store.record('104.3');
+      await store.setNickname('104.3', 'Family channel');
+      await store.setPinned('104.3', true);
+      await store.record('104.3', sessionUuid: uuid);
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.nickname, 'Family channel');
+      expect(detailed.single.pinned, isTrue);
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
+    test('sessionUuid persists across new store instances', () async {
+      // Same persistence guarantee as nickname + pinned — a fresh store
+      // instance reads the uuid back off disk so a Resume after restart
+      // still targets the original session.
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      final first = SqfliteRecentFrequenciesStore();
+      await first.record('104.3', sessionUuid: uuid);
+
+      final second = SqfliteRecentFrequenciesStore();
+      final detailed = await second.getRecentDetailed();
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
     test('nickname + pinned both persist across new store instances',
         () async {
       final first = SqfliteRecentFrequenciesStore();
@@ -314,31 +441,180 @@ void main() {
     });
   });
 
+  group('schema migration v3 → v4 (#219)', () {
+    // These tests open a real on-disk file (not :memory:, which would lose
+    // its contents between opens) so we can simulate "user upgrading from
+    // a v3 install" — write a v3 schema + row, close, reopen with the
+    // production WalkieTalkieDatabase (v4) and assert the upgrade lands.
+    late Directory tmpDir;
+    late String dbPath;
+
+    setUp(() async {
+      // Override needs to be cleared before tests in this group can use
+      // their own paths — the outer setUp installed an in-memory override.
+      WalkieTalkieDatabase.clearDatabaseFactoryOverride();
+      await WalkieTalkieDatabase.resetForTesting();
+      tmpDir = await Directory.systemTemp.createTemp('walkie_talkie_v3_v4_');
+      dbPath = '${tmpDir.path}/walkie_talkie.db';
+    });
+
+    tearDown(() async {
+      await WalkieTalkieDatabase.resetForTesting();
+      WalkieTalkieDatabase.clearDatabaseFactoryOverride();
+      if (tmpDir.existsSync()) {
+        await tmpDir.delete(recursive: true);
+      }
+    });
+
+    /// Hand-rolls a v3 schema at [dbPath] (no `session_uuid`) so the next
+    /// open with the production v4 factory triggers the upgrade.
+    Future<void> seedV3Database({Map<String, Object?>? row}) async {
+      final v3 = await databaseFactoryFfi.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 3,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE kv (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE recent_frequencies (
+                freq TEXT PRIMARY KEY NOT NULL,
+                recorded_at INTEGER NOT NULL,
+                nickname TEXT,
+                pinned INTEGER NOT NULL DEFAULT 0
+              )
+            ''');
+            await db.execute(
+              'CREATE INDEX idx_recent_freq_time ON recent_frequencies (recorded_at)',
+            );
+            await db.execute('''
+              CREATE TABLE blocked_peers (
+                peer_id TEXT PRIMARY KEY NOT NULL,
+                blocked_at INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      if (row != null) {
+        await v3.insert('recent_frequencies', row);
+      }
+      await v3.close();
+    }
+
+    test('opens a v3 install, runs the upgrade, surfaces session_uuid as NULL',
+        () async {
+      // Pre-existing legacy row gets a NULL session_uuid post-upgrade
+      // (the cubit's host path will mint a fresh uuid for it on Resume,
+      // matching pre-#219 behaviour until the user re-hosts).
+      await seedV3Database(row: {
+        'freq': '92.4',
+        'recorded_at': 12345,
+        'nickname': 'Family channel',
+        'pinned': 1,
+      });
+
+      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+        databaseFactoryFfi,
+        path: dbPath,
+      );
+      final store = SqfliteRecentFrequenciesStore();
+      final detailed = await store.getRecentDetailed();
+
+      expect(detailed, hasLength(1));
+      expect(detailed.single.freq, '92.4');
+      expect(detailed.single.nickname, 'Family channel');
+      expect(detailed.single.pinned, isTrue);
+      expect(
+        detailed.single.sessionUuid,
+        isNull,
+        reason: 'pre-#219 row carries no uuid; expected NULL post-upgrade',
+      );
+    });
+
+    test('post-upgrade record() can write into the new session_uuid column',
+        () async {
+      // Catches a migration that adds the column but somehow doesn't
+      // make it writable (typo'd ALTER, missing default, etc).
+      await seedV3Database();
+
+      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+        databaseFactoryFfi,
+        path: dbPath,
+      );
+      final store = SqfliteRecentFrequenciesStore();
+      const uuid = '00000000-0000-4000-8000-0000000000a3';
+      await store.record('104.3', sessionUuid: uuid);
+
+      final detailed = await store.getRecentDetailed();
+      expect(detailed.single.sessionUuid, uuid);
+    });
+
+    test('upgrade is idempotent — already-upgraded install opens cleanly',
+        () async {
+      // First open: triggers v3 → v4 upgrade.
+      await seedV3Database();
+      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+        databaseFactoryFfi,
+        path: dbPath,
+      );
+      final first = SqfliteRecentFrequenciesStore();
+      await first.record('92.4');
+      await WalkieTalkieDatabase.resetForTesting();
+
+      // Second open: already at v4. The migration's `PRAGMA table_info`
+      // guard skips the ALTER, so this must not throw "duplicate column".
+      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+        databaseFactoryFfi,
+        path: dbPath,
+      );
+      final second = SqfliteRecentFrequenciesStore();
+      final detailed = await second.getRecentDetailed();
+      expect(detailed, hasLength(1));
+      expect(detailed.single.freq, '92.4');
+    });
+  });
+
   group('RecentFrequency value type', () {
-    test('value equality covers freq + nickname + pinned', () {
+    test('value equality covers freq + nickname + pinned + sessionUuid', () {
       const a = RecentFrequency(
         freq: '92.4',
         nickname: 'Family',
         pinned: true,
+        sessionUuid: '00000000-0000-4000-8000-0000000000a3',
       );
       const b = RecentFrequency(
         freq: '92.4',
         nickname: 'Family',
         pinned: true,
+        sessionUuid: '00000000-0000-4000-8000-0000000000a3',
       );
       const cDifferentNickname = RecentFrequency(
         freq: '92.4',
         nickname: 'Other',
         pinned: true,
+        sessionUuid: '00000000-0000-4000-8000-0000000000a3',
       );
       const dDifferentPinned = RecentFrequency(
         freq: '92.4',
         nickname: 'Family',
+        sessionUuid: '00000000-0000-4000-8000-0000000000a3',
+      );
+      const eDifferentUuid = RecentFrequency(
+        freq: '92.4',
+        nickname: 'Family',
+        pinned: true,
+        sessionUuid: '11111111-1111-4111-8111-1111111111a3',
       );
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a == cDifferentNickname, isFalse);
       expect(a == dDifferentPinned, isFalse);
+      expect(a == eDifferentUuid, isFalse);
     });
 
     test('toString surfaces every field for debug logs', () {
@@ -346,10 +622,12 @@ void main() {
         freq: '92.4',
         nickname: 'Family',
         pinned: true,
+        sessionUuid: '00000000-0000-4000-8000-0000000000a3',
       );
       expect(r.toString(), contains('92.4'));
       expect(r.toString(), contains('Family'));
       expect(r.toString(), contains('true'));
+      expect(r.toString(), contains('00000000-0000-4000-8000-0000000000a3'));
     });
   });
 }

@@ -18,7 +18,13 @@ class WalkieTalkieDatabase {
   // the #125 naming/pinning sub-feature. Existing rows get `nickname=NULL`
   // and `pinned=0`, so the legacy unpinned-most-recent-first ordering is
   // unchanged for users who upgrade with no pinned entries.
-  static const int _dbVersion = 3;
+  // v4 (2026-05): added `session_uuid` to `recent_frequencies` for #219 so
+  // tapping Resume on a recent row reconstitutes the original
+  // `FrequencySession` instead of minting a fresh UUID (and therefore a
+  // fresh mhzDisplay). Existing rows get `session_uuid=NULL`; the cubit's
+  // host path falls back to minting a new UUID for those, matching pre-#219
+  // behaviour until the row is re-recorded.
+  static const int _dbVersion = 4;
 
   static DatabaseFactory? _factoryOverride;
   static String? _pathOverride;
@@ -79,7 +85,8 @@ class WalkieTalkieDatabase {
         freq TEXT PRIMARY KEY NOT NULL,
         recorded_at INTEGER NOT NULL,
         nickname TEXT,
-        pinned INTEGER NOT NULL DEFAULT 0
+        pinned INTEGER NOT NULL DEFAULT 0,
+        session_uuid TEXT
       )
     ''');
     await db.execute(
@@ -102,6 +109,27 @@ class WalkieTalkieDatabase {
     }
     if (oldVersion < 3) {
       await _addRecentFrequenciesNicknameAndPinned(db);
+    }
+    if (oldVersion < 4) {
+      await _addRecentFrequenciesSessionUuid(db);
+    }
+  }
+
+  /// Adds the v4 `session_uuid` (TEXT, NULL until the row is re-recorded
+  /// post-upgrade) column to `recent_frequencies`. Same `PRAGMA table_info`
+  /// guard pattern as [_addRecentFrequenciesNicknameAndPinned] so re-running
+  /// on a partially-migrated install is a no-op rather than a duplicate-
+  /// column error. Rows that pre-date this migration carry `NULL`; the
+  /// cubit's Resume path treats `NULL` as "fall back to minting a fresh
+  /// UUID" so users on legacy rows keep getting today's behaviour until
+  /// they re-host.
+  static Future<void> _addRecentFrequenciesSessionUuid(Database db) async {
+    final cols = await db.rawQuery('PRAGMA table_info(recent_frequencies)');
+    final existing = cols.map((r) => r['name'] as String?).toSet();
+    if (!existing.contains('session_uuid')) {
+      await db.execute(
+        'ALTER TABLE recent_frequencies ADD COLUMN session_uuid TEXT',
+      );
     }
   }
 

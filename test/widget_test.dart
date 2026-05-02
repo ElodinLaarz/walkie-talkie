@@ -82,7 +82,7 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   @override
-  Future<void> record(String freq) async {
+  Future<void> record(String freq, {String? sessionUuid}) async {
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
     final existing = _rows.firstWhere(
@@ -90,9 +90,20 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
     );
     if (existing.recordedAt < 0) {
-      _rows.add(_FakeRecentRow(existing.entry, _nextRecordedAt++));
+      _rows.add(_FakeRecentRow(
+        RecentFrequency(freq: trimmed, sessionUuid: sessionUuid),
+        _nextRecordedAt++,
+      ));
     } else {
       existing.recordedAt = _nextRecordedAt++;
+      if (sessionUuid != null) {
+        existing.entry = RecentFrequency(
+          freq: existing.entry.freq,
+          nickname: existing.entry.nickname,
+          pinned: existing.entry.pinned,
+          sessionUuid: sessionUuid,
+        );
+      }
     }
     final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
       ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
@@ -113,6 +124,11 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: value,
       pinned: _rows[idx].entry.pinned,
+      // Preserve the persisted sessionUuid — production's UPDATE only
+      // touches the nickname column. Without this, renaming a recent
+      // would silently strip its sessionUuid in widget tests and Resume
+      // would fall back to minting (#219).
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
   }
 
@@ -124,6 +140,9 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: _rows[idx].entry.nickname,
       pinned: pinned,
+      // Same rationale as setNickname above — pin/unpin must not strip
+      // the sessionUuid (#219).
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
     // Intentionally do NOT touch recordedAt — unpinning should demote a
     // row back to its real recency position relative to other unpinned

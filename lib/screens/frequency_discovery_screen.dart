@@ -32,11 +32,25 @@ class DiscoveryResult {
   /// to a discovered session so the guest can identify the host's room.
   final String? sessionUuidLow8;
 
+  /// Full sessionUuid the user previously hosted, for the Resume path on
+  /// a recent row. Plumbed through to [FrequencySessionCubit.joinRoom] as
+  /// `existingSessionUuid` so the room reconstitutes the same session
+  /// instead of minting a fresh one (#219). Null on the "Start a new
+  /// frequency" host path (no prior session) and on the guest path
+  /// (guests dial the host's advertised UUID via [sessionUuidLow8]).
+  ///
+  /// Resume rows recorded before #219 carry `null` here because their
+  /// sessionUuid wasn't persisted; the cubit falls back to minting a
+  /// fresh UUID for those, so the user gets pre-#219 behaviour for
+  /// legacy rows until they re-host.
+  final String? hostSessionUuid;
+
   const DiscoveryResult({
     required this.freq,
     required this.isHost,
     this.macAddress,
     this.sessionUuidLow8,
+    this.hostSessionUuid,
   })  : assert(
           !isHost || (macAddress == null && sessionUuidLow8 == null),
           'host DiscoveryResult must have null macAddress + sessionUuidLow8 — '
@@ -46,6 +60,10 @@ class DiscoveryResult {
           isHost || (macAddress != null && sessionUuidLow8 != null),
           'guest DiscoveryResult must carry both macAddress and sessionUuidLow8 — '
           'the GATT-client transport reads both off the room state to dial the host',
+        ),
+        assert(
+          hostSessionUuid == null || isHost,
+          'hostSessionUuid is only meaningful on the host (Resume) path',
         );
 }
 
@@ -402,6 +420,12 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               onResume: () => widget.onPick(DiscoveryResult(
                 freq: widget.recentHostedFrequencies[i].freq,
                 isHost: true,
+                // Plumb the persisted sessionUuid through so the cubit's
+                // host path reuses it instead of minting a fresh one
+                // (#219). Null for legacy rows recorded before v4 of the
+                // db schema; cubit falls back to minting in that case.
+                hostSessionUuid:
+                    widget.recentHostedFrequencies[i].sessionUuid,
               )),
               onRename: widget.onSetRecentNickname == null
                   ? null
