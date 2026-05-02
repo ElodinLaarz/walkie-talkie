@@ -1,3 +1,9 @@
+---
+layout: page
+title: Privacy Policy
+permalink: /privacy-policy/
+---
+
 # Frequency — Privacy Policy
 
 _Last updated: 2026-04-30_
@@ -100,10 +106,12 @@ peer ID, the recent-frequencies list, and the blocked-peers list.
 ## Changes to this policy
 
 If we change how Frequency processes data we will update this file and
-revise the "Last updated" date at the top. The canonical source of this
-policy is the
+revise the "Last updated" date at the top. The canonical URL for this
+policy is
+[https://elodinlaarz.github.io/walkie-talkie/privacy-policy/](https://elodinlaarz.github.io/walkie-talkie/privacy-policy/).
+The source lives in
 [`docs/privacy-policy.md`](https://github.com/ElodinLaarz/walkie-talkie/blob/main/docs/privacy-policy.md)
-file in the project's GitHub repository.
+in the project's GitHub repository.
 
 ## Contact
 

@@ -1,0 +1,25 @@
+title: Frequency
+description: "Offline, privacy-first voice rooms over Bluetooth LE — no internet required for core functionality."
+baseurl: "/walkie-talkie"
+url: "https://elodinlaarz.github.io"
+theme: minima
+
+minima:
+  date_format: "%B %-d, %Y"
+  social_links:
+    - platform: github
+      user_url: "https://github.com/ElodinLaarz/walkie-talkie"
+
+# index.md is omitted: minima's site title already links to the home page.
+header_pages:
+  - privacy-policy.md
+  - protocol.md
+
+# Keep internal reference docs out of the public site; they live in the repo
+# for contributor reference only.
+exclude:
+  - play-store-data-safety.md
+  - play-store-permissions-rationale.md
+  - sentry-setup.md
+  - smoke-test.md
+  - "*.txt"
