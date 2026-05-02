@@ -563,6 +563,11 @@
 
     "securityFaqClose": "Got it",
     "@securityFaqClose": {
-        "description": "Close button on the security FAQ screen."
+        "description": "Bottom 'Got it' CTA button on the security FAQ screen."
+    },
+
+    "securityFaqCloseIcon": "Close Privacy & Security FAQ",
+    "@securityFaqCloseIcon": {
+        "description": "Accessibility label for the top-right close icon on the security FAQ screen. Distinct from the bottom 'Got it' CTA so screen readers announce different labels for the two controls."
     }
 }

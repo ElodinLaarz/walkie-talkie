@@ -33,7 +33,7 @@ class SecurityFaqScreen extends StatelessWidget {
               ),
               right: [
                 _CloseButton(
-                  semanticLabel: l10n.securityFaqClose,
+                  semanticLabel: l10n.securityFaqCloseIcon,
                   onTap: () => Navigator.of(context).maybePop(),
                 ),
               ],

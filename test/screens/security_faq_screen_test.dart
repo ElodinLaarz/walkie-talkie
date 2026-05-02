@@ -101,6 +101,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SecurityFaqScreen), findsOneWidget);
 
+      // The icon uses semanticLabel "Close Privacy & Security FAQ" (distinct
+      // from the bottom "Got it" CTA) — find it by the close icon.
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
       expect(find.byType(SecurityFaqScreen), findsNothing);
