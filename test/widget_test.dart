@@ -124,6 +124,11 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: value,
       pinned: _rows[idx].entry.pinned,
+      // Preserve the persisted sessionUuid — production's UPDATE only
+      // touches the nickname column. Without this, renaming a recent
+      // would silently strip its sessionUuid in widget tests and Resume
+      // would fall back to minting (#219).
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
   }
 
@@ -135,6 +140,9 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: _rows[idx].entry.nickname,
       pinned: pinned,
+      // Same rationale as setNickname above — pin/unpin must not strip
+      // the sessionUuid (#219).
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
     // Intentionally do NOT touch recordedAt — unpinning should demote a
     // row back to its real recency position relative to other unpinned

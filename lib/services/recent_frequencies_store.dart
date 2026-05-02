@@ -226,6 +226,15 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
   Future<void> _doRecord(String freq, String? sessionUuid) async {
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
+    // Normalize an empty / whitespace-only sessionUuid to null on write so
+    // the COALESCE upsert below can't be tricked into "overwriting" a
+    // valid stored uuid with an empty string. Mirrors the [setNickname]
+    // trim-to-null rule and lines up with [_rowToRecent]'s read-side
+    // normalization, so an empty string never round-trips as a non-null
+    // value through the store.
+    final normalizedUuid = (sessionUuid == null || sessionUuid.trim().isEmpty)
+        ? null
+        : sessionUuid.trim();
     final db = await WalkieTalkieDatabase.open();
     final orderingTimestamp = _nextOrderingTimestamp();
     await db.transaction((txn) async {
@@ -254,7 +263,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
           recorded_at = excluded.recorded_at,
           session_uuid = COALESCE(excluded.session_uuid, $_table.session_uuid)
         ''',
-        [trimmed, orderingTimestamp, sessionUuid],
+        [trimmed, orderingTimestamp, normalizedUuid],
       );
       await _capUnpinnedRows(txn);
     });
