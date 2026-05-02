@@ -10,7 +10,11 @@ Required size: **512 × 512 px**
 Format: PNG or JPEG, no alpha channel (Play Console enforces this)
 
 **Status: committed** — `icon.png` is present (resized from `assets/icon/icon.png`).
-Uploaded via `bundle exec fastlane android upload_images`.
+Upload with:
+
+```
+bundle exec fastlane android upload_images
+```
 
 ## Feature graphic
 
