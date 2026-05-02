@@ -19,6 +19,16 @@ extension MediaSourceExtension on MediaSource {
         MediaSource.pocketCasts => 'Pocket Casts',
       };
 
+  /// Stable identifier used on the wire. The first two values intentionally
+  /// match the strings the existing protocol already sends ('YouTube Music',
+  /// 'Podcasts') for backward compat; new sources use snake_case.
+  String get wireKey => switch (this) {
+        MediaSource.youtubeMusic => 'YouTube Music',
+        MediaSource.podcasts => 'Podcasts',
+        MediaSource.spotify => 'spotify',
+        MediaSource.pocketCasts => 'pocket_casts',
+      };
+
   IconData get icon => switch (this) {
         MediaSource.youtubeMusic => Icons.music_note,
         MediaSource.podcasts => Icons.podcasts,
@@ -33,9 +43,9 @@ extension MediaSourceExtension on MediaSource {
         MediaSource.pocketCasts => 'Podcast episodes',
       };
 
-  static MediaSource fromLabel(String label) {
+  static MediaSource fromWireKey(String key) {
     for (final s in MediaSource.values) {
-      if (s.label == label) return s;
+      if (s.wireKey == key) return s;
     }
     return MediaSource.youtubeMusic;
   }
@@ -109,7 +119,7 @@ class MediaSourceSheet extends StatelessWidget {
                 for (int i = 0; i < MediaSource.values.length; i++)
                   _SourceRow(
                     source: MediaSource.values[i],
-                    selected: MediaSource.values[i].label == current,
+                    selected: MediaSource.values[i].wireKey == current,
                     first: i == 0,
                   ),
               ],
@@ -144,7 +154,7 @@ class _SourceRow extends StatelessWidget {
       child: Material(
         color: selected ? c.surface2 : c.surface,
         child: InkWell(
-          onTap: () => Navigator.pop(context, source.label),
+          onTap: () => Navigator.pop(context, source.wireKey),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
             decoration: BoxDecoration(
