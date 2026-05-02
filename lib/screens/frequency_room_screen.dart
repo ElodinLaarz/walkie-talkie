@@ -373,14 +373,20 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     final clampedIdx = trackIdx < 0 ? 0 : trackIdx;
     final placeholderDurationSec =
         positionSec * 2 < 60 ? 60 : positionSec * 2;
+    // Use the human-readable display label for MediaSourceLib.name so UI
+    // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
+    // showing raw wire keys like "spotify" or "pocket_casts". Unknown future
+    // keys fall back to the raw wireKey string rather than defaulting to
+    // "YouTube Music" (which fromWireKey does for backward compat).
+    final displayName = _sourceDisplayName(source);
     return MediaSourceLib(
-      name: source,
+      name: displayName,
       kind: emptyMediaLib.kind,
       queue: [
         for (var i = 0; i <= clampedIdx; i++)
           Track(
             title: 'Track ${i + 1}',
-            artist: source,
+            artist: displayName,
             durationSeconds: placeholderDurationSec,
             tag: '',
           ),
@@ -404,21 +410,26 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// queue via [_buildPlaceholderLib] so the protocol-level `trackIdx`
   /// rides through unchanged — outgoing `sendMediaCommand`s keep
   /// referencing the same index the host published.
+  static const int _kMaxPlaceholderTracks = 500;
+
+  int _clampTrackIdx(int idx) => idx.clamp(0, _kMaxPlaceholderTracks - 1);
+
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
     _appliedSnapshot = snapshot;
     final positionSec = (snapshot.positionMs / 1000).round();
+    final trackIdx = _clampTrackIdx(snapshot.trackIdx);
     final lib = _buildPlaceholderLib(
       source: snapshot.source,
-      trackIdx: snapshot.trackIdx,
+      trackIdx: trackIdx,
       positionSec: positionSec,
     );
     setState(() {
       _source = snapshot.source;
       _lib = lib;
-      _trackIdx = snapshot.trackIdx;
+      _trackIdx = trackIdx;
       _playing = snapshot.playing;
-      _progress = positionSec.clamp(0, lib.queue[_trackIdx].durationSeconds);
+      _progress = positionSec.clamp(0, lib.queue[trackIdx].durationSeconds);
     });
   }
 
@@ -518,7 +529,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
             final nextSource = cmd.source;
-            final nextIdx = cmd.trackIdx!;
+            final nextIdx = _clampTrackIdx(cmd.trackIdx!);
             // When the host switches source, rebuild the placeholder lib for
             // the new source; otherwise grow the existing one if the incoming
             // trackIdx exceeds the current queue length (Copilot review #153).
@@ -1090,8 +1101,28 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       .replaceAll(RegExp(r' +'), ' ')
       .trim();
 
+  /// Returns the display label for a wire key, or the raw key itself for
+  /// unknown/future sources (avoids the YouTube Music fallback in fromWireKey).
+  static String _sourceDisplayName(String wireKey) {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == wireKey) return s.label;
+    }
+    return wireKey;
+  }
+
+  /// Returns the [MediaSource] for [_source]'s wire key, or null for
+  /// unknown/future keys, so launch decisions never misroute to the
+  /// [MediaSource.youtubeMusic] fallback that [fromWireKey] would return.
+  MediaSource? get _launchableSource {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == _source) return s;
+    }
+    return null;
+  }
+
   Future<void> _showQueueSheet() async {
     final c = FrequencyTheme.of(context).colors;
+    final launchable = _launchableSource;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: c.bg,
@@ -1112,8 +1143,31 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _showSourceSheet();
               }
             : null,
+        // Only show "Open in app" when lib.name is populated (hides button
+        // before first host snapshot), source is a known wire key, and that
+        // source has a canonical appUri (null for generic Podcasts).
+        onOpenInSource: widget.isHost &&
+                _lib.name.isNotEmpty &&
+                launchable?.appUri != null
+            ? () {
+                Navigator.pop(ctx);
+                _openSourceApp(launchable!);
+              }
+            : null,
       ),
     );
+  }
+
+  Future<void> _openSourceApp(MediaSource source) async {
+    final launched = await launchSourceApp(source);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open ${source.label}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _showInviteSheet() async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
@@ -49,11 +50,47 @@ extension MediaSourceExtension on MediaSource {
         _ => false,
       };
 
+  /// Deep-link URI for launching the streaming app, or null when no canonical
+  /// App Link exists (e.g. the generic "Podcasts" source — Google Podcasts is
+  /// discontinued; use Pocket Casts explicitly for that app).
+  ///
+  /// [launchSourceApp] prefers [LaunchMode.externalNonBrowserApplication] to
+  /// avoid browser fallback on iOS via universal links; falls back to
+  /// [LaunchMode.externalApplication] on platforms that don't support it. On
+  /// Android the fallback mode may still open a browser — a `true` result does
+  /// not guarantee the native app launched.
+  Uri? get appUri => switch (this) {
+        MediaSource.youtubeMusic => Uri.parse('https://music.youtube.com/'),
+        MediaSource.podcasts => null,
+        MediaSource.spotify => Uri.parse('https://open.spotify.com/'),
+        MediaSource.pocketCasts => Uri.parse('https://pca.st/'),
+      };
+
   static MediaSource fromWireKey(String key) {
     for (final s in MediaSource.values) {
       if (s.wireKey == key) return s;
     }
     return MediaSource.youtubeMusic;
+  }
+}
+
+/// Launches [source]'s streaming app via its [MediaSource.appUri].
+///
+/// Returns false immediately when [MediaSource.appUri] is null (no canonical
+/// app) or when the OS reports no handler. Uses
+/// [LaunchMode.externalNonBrowserApplication] where supported; falls back to
+/// [LaunchMode.externalApplication].
+Future<bool> launchSourceApp(MediaSource source) async {
+  final uri = source.appUri;
+  if (uri == null) return false;
+  try {
+    if (!await canLaunchUrl(uri)) return false;
+    if (await supportsLaunchMode(LaunchMode.externalNonBrowserApplication)) {
+      return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+    }
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
   }
 }
 
