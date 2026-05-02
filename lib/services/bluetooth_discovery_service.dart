@@ -28,8 +28,8 @@ class DiscoveryService {
       throw Exception('Bluetooth LE is not supported on this device');
     }
 
-    if (await FlutterBluePlus.adapterState.first == BluetoothAdapterState.off) {
-      throw Exception('Bluetooth adapter is off');
+    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      throw Exception('Bluetooth adapter is not on');
     }
 
     // Check runtime permissions.
@@ -43,8 +43,11 @@ class DiscoveryService {
     _emit();
 
     // 2. Listen for scan results.
+    // onScanResults is preferred over scanResults: it does not replay stale
+    // results after scanning stops, avoiding a spurious re-emission on the
+    // next startScan() call before the new results arrive.
     await _scanSubscription?.cancel();
-    _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+    _scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
       for (ScanResult r in results) {
         final session = parseResult(r);
         if (session != null) {
@@ -57,6 +60,9 @@ class DiscoveryService {
       // of range — the listener still needs to see the empty list).
       _emit();
     });
+    // Auto-cancel the subscription if the OS stops the scan unexpectedly
+    // (e.g. adapter turned off, or platform scan timeout).
+    FlutterBluePlus.cancelWhenScanComplete(_scanSubscription!);
 
     // 3. Start scanning.
     // We filter by the service UUID defined in the protocol.
