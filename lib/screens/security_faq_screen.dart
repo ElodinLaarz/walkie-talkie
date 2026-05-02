@@ -133,10 +133,12 @@ class _FaqItemState extends State<_FaqItem> {
       child: FreqCard(
         padding: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
-        child: Semantics(
-          expanded: _expanded,
-          child: InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
+        child: Material(
+          color: Colors.transparent,
+          child: Semantics(
+            expanded: _expanded,
+            child: InkWell(
+              onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -182,7 +184,8 @@ class _FaqItemState extends State<_FaqItem> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
