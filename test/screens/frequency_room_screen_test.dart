@@ -46,6 +46,7 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio, B
   if (cubit == null) {
     when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
     when(() => mockCubit.identityStore).thenReturn(mockStore);
+    when(() => mockCubit.localPeerId).thenReturn(null);
     when(() => mockCubit.state).thenReturn(const SessionBooting());
     when(() => mockCubit.stream).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
 
@@ -497,6 +498,65 @@ void main() {
         // drawer's label track `_kDefaultPeerVolume` (0.7) for
         // unknown peer ids.
         expect(find.text('70%'), findsNWidgets(2));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'local peer is filtered from roster on first frame when cubit is bootstrapped (issue #222)',
+      // Regression: when the cubit's localPeerId is already cached (production
+      // path — bootstrap completes before the room screen opens), the screen
+      // must read it synchronously in initState so the roster filter is
+      // correct from frame 0. Before the fix, _myPeerId was always null on
+      // the first frame, so the local user appeared briefly as a remote peer.
+      (tester) async {
+        // Bootstrap with a display name so bootstrap() emits SessionDiscovery
+        // (no display name → SessionOnboarding, which blocks joinRoom).
+        final store = _MemoryStore(displayName: 'Caleb');
+        final cubit = FrequencySessionCubit(
+          identityStore: store,
+          recentFrequenciesStore: _NullRecentFrequenciesStore(),
+        );
+        addTearDown(cubit.close);
+
+        // Bootstrap so _localPeerId is populated ('me-peer-id') and the
+        // cubit lands in SessionDiscovery.
+        await cubit.bootstrap();
+        expect(cubit.localPeerId, 'me-peer-id');
+
+        // joinRoom(isHost: true) reads _localPeerId from cache (no extra
+        // identity-store round-trip) and emits SessionRoom.
+        await cubit.joinRoom(isHost: true);
+
+        await tester.pumpWidget(_wrap(_room(isHost: true), cubit: cubit));
+        // Single pump: the synchronous seed means the filter is already
+        // correct before any async resolution lands.
+        await tester.pump();
+
+        // After joinRoom the initial roster already has the local peer's
+        // entry. Assert it is excluded on this very first frame — this is
+        // the regression guard for #222.  Peer rows are keyed by peerId
+        // so the check is key-based and doesn't collide with the me-row.
+        expect(find.byKey(const ValueKey('me-peer-id')), findsNothing);
+
+        // Land a roster that includes the local peer's id (as a host
+        // joining their own room does). The host's own entry is in the
+        // roster so the filter is exercised.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'me-peer-id',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'me-peer-id',
+          roster: const [
+            ProtocolPeer(peerId: 'me-peer-id', displayName: 'Myself'),
+            ProtocolPeer(peerId: 'p-guest', displayName: 'Guest'),
+          ],
+        ));
+        await tester.pump();
+
+        // The local peer must not appear in the peers list — only the guest.
+        expect(find.text('Guest'), findsOneWidget);
+        expect(find.text('Myself'), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
