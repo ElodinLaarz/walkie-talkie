@@ -1093,8 +1093,19 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       .replaceAll(RegExp(r' +'), ' ')
       .trim();
 
+  /// Returns the [MediaSource] for [_source]'s wire key, or null for
+  /// unknown/future keys, so launch decisions never misroute to the
+  /// [MediaSource.youtubeMusic] fallback that [fromWireKey] would return.
+  MediaSource? get _launchableSource {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == _source) return s;
+    }
+    return null;
+  }
+
   Future<void> _showQueueSheet() async {
     final c = FrequencyTheme.of(context).colors;
+    final launchable = _launchableSource;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: c.bg,
@@ -1115,23 +1126,22 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _showSourceSheet();
               }
             : null,
-        // Only show "Open in app" when the source has a known deep-link URI
-        // and the lib name is already set (hides button before the first
-        // host snapshot populates lib.name from emptyMediaLib's '').
+        // Only show "Open in app" when lib.name is populated (hides button
+        // before first host snapshot), source is a known wire key, and that
+        // source has a canonical appUri (null for generic Podcasts).
         onOpenInSource: widget.isHost &&
                 _lib.name.isNotEmpty &&
-                MediaSourceExtension.fromWireKey(_source).appUri != null
+                launchable?.appUri != null
             ? () {
                 Navigator.pop(ctx);
-                _openSourceApp();
+                _openSourceApp(launchable!);
               }
             : null,
       ),
     );
   }
 
-  Future<void> _openSourceApp() async {
-    final source = MediaSourceExtension.fromWireKey(_source);
+  Future<void> _openSourceApp(MediaSource source) async {
     final launched = await launchSourceApp(source);
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
