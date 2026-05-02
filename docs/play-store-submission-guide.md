@@ -17,6 +17,7 @@ items marked ⏳ require action inside the Play Console.
 | Item | Status | Reference |
 |---|---|---|
 | App name / short / long description | ✅ Done | `fastlane/metadata/android/en-US/` |
+| Hi-res app icon (512×512) | ✅ Done | `fastlane/metadata/android/en-US/images/icon.png` |
 | Feature graphic (1024×500) | ✅ Done | `fastlane/metadata/android/en-US/images/featureGraphic.png` |
 | Phone screenshots (3×) | ✅ Done | `fastlane/metadata/android/en-US/images/phoneScreenshots/` |
 | 7-inch tablet screenshots (2×) | ✅ Done | `fastlane/metadata/android/en-US/images/sevenInchScreenshots/` |
