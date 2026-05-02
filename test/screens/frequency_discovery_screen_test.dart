@@ -186,6 +186,10 @@ void main() {
     testWidgets(
       'preview freq is in the full FM range [88.0, 107.9] and has .1 precision',
       (tester) async {
+        // Range bounds match _freqBaseTenths / _freqBuckets in the screen.
+        const minFreq = 88.0;
+        const maxFreq = 107.9;
+
         // Run several widget instances to sample the RNG and confirm every
         // value falls in the 200-bucket range that matches mhzDisplay.
         for (var i = 0; i < 20; i++) {
@@ -203,10 +207,10 @@ void main() {
 
           expect(picked, isNotNull);
           final freq = double.parse(picked!.freq);
-          expect(freq, greaterThanOrEqualTo(88.0),
-              reason: 'freq $freq below 88.0');
-          expect(freq, lessThanOrEqualTo(107.9),
-              reason: 'freq $freq above 107.9');
+          expect(freq, greaterThanOrEqualTo(minFreq),
+              reason: 'freq $freq below $minFreq');
+          expect(freq, lessThanOrEqualTo(maxFreq),
+              reason: 'freq $freq above $maxFreq');
           // All values must end in exactly one decimal digit (0.1 MHz precision).
           expect(picked!.freq, matches(r'^\d+\.\d$'),
               reason: 'freq ${picked!.freq} lacks single-decimal precision');

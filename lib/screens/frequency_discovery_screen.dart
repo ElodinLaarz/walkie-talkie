@@ -100,11 +100,17 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   late final String _newFreq;
 
+  // FM band: 88.0–107.9 MHz at 0.1-MHz precision → 200 buckets stored as
+  // integer tenths (880–1079). Matches FrequencySession.mhzDisplay arithmetic.
+  static const _freqBaseTenths = 880;
+  static const _freqBuckets = 200;
+
   @override
   void initState() {
     super.initState();
     final rnd = Random();
-    _newFreq = ((880 + rnd.nextInt(200)) / 10.0).toStringAsFixed(1);
+    _newFreq =
+        ((_freqBaseTenths + rnd.nextInt(_freqBuckets)) / 10.0).toStringAsFixed(1);
     
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
