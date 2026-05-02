@@ -97,6 +97,42 @@ void main() {
       expect(await store.getRecent(), isEmpty);
     });
 
+    // ── delete (#221) ───────────────────────────────────────────────────
+
+    test('delete removes the specified entry and leaves others intact',
+        () async {
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('92.4');
+      await store.record('100.1');
+      await store.record('88.7');
+      await store.delete('100.1');
+      final recent = await store.getRecent();
+      expect(recent, ['88.7', '92.4']);
+      expect(recent, isNot(contains('100.1')));
+    });
+
+    test('delete on a pinned entry removes it', () async {
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('92.4');
+      await store.setPinned('92.4', true);
+      await store.delete('92.4');
+      expect(await store.getRecent(), isEmpty);
+    });
+
+    test('delete on an unknown freq is a no-op', () async {
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('92.4');
+      await store.delete('99.9');
+      expect(await store.getRecent(), ['92.4']);
+    });
+
+    test('delete trims whitespace', () async {
+      final store = SqfliteRecentFrequenciesStore();
+      await store.record('92.4');
+      await store.delete('  92.4  ');
+      expect(await store.getRecent(), isEmpty);
+    });
+
     test('concurrent record calls do not lose entries', () async {
       // Without serialization, the read-modify-write inside `record`
       // races: two callers can both read the same pre-write state and

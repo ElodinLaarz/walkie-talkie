@@ -1467,6 +1467,28 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     ));
   }
 
+  /// Removes [freq] from the persisted recents, then re-emits
+  /// [SessionDiscovery] so the row disappears immediately. Same scope,
+  /// failure, and rename-race semantics as [setRecentNickname].
+  Future<void> deleteRecentFrequency(String freq) async {
+    if (state is! SessionDiscovery) return;
+    try {
+      await recentFrequenciesStore.delete(freq);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('Failed to delete recent frequency: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+    }
+    if (isClosed) return;
+    final refreshed = await _loadRecentFrequencies();
+    if (isClosed) return;
+    final latest = state;
+    if (latest is! SessionDiscovery) return;
+    emit(SessionDiscovery(
+      myName: latest.myName,
+      recentHostedFrequencies: refreshed,
+    ));
+  }
+
   /// Pins or unpins [freq] in the persisted recents, then re-emits
   /// [SessionDiscovery] so the Discovery list resorts (pinned rows float
   /// to the top). Same scope, failure, and rename-race semantics as

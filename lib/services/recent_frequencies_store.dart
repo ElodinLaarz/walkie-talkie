@@ -108,6 +108,11 @@ abstract class RecentFrequenciesStore {
   /// for the same reason as [setNickname].
   Future<void> setPinned(String freq, bool pinned);
 
+  /// Removes the single entry for [freq]. No-op when [freq] hasn't been
+  /// recorded yet (no row to delete). Trims [freq] before matching, consistent
+  /// with [record] and [setNickname].
+  Future<void> delete(String freq);
+
   /// Drops every persisted entry. The next [getRecent] returns empty.
   Future<void> clear();
 }
@@ -302,6 +307,20 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
         await _capUnpinnedRows(txn);
       }
     });
+  }
+
+  @override
+  Future<void> delete(String freq) {
+    final next = _writeChain.then((_) => _doDelete(freq));
+    _writeChain = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _doDelete(String freq) async {
+    final trimmed = freq.trim();
+    if (trimmed.isEmpty) return;
+    final db = await WalkieTalkieDatabase.open();
+    await db.delete(_table, where: 'freq = ?', whereArgs: [trimmed]);
   }
 
   @override

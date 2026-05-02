@@ -354,6 +354,9 @@ class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver
           onSetRecentPinned: (freq, pinned) {
             unawaited(cubit.setRecentPinned(freq, pinned));
           },
+          onDeleteRecent: (freq) {
+            unawaited(cubit.deleteRecentFrequency(freq));
+          },
           // joinRoom is a Future<void> now that it persists; the cubit
           // tolerates a fire-and-forget call (the user has already
           // committed to entering the room).

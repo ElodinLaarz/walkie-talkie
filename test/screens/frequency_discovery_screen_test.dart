@@ -601,6 +601,105 @@ void main() {
     );
 
     testWidgets(
+      'Delete item in recent overflow menu fires onDeleteRecent with the freq (#221)',
+      (tester) async {
+        String? deleted;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1'),
+            ],
+            onSetRecentNickname: (_, _) {},
+            onSetRecentPinned: (_, _) {},
+            onDeleteRecent: (freq) => deleted = freq,
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.text('Delete'), findsOneWidget);
+        await tester.tap(find.widgetWithText(InkWell, 'Delete'));
+        await tester.pump(_settleWindow);
+
+        expect(deleted, '100.1');
+      },
+    );
+
+    testWidgets(
+      'Delete on a pinned row shows a confirmation dialog before firing (#221)',
+      (tester) async {
+        String? deleted;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', pinned: true),
+            ],
+            onSetRecentNickname: (_, _) {},
+            onSetRecentPinned: (_, _) {},
+            onDeleteRecent: (freq) => deleted = freq,
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.widgetWithText(InkWell, 'Delete'));
+        await tester.pump(_settleWindow);
+
+        // Confirmation dialog should appear before firing the callback.
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(deleted, isNull);
+
+        await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+        await tester.pump(_settleWindow);
+
+        expect(deleted, '100.1');
+      },
+    );
+
+    testWidgets(
+      'cancelling the pinned-delete confirmation does not fire onDeleteRecent (#221)',
+      (tester) async {
+        String? deleted;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '100.1', pinned: true),
+            ],
+            onSetRecentNickname: (_, _) {},
+            onSetRecentPinned: (_, _) {},
+            onDeleteRecent: (freq) => deleted = freq,
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.widgetWithText(InkWell, 'Delete'));
+        await tester.pump(_settleWindow);
+
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pump(_settleWindow);
+
+        expect(deleted, isNull);
+      },
+    );
+
+    testWidgets(
       'tapping the footer Security FAQ link pushes SecurityFaqScreen, '
       'and the close button pops back to Discovery',
       (tester) async {
