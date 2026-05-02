@@ -23,14 +23,28 @@ items marked ⏳ require action inside the Play Console.
 | 10-inch tablet screenshots (2×) | ✅ Done | `fastlane/metadata/android/en-US/images/tenInchScreenshots/` |
 | Data safety form answers | ✅ Done | `docs/play-store-data-safety.md` |
 | Permissions justification text | ✅ Done | `docs/play-store-permissions-rationale.md` |
-| Privacy policy URL | ✅ Done | `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/` |
-| Account & data deletion URL | ✅ Done | `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion` |
+| Privacy policy URL | ✅ Done (needs Pages enabled) | `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/` |
+| Account & data deletion URL | ✅ Done (needs Pages enabled) | `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion` |
 | Content rating (IARC) questionnaire | ⏳ Play Console | `docs/play-store-content-rating.md` |
 | Target audience (13+) | ⏳ Play Console | See below |
 | Signed AAB upload to internal track | ⏳ First time | See below |
 | Closed testing track (12 testers × 14 days) | ⏳ Play Console | See below |
 | Pre-launch report | ⏳ Auto after AAB upload | See below |
 | Promo video | Optional | — |
+
+---
+
+## Step 0 — Enable GitHub Pages (one-time prerequisite)
+
+The privacy policy URL required by the Play Store is served from GitHub Pages.
+Before submitting, enable it:
+
+**Repository → Settings → Pages → Source: GitHub Actions**
+
+After enabling, the workflow (`.github/workflows/pages.yml`) will publish on
+the next push to `main` that touches `docs/`. The privacy policy URL will then
+be live at:
+`https://elodinlaarz.github.io/walkie-talkie/privacy-policy/`
 
 ---
 
