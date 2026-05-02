@@ -41,6 +41,46 @@ platform :android do
     )
   end
 
+  # Upload a signed AAB to the Play Store internal track for the closed
+  # testing programme and pre-launch report.
+  #
+  # The AAB must be built and signed first:
+  #   flutter build appbundle --release
+  #   # (signing configured in android/app/build.gradle.kts)
+  #
+  # Then:
+  #   bundle exec fastlane android deploy_internal
+  #
+  # Or with an explicit path:
+  #   AAB_PATH=build/app/outputs/bundle/release/app-release.aab \
+  #     bundle exec fastlane android deploy_internal
+  #
+  # Secrets needed:
+  #   PLAY_STORE_JSON_KEY_PATH — service-account JSON key file path
+  desc "Upload signed AAB to the Play Store internal track (for closed testing + pre-launch report)"
+  lane :deploy_internal do
+    aab_path = ENV.fetch(
+      "AAB_PATH",
+      "build/app/outputs/bundle/release/app-release.aab",
+    )
+    unless File.exist?(aab_path)
+      UI.user_error!(
+        "AAB not found at '#{aab_path}'. " \
+        "Run `flutter build appbundle --release` first, or set AAB_PATH " \
+        "to the path of an already-built AAB.",
+      )
+    end
+    supply(
+      track:                   "internal",
+      aab:                     aab_path,
+      skip_upload_apk:         true,
+      skip_upload_metadata:    true,
+      skip_upload_changelogs:  true,
+      skip_upload_images:      true,
+      skip_upload_screenshots: true,
+    )
+  end
+
   # Upload everything — listing text, changelogs, feature graphic, and
   # screenshots — in one shot. Useful for initial Play Console population
   # or after large batches of changes.

@@ -1,0 +1,121 @@
+name: Play Store — Deploy to Internal Track
+
+# Triggered automatically after the release build succeeds on a version tag,
+# or manually via workflow_dispatch (e.g. to re-submit an existing artifact).
+#
+# The job is a no-op when PLAY_STORE_JSON_KEY_BASE64 is not set, so it is
+# safe to land before the Play Console service-account key is wired up.
+on:
+  workflow_run:
+    workflows: ["Release Build"]
+    types: [completed]
+
+  # Manual trigger: supply the run ID of a successful "Release Build" run to
+  # fetch its AAB artifact, or leave release_run_id blank to skip the upload.
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: "GitHub Actions run ID of the Release Build to deploy"
+        required: false
+
+jobs:
+  deploy:
+    name: Upload AAB to Play Store internal track
+    # Only run when the upstream release build succeeded AND it was triggered
+    # by a push event — meaning a tag push, the only push trigger in the
+    # Release Build workflow (push.tags: v*). Checking `.event == 'push'` is
+    # more reliable than inspecting head_branch, which may not be set to the
+    # tag name in all workflow_run payloads.
+    #
+    # Release Build manual workflow_dispatch runs (e.g. for testing signing)
+    # will NOT auto-trigger a deploy — use the workflow_dispatch path below,
+    # supplying an explicit release_run_id, to redeploy those intentionally.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read    # needed to read run metadata and download artifacts
+
+    steps:
+      # Resolve the source run ID and commit SHA before checking out so both
+      # the checkout and the artifact download use consistent references.
+      #
+      # - workflow_run path: run ID and head_sha come directly from the event.
+      # - workflow_dispatch path: look up the caller-supplied release_run_id
+      #   via the GitHub API to obtain the head_sha that produced the AAB.
+      #   Falling back to github.sha (the default branch) would check out a
+      #   different Fastfile/Gemfile than the one used during the release build,
+      #   making redeployment non-reproducible.
+      - name: Resolve source run ID and head SHA
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN_ID="${{ github.event.inputs.release_run_id }}"
+            if [ -n "$RUN_ID" ]; then
+              HEAD_SHA=$(gh api \
+                "repos/${{ github.repository }}/actions/runs/${RUN_ID}" \
+                --jq '.head_sha')
+              if [ -z "$HEAD_SHA" ] || [ "$HEAD_SHA" = "null" ]; then
+                echo "::error::Could not resolve head_sha for run ${RUN_ID}." \
+                     "Verify the run ID is correct and GITHUB_TOKEN has actions:read access."
+                exit 1
+              fi
+            else
+              RUN_ID=""
+              HEAD_SHA="${{ github.sha }}"
+            fi
+          else
+            RUN_ID="${{ github.event.workflow_run.id }}"
+            HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+      # Check out the exact commit that produced the AAB so that Fastfile,
+      # Appfile, and Gemfile are consistent with what the release build used.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+
+      - uses: ruby/setup-ruby@f02c009132dc7b50a5e286d2ec2394ab5d78172a # v1.306.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Download signed AAB from release build
+        if: steps.source.outputs.run_id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-aab
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: aab
+
+      - name: Decode Play Store service-account key
+        if: steps.source.outputs.run_id != ''
+        env:
+          PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
+        run: |
+          if [ -z "$PLAY_STORE_JSON_KEY_BASE64" ]; then
+            echo "PLAY_STORE_JSON_KEY_BASE64 secret not set — skipping deploy"
+            exit 0
+          fi
+          echo "$PLAY_STORE_JSON_KEY_BASE64" | base64 -d > "${{ runner.temp }}/play-store-key.json"
+          echo "PLAY_STORE_JSON_KEY_PATH=${{ runner.temp }}/play-store-key.json" >> "$GITHUB_ENV"
+
+      - name: Deploy AAB to internal track via fastlane supply
+        if: >
+          env.PLAY_STORE_JSON_KEY_PATH != '' &&
+          steps.source.outputs.run_id != ''
+        env:
+          AAB_PATH: aab/app-release.aab
+        run: bundle exec fastlane android deploy_internal
+
+      - name: Clean up key
+        if: always()
+        run: rm -f "${{ runner.temp }}/play-store-key.json"
