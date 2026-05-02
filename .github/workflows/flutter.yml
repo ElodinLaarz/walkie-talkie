@@ -22,6 +22,9 @@ jobs:
           flutter --version
           dart --version
 
+      - name: Validate Play Store metadata character limits
+        run: bash scripts/validate_store_metadata.sh
+
       - name: Install native dependencies
         run: |
           sudo apt-get update -y -q
@@ -35,9 +38,6 @@ jobs:
 
       - name: Test
         run: flutter test
-
-      - name: Validate Play Store metadata character limits
-        run: bash scripts/validate_store_metadata.sh
 
       - name: Build & run native C++ tests
         run: |

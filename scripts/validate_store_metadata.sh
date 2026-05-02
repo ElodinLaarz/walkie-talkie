@@ -29,9 +29,14 @@ ERRORS=0
 char_count() {
   # python3 is available on all our CI runners and locally (required for the
   # screenshot generators already in scripts/).
+  # removesuffix('\n') strips exactly one trailing newline — the single
+  # newline that text editors append automatically on save — without discarding
+  # intentional trailing blank lines that a copywriter may have added.
   python3 -c "
 import sys
-text = open(sys.argv[1], encoding='utf-8').read().rstrip('\n')
+text = open(sys.argv[1], encoding='utf-8').read()
+if text.endswith('\n'):
+    text = text[:-1]
 print(len(text))
 " "$1"
 }
