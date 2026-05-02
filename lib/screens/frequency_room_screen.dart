@@ -1157,8 +1157,17 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
           icon: Icon(_copied ? Icons.check : Icons.copy),
           label: Text(_copied ? 'Copied' : 'Copy report'),
           onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: widget.reportText));
-            if (mounted) setState(() => _copied = true);
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              await Clipboard.setData(ClipboardData(text: widget.reportText));
+              if (mounted) setState(() => _copied = true);
+            } catch (_) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Could not copy to clipboard')),
+                );
+              }
+            }
           },
         ),
       ],
