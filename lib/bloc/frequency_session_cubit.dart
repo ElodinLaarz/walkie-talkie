@@ -200,9 +200,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   @visibleForTesting
   int get debugSeq => _seq;
 
-  /// The local peer's stable id, cached during [bootstrap]. Non-null after
-  /// bootstrap completes; screens can read this synchronously to avoid an
-  /// extra round-trip to the identity store.
+  /// The local peer's stable id, cached during [bootstrap]. May be null if
+  /// the identity-store read in bootstrap failed; screens can read this
+  /// synchronously and fall back to [IdentityStore.getPeerId] if null.
   String? get localPeerId => _localPeerId;
 
   /// Full session UUID for the current room. Set on the host path by

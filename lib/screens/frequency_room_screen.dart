@@ -172,7 +172,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // dispose has fired stopVoice and tell a torn-down engine to change state.
     final cubit = context.read<FrequencySessionCubit>();
     // Seed _myPeerId from the cubit's already-cached localPeerId so the
-    // roster filter is correct from frame 1, eliminating the flash where
+    // roster filter is correct from frame 0, eliminating the flash where
     // the local user briefly appears as a peer (issue #222).
     _myPeerId = cubit.localPeerId;
     unawaited(() async {
@@ -267,14 +267,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   }
 
   Future<void> _resolveMyPeerId() async {
+    // Fast path: cubit already cached the id during bootstrap (the normal
+    // production case). Skip the extra identity-store round-trip entirely.
+    if (_myPeerId != null) return;
     try {
       final peerId = await context.read<FrequencySessionCubit>().identityStore.getPeerId();
       if (!mounted) return;
-      // setState so the roster filter re-renders with the resolved id.
-      // In practice _myPeerId was already seeded synchronously from the
-      // cubit in initState, so this is a no-op except when bootstrap
-      // hasn't completed yet (e.g. in tests that construct the screen
-      // before the cubit finishes bootstrapping).
+      // setState triggers a re-render so the roster filter uses the
+      // resolved id (only reached when bootstrap hadn't completed yet).
       setState(() => _myPeerId = peerId);
     } catch (_) {
       // Identity store failure is non-fatal here: if this one-time read

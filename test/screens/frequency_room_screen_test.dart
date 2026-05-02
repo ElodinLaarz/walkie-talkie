@@ -533,6 +533,12 @@ void main() {
         // correct before any async resolution lands.
         await tester.pump();
 
+        // After joinRoom the initial roster already has the local peer's
+        // entry. Assert it is excluded on this very first frame — this is
+        // the regression guard for #222.  Peer rows are keyed by peerId
+        // so the check is key-based and doesn't collide with the me-row.
+        expect(find.byKey(const ValueKey('me-peer-id')), findsNothing);
+
         // Land a roster that includes the local peer's id (as a host
         // joining their own room does). The host's own entry is in the
         // roster so the filter is exercised.
