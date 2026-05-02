@@ -83,11 +83,15 @@ extension MediaSourceExtension on MediaSource {
 Future<bool> launchSourceApp(MediaSource source) async {
   final uri = source.appUri;
   if (uri == null) return false;
-  if (!await canLaunchUrl(uri)) return false;
-  if (await supportsLaunchMode(LaunchMode.externalNonBrowserApplication)) {
-    return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+  try {
+    if (!await canLaunchUrl(uri)) return false;
+    if (await supportsLaunchMode(LaunchMode.externalNonBrowserApplication)) {
+      return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+    }
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
   }
-  return launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
 class MediaSourceSheet extends StatelessWidget {
