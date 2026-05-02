@@ -1,13 +1,17 @@
 """
-Generate Play-Store tablet screenshots for the Frequency app.
+Generate Play-Store 7-inch and 10-inch tablet screenshots for the Frequency app.
+
+All pixel measurements are derived by multiplying the phone reference geometry
+(1080 px wide) by a canvas-specific scale factor, so layouts look proportional
+across densities without hard-coding per-device constants.
 
 Output directories (created automatically):
   fastlane/metadata/android/en-US/images/sevenInchScreenshots/  1.png, 2.png
   fastlane/metadata/android/en-US/images/tenInchScreenshots/    1.png, 2.png
 
 Dimensions:
-  7-inch : 1200 x 1920 px  (portrait, 5:8)
-  10-inch: 1600 x 2560 px  (portrait, 5:8)
+  7-inch : 1200 x 1920 px  (portrait, 5:8, scale 1.11x)
+  10-inch: 1600 x 2560 px  (portrait, 5:8, scale 1.48x)
 
 Run: python3 scripts/gen_tablet_screenshots.py
 """
