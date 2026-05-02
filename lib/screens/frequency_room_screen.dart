@@ -21,6 +21,7 @@ import '../widgets/output_sheet.dart';
 import '../widgets/peer_drawer.dart';
 import '../widgets/peer_row.dart';
 import '../widgets/push_to_talk_button.dart';
+import '../widgets/media_source_sheet.dart';
 import '../widgets/queue_sheet.dart';
 
 /// Main "On air" room — voice + now playing.
@@ -516,13 +517,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           break;
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
+            final nextSource = cmd.source;
             final nextIdx = cmd.trackIdx!;
-            // Without a real catalog the placeholder queue is sized
-            // to the highest trackIdx we've seen; if the host hops
-            // to a higher index, grow it so `_track` stays in range
-            // (Copilot review on PR #153).
-            if (nextIdx >= _lib.queue.length) {
-              _lib = _buildPlaceholderLib(source: _source, trackIdx: nextIdx);
+            // When the host switches source, rebuild the placeholder lib for
+            // the new source; otherwise grow the existing one if the incoming
+            // trackIdx exceeds the current queue length (Copilot review #153).
+            if (nextSource != _source || nextIdx >= _lib.queue.length) {
+              _source = nextSource;
+              _lib = _buildPlaceholderLib(source: nextSource, trackIdx: nextIdx);
             }
             _trackIdx = nextIdx;
             _progress = 0;
@@ -675,7 +677,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     NowPlayingCard(
                       track: _track,
                       source: source,
-                      isPodcast: _source == 'Podcasts',
+                      isPodcast: MediaSourceExtension.fromWireKey(_source).isPodcast,
                       playing: _playing,
                       progress: _progress,
                       lastActionBy: _lastAction.by,
@@ -1104,6 +1106,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           _playAt(i);
           Navigator.pop(ctx);
         },
+        onChangeSource: widget.isHost
+            ? () {
+                Navigator.pop(ctx);
+                _showSourceSheet();
+              }
+            : null,
       ),
     );
   }
@@ -1155,6 +1163,39 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         }
       }
     }
+  }
+
+  Future<void> _showSourceSheet() async {
+    final c = FrequencyTheme.of(context).colors;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: c.bg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => MediaSourceSheet(current: _source),
+    );
+    if (picked != null && mounted && picked != _source) {
+      _switchSource(picked);
+    }
+  }
+
+  void _switchSource(String newSource) {
+    final lib = _buildPlaceholderLib(source: newSource, trackIdx: 0);
+    setState(() {
+      _source = newSource;
+      _lib = lib;
+      _trackIdx = 0;
+      _progress = 0;
+      _playing = false;
+    });
+    // Broadcast the source switch to peers via a queuePlay at track 0.
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.queuePlay,
+      source: newSource,
+      trackIdx: 0,
+    );
   }
 
   String _outputName() {
