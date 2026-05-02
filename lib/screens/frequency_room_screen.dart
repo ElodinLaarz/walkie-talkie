@@ -108,8 +108,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   bool _didReadInitialSnapshot = false;
 
   int _trackIdx = 0;
-  bool _playing = true;
-  int _progress = 37;
+  bool _playing = false;
+  int _progress = 0;
   late _LastAction _lastAction;
   AudioOutput _output = AudioOutput.bluetooth;
 
@@ -522,7 +522,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void _startProgressTick() {
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_playing || !mounted) return;
+      if (!_playing || !mounted || _track.durationSeconds <= 0) return;
       setState(() => _progress = (_progress + 1) % _track.durationSeconds);
     });
   }

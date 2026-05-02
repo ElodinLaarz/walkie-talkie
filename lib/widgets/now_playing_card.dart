@@ -39,6 +39,11 @@ class NowPlayingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    // Guard: durationSeconds == 0 means no track is loaded yet (emptyMediaLib).
+    // Skip the slider/time row to avoid a max==0 Slider assertion and negative
+    // time display; hold the VuMeter static regardless of the playing flag.
+    final bool idle = track.durationSeconds <= 0;
+    final bool liveActive = playing && !idle;
     return FreqCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -61,10 +66,10 @@ class NowPlayingCard extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  VuMeter(active: playing),
+                  VuMeter(active: liveActive),
                   const SizedBox(width: 5),
                   Text(
-                    playing ? 'Live' : 'Paused',
+                    liveActive ? 'Live' : 'Paused',
                     style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 10,
@@ -118,21 +123,23 @@ class NowPlayingCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Slider(
-            value: progress.toDouble().clamp(0.0, track.durationSeconds.toDouble()).toDouble(),
-            min: 0,
-            max: track.durationSeconds.toDouble(),
-            onChanged: onScrub,
-          ),
-          Row(
-            children: [
-              Text(formatTime(progress), style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
-              const Spacer(),
-              Text('-${formatTime(track.durationSeconds - progress)}',
-                  style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
-            ],
-          ),
+          if (!idle) ...[
+            const SizedBox(height: 14),
+            Slider(
+              value: progress.toDouble().clamp(0.0, track.durationSeconds.toDouble()),
+              min: 0,
+              max: track.durationSeconds.toDouble(),
+              onChanged: onScrub,
+            ),
+            Row(
+              children: [
+                Text(formatTime(progress), style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
+                const Spacer(),
+                Text('-${formatTime(track.durationSeconds - progress)}',
+                    style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
