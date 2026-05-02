@@ -21,11 +21,15 @@ on:
 jobs:
   deploy:
     name: Upload AAB to Play Store internal track
-    # Only run when the upstream release build succeeded (auto-trigger path).
-    # The workflow_dispatch path always runs so operators can re-trigger.
+    # Only run when the upstream release build succeeded AND was triggered by a
+    # version tag (head_branch matches 'v*', e.g. v1.0.0). This prevents an
+    # accidental branch push or manual Release Build dispatch from deploying a
+    # non-release AAB to the internal track. The workflow_dispatch path always
+    # runs so operators can re-deploy a specific prior release run by ID.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
