@@ -37,37 +37,57 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read    # needed to download artifacts from another run
+      actions: read    # needed to read run metadata and download artifacts
 
     steps:
+      # Resolve the source run ID and commit SHA before checking out so both
+      # the checkout and the artifact download use consistent references.
+      #
+      # - workflow_run path: run ID and head_sha come directly from the event.
+      # - workflow_dispatch path: look up the caller-supplied release_run_id
+      #   via the GitHub API to obtain the head_sha that produced the AAB.
+      #   Falling back to github.sha (the default branch) would check out a
+      #   different Fastfile/Gemfile than the one used during the release build,
+      #   making redeployment non-reproducible.
+      - name: Resolve source run ID and head SHA
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN_ID="${{ github.event.inputs.release_run_id }}"
+            if [ -n "$RUN_ID" ]; then
+              HEAD_SHA=$(gh api \
+                "repos/${{ github.repository }}/actions/runs/${RUN_ID}" \
+                --jq '.head_sha')
+            else
+              RUN_ID=""
+              HEAD_SHA="${{ github.sha }}"
+            fi
+          else
+            RUN_ID="${{ github.event.workflow_run.id }}"
+            HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
       # Check out the exact commit that produced the AAB so that Fastfile,
       # Appfile, and Gemfile are consistent with what the release build used.
-      # For workflow_run: use head_sha of the triggering run.
-      # For workflow_dispatch: fall back to default branch (operator's intent).
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.source.outputs.head_sha }}
 
       - uses: ruby/setup-ruby@f02c009132dc7b50a5e286d2ec2394ab5d78172a # v1.306.0
         with:
           ruby-version: '3.3'
           bundler-cache: true
 
-      - name: Determine source run ID
-        id: run_id
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "id=${{ github.event.inputs.release_run_id }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Download signed AAB from release build
-        if: steps.run_id.outputs.id != ''
+        if: steps.source.outputs.run_id != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-aab
-          run-id: ${{ steps.run_id.outputs.id }}
+          run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: aab
 
@@ -85,7 +105,7 @@ jobs:
       - name: Deploy AAB to internal track via fastlane supply
         if: >
           env.PLAY_STORE_JSON_KEY_PATH != '' &&
-          steps.run_id.outputs.id != ''
+          steps.source.outputs.run_id != ''
         env:
           AAB_PATH: aab/app-release.aab
         run: bundle exec fastlane android deploy_internal
