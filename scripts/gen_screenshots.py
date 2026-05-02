@@ -5,6 +5,12 @@ Run: python3 scripts/gen_screenshots.py
 """
 import math
 import os
+import sys
+
+# Allow running from the repo root or from the scripts/ directory.
+sys.path.insert(0, os.path.dirname(__file__))
+from _fonts import FONT_BD, FONT_REG  # noqa: E402
+
 from PIL import Image, ImageDraw, ImageFont
 
 OUT = "fastlane/metadata/android/en-US/images/phoneScreenshots"
@@ -24,15 +30,15 @@ TEAL      = (26,  188, 156)
 PURPLE    = (155,  89, 182)
 GREEN     = (39,  174,  96)
 
-FONT_BD  = "C:/Windows/Fonts/segoeuib.ttf"
-FONT_REG = "C:/Windows/Fonts/segoeui.ttf"
-
 os.makedirs(OUT, exist_ok=True)
 
 
 def fnt(size, bold=False):
-    """Return a Pillow ImageFont at the given point size (Segoe UI bold or regular)."""
-    return ImageFont.truetype(FONT_BD if bold else FONT_REG, size)
+    """Return a Pillow ImageFont at the given point size (auto-detected system font)."""
+    path = FONT_BD if bold else FONT_REG
+    if path == "default":
+        return ImageFont.load_default()
+    return ImageFont.truetype(path, size)
 
 
 def rounded_rect(draw, xy, r, fill=None, outline=None, width=1):

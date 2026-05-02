@@ -20,15 +20,26 @@ Limits enforced:
 - `full_description.txt` ≤ 4000 chars
 - `changelogs/*.txt` ≤ 500 chars each
 
+## _fonts.py
+
+Internal helper imported by the screenshot generators. Detects the best
+available proportional TTF font for the current OS, in priority order:
+
+1. Windows: `C:/Windows/Fonts/segoeui{b}.ttf`
+2. macOS: `/Library/Fonts/`, `~/Library/Fonts/`, homebrew share paths
+3. Linux/macOS: `fc-match` (fontconfig) — Segoe UI → DejaVu → any sans-serif
+4. Linux: known DejaVu paths under `/usr/share/fonts`
+5. Fallback: PIL built-in bitmap (no TTF; text will look blocky)
+
+On Ubuntu/Debian: `sudo apt install fonts-dejavu-core` for good quality.
+
+Not intended to be run directly.
+
 ## gen_screenshots.py
 
 Generates three 1080×1920 phone screenshots for the Play Store listing
-using Python + Pillow (no device required).
-
-**Platform note:** the script hard-codes Windows font paths
-(`C:/Windows/Fonts/segoeuib.ttf`). On macOS/Linux, install Segoe UI or
-edit the `FONT_BD` / `FONT_REG` constants at the top of the script to
-point at available system fonts before running.
+using Python + Pillow (no device required). Cross-platform: fonts are
+auto-detected via `_fonts.py` (Windows → macOS → fontconfig → DejaVu).
 
 ```bash
 python3 scripts/gen_screenshots.py
@@ -45,9 +56,7 @@ Screenshots produced:
 Generates four tablet screenshots for the Play Store listing:
 two at 1200×1920 (7-inch) and two at 1600×2560 (10-inch).
 All dimensions scale proportionally from the 1080 px phone baseline.
-
-**Platform note:** same Windows font dependency as `gen_screenshots.py`
-above — update `FONT_BD` / `FONT_REG` if running on macOS/Linux.
+Cross-platform: uses the same `_fonts.py` font detection as the phone generator.
 
 ```bash
 python3 scripts/gen_tablet_screenshots.py
