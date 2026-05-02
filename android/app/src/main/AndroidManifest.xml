@@ -81,7 +81,19 @@
         <package android:name="com.google.android.apps.podcasts" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
+            <data android:scheme="https" android:host="music.youtube.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="open.spotify.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="pca.st" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="podcasts.google.com" />
         </intent>
     </queries>
 </manifest>

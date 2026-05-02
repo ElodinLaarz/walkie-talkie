@@ -518,13 +518,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
             final nextIdx = cmd.trackIdx!;
-            // Without a real catalog the placeholder queue is sized
-            // to the highest trackIdx we've seen; if the host hops
-            // to a higher index, grow it so `_track` stays in range
-            // (Copilot review on PR #153).
-            if (nextIdx >= _lib.queue.length) {
-              _lib = _buildPlaceholderLib(source: _source, trackIdx: nextIdx);
+            final nextSource = cmd.source;
+            // Rebuild placeholder whenever source or index changes so the queue
+            // label and track list stay in sync with the host's selection.
+            if (nextSource != _source || nextIdx >= _lib.queue.length) {
+              _lib = _buildPlaceholderLib(source: nextSource, trackIdx: nextIdx);
             }
+            _source = nextSource;
             _trackIdx = nextIdx;
             _progress = 0;
             _playing = true;
@@ -676,7 +676,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     NowPlayingCard(
                       track: _track,
                       source: source,
-                      isPodcast: _source == 'Podcasts',
+                      isPodcast: MediaSourceExtension.fromLabel(_source)?.isPodcast ?? false,
                       playing: _playing,
                       progress: _progress,
                       lastActionBy: _lastAction.by,
@@ -1155,6 +1155,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   Future<void> _openSourceApp() async {
     final source = MediaSourceExtension.fromLabel(_source);
+    if (source == null) return;
     final launched = await launchSourceApp(source);
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -33,9 +33,22 @@ extension MediaSourceExtension on MediaSource {
         MediaSource.pocketCasts => 'Podcast episodes',
       };
 
+  bool get isPodcast => switch (this) {
+        MediaSource.podcasts => true,
+        MediaSource.pocketCasts => true,
+        _ => false,
+      };
+
   /// Deep-link URI that opens the streaming app directly (App Links on
-  /// Android 12+). Falls through to the browser on devices where the app
-  /// isn't installed, which guides the host to install it.
+  /// Android 12+).
+  ///
+  /// On Android, [launchSourceApp] will attempt
+  /// [LaunchMode.externalNonBrowserApplication] first, which targets the
+  /// native app via App Links/universal links without browser fallback. If the
+  /// OS doesn't support that mode, it falls back to
+  /// [LaunchMode.externalApplication], which may open a browser if the app
+  /// isn't installed. Callers should not interpret the launch result as a
+  /// reliable "app is installed" signal on Android.
   Uri get appUri => switch (this) {
         MediaSource.youtubeMusic => Uri.parse('https://music.youtube.com/'),
         MediaSource.podcasts => Uri.parse('https://podcasts.google.com/'),
@@ -43,19 +56,31 @@ extension MediaSourceExtension on MediaSource {
         MediaSource.pocketCasts => Uri.parse('https://pca.st/'),
       };
 
-  static MediaSource fromLabel(String label) {
+  /// Returns null for unknown labels instead of silently defaulting to a
+  /// specific source, so callers must handle the unrecognised-source case.
+  static MediaSource? fromLabel(String label) {
     for (final s in MediaSource.values) {
       if (s.label == label) return s;
     }
-    return MediaSource.youtubeMusic;
+    return null;
   }
 }
 
-/// Attempts to launch [source]'s streaming app via its App Link URI.
-/// Returns true if the launch succeeded.
+/// Attempts to launch [source]'s streaming app.
+///
+/// Uses [LaunchMode.externalNonBrowserApplication] where supported (iOS 10+
+/// universal links, avoids browser); falls back to
+/// [LaunchMode.externalApplication] on platforms that don't support it.
+///
+/// Returns true if the OS accepted the launch; false if no handler was found.
+/// Note: on Android the fallback mode may still open a browser when the app is
+/// not installed — a `true` result does not guarantee the native app launched.
 Future<bool> launchSourceApp(MediaSource source) async {
   final uri = source.appUri;
   if (!await canLaunchUrl(uri)) return false;
+  if (await supportsLaunchMode(LaunchMode.externalNonBrowserApplication)) {
+    return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+  }
   return launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
