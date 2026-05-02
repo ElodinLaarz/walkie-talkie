@@ -1031,10 +1031,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         'Peer BLE device: ${_sanitizeField(person.btDevice)}\n';
   }
 
-  // Strip control characters from user-controlled strings so a malicious peer
-  // name or device name cannot inject extra lines into the report.
-  static String _sanitizeField(String s) =>
-      s.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), ' ').replaceAll(RegExp(r' +'), ' ').trim();
+  // Strip control characters and Unicode line separators from user-controlled
+  // strings so a malicious peer name or device name cannot inject extra lines
+  // into the report (covers ASCII C0/C1 control chars and U+2028/U+2029).
+  static String _sanitizeField(String s) => s
+      .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]'), ' ')
+      .replaceAll(RegExp(r' +'), ' ')
+      .trim();
 
   Future<void> _showQueueSheet() async {
     final c = FrequencyTheme.of(context).colors;
