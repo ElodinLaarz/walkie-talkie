@@ -1112,7 +1112,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _showSourceSheet();
               }
             : null,
-        onOpenInSource: widget.isHost
+        // Only show "Open in app" when there's a real source with a known app
+        // URI. Hides for the generic 'Podcasts' source (no canonical app) and
+        // for the initial empty-lib state where lib.name is '' — prevents the
+        // button from rendering as "Open " before the first snapshot lands.
+        onOpenInSource: widget.isHost &&
+                _lib.name.isNotEmpty &&
+                MediaSourceExtension.fromLabel(_source)?.appUri != null
             ? () {
                 Navigator.pop(ctx);
                 _openSourceApp();

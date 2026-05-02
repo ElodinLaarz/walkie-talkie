@@ -78,7 +78,6 @@
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="com.spotify.music" />
         <package android:name="au.com.shiftyjelly.pocketcasts" />
-        <package android:name="com.google.android.apps.podcasts" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" android:host="music.youtube.com" />

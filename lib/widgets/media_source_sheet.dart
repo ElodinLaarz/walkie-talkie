@@ -42,16 +42,19 @@ extension MediaSourceExtension on MediaSource {
   /// Deep-link URI that opens the streaming app directly (App Links on
   /// Android 12+).
   ///
-  /// On Android, [launchSourceApp] will attempt
-  /// [LaunchMode.externalNonBrowserApplication] first, which targets the
-  /// native app via App Links/universal links without browser fallback. If the
-  /// OS doesn't support that mode, it falls back to
-  /// [LaunchMode.externalApplication], which may open a browser if the app
-  /// isn't installed. Callers should not interpret the launch result as a
-  /// reliable "app is installed" signal on Android.
-  Uri get appUri => switch (this) {
+  /// Deep-link URI for opening the streaming app directly, or null when no
+  /// single canonical app exists for this source (e.g. the generic "Podcasts"
+  /// source — Google Podcasts is discontinued and there is no standard podcast
+  /// app URI on Android; use Pocket Casts explicitly for that app).
+  ///
+  /// On Android, [launchSourceApp] prefers
+  /// [LaunchMode.externalNonBrowserApplication] (avoids browser via App Links)
+  /// and falls back to [LaunchMode.externalApplication]. A true return does not
+  /// guarantee the native app launched on Android — a browser may open instead
+  /// if the app isn't installed.
+  Uri? get appUri => switch (this) {
         MediaSource.youtubeMusic => Uri.parse('https://music.youtube.com/'),
-        MediaSource.podcasts => Uri.parse('https://podcasts.google.com/'),
+        MediaSource.podcasts => null,
         MediaSource.spotify => Uri.parse('https://open.spotify.com/'),
         MediaSource.pocketCasts => Uri.parse('https://pca.st/'),
       };
@@ -77,6 +80,7 @@ extension MediaSourceExtension on MediaSource {
 /// not installed — a `true` result does not guarantee the native app launched.
 Future<bool> launchSourceApp(MediaSource source) async {
   final uri = source.appUri;
+  if (uri == null) return false;
   if (!await canLaunchUrl(uri)) return false;
   if (await supportsLaunchMode(LaunchMode.externalNonBrowserApplication)) {
     return launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
