@@ -500,5 +500,74 @@
     "settingsLicenses": "Open source licenses",
     "@settingsLicenses": {
         "description": "Tappable row that opens the in-app LicensePage."
+    },
+
+    "settingsSecurityFaq": "Privacy & Security FAQ",
+    "@settingsSecurityFaq": {
+        "description": "Tappable row in the Settings Privacy section that opens the in-app security FAQ."
+    },
+
+    "securityFaqTitle": "Privacy & Security",
+    "@securityFaqTitle": {
+        "description": "Title of the in-app security FAQ screen."
+    },
+    "securityFaqIntro": "Frequency connects phones over Bluetooth without any internet. Here's what that means for your privacy.",
+    "@securityFaqIntro": {
+        "description": "Introductory paragraph on the security FAQ screen."
+    },
+
+    "securityFaqQ1": "Is my voice encrypted?",
+    "@securityFaqQ1": {
+        "description": "Security FAQ question 1."
+    },
+    "securityFaqA1": "Frequency v1 does not enforce Bluetooth pairing or encrypted connections. Your voice travels as Opus-encoded audio over L2CAP CoC between phones, but the radio channel itself is not encrypted at the app layer.\n\nBluetooth LE pairing (link-layer encryption) is the planned foundation but is not yet required by the GATT service characteristics. A nearby phone that knows your session code can join without pairing.\n\nApp-level end-to-end encryption (E2EE) is planned for v2.",
+    "@securityFaqA1": {
+        "description": "Security FAQ answer 1. Accurately reflects that pairing is not enforced in v1."
+    },
+
+    "securityFaqQ2": "Can someone eavesdrop on my conversation?",
+    "@securityFaqQ2": {
+        "description": "Security FAQ question 2."
+    },
+    "securityFaqA2": "In v1, an attacker within Bluetooth range (roughly 10–30 metres) who obtains your session code could join the frequency and hear your conversation.\n\nThe host device sees all audio streams before mixing and rebroadcasting them — that's unavoidable in the current star-topology design. Only start a Frequency with people you trust, and treat the host's device like a room host.",
+    "@securityFaqA2": {
+        "description": "Security FAQ answer 2."
+    },
+
+    "securityFaqQ3": "Does the app record or store my voice?",
+    "@securityFaqQ3": {
+        "description": "Security FAQ question 3."
+    },
+    "securityFaqA3": "No. Frequency does not record, upload, or persist audio. There is no server and no internet connection for voice; audio exists only in device memory while the session is live and is discarded the moment a peer disconnects.",
+    "@securityFaqA3": {
+        "description": "Security FAQ answer 3."
+    },
+
+    "securityFaqQ4": "What data leaves my device?",
+    "@securityFaqQ4": {
+        "description": "Security FAQ question 4."
+    },
+    "securityFaqA4": "Voice and control traffic travel only over Bluetooth to nearby phones — nothing goes to the internet.\n\nOver BLE advertisements, Frequency broadcasts the session UUID and the host's display name so nearby devices can discover your session. The session UUID is freshly generated each time you start a frequency; it is not linked to your account (there is none) or your persistent identity.",
+    "@securityFaqA4": {
+        "description": "Security FAQ answer 4. Corrected: session UUID (not per-install peerId) is in BLE advertisements."
+    },
+
+    "securityFaqQ5": "What about future versions?",
+    "@securityFaqQ5": {
+        "description": "Security FAQ question 5."
+    },
+    "securityFaqA5": "App-level E2EE, enforced Bluetooth pairing, and host-handover are planned for v2. Until then, use Frequency only in groups where you trust every participant's device and the space around you.",
+    "@securityFaqA5": {
+        "description": "Security FAQ answer 5."
+    },
+
+    "securityFaqClose": "Got it",
+    "@securityFaqClose": {
+        "description": "Bottom 'Got it' CTA button on the security FAQ screen."
+    },
+
+    "securityFaqCloseIcon": "Close Privacy & Security FAQ",
+    "@securityFaqCloseIcon": {
+        "description": "Accessibility label for the top-right close icon on the security FAQ screen. Distinct from the bottom 'Got it' CTA so screen readers announce different labels for the two controls."
     }
 }

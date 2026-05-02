@@ -8,6 +8,7 @@ import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import 'frequency_privacy_policy_screen.dart';
+import 'security_faq_screen.dart';
 
 /// App settings screen — voice mode, display, privacy, and about.
 ///
@@ -144,6 +145,15 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
               ),
             );
           },
+        ),
+        _SettingsLink(
+          title: l10n.settingsSecurityFaq,
+          c: c,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const SecurityFaqScreen(),
+            ),
+          ),
         ),
         // About
         _SectionHeader(label: l10n.settingsAboutSection, c: c),
