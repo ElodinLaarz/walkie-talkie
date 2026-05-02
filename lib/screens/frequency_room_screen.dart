@@ -517,7 +517,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           break;
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
-            final nextIdx = cmd.trackIdx!;
+            const maxPlaceholderTracks = 500;
+            final nextIdx = cmd.trackIdx!.clamp(0, maxPlaceholderTracks - 1);
             final nextSource = cmd.source;
             // Rebuild placeholder whenever source or index changes so the queue
             // label and track list stay in sync with the host's selection.
