@@ -200,6 +200,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   @visibleForTesting
   int get debugSeq => _seq;
 
+  /// Full session UUID for the current room. Set on the host path by
+  /// [joinRoom] and on the guest path by [_promoteToHost]. Used by
+  /// [_initiateHostTransfer] to tell the promoted peer what UUID to advertise.
+  String? _sessionUuid;
+
   FrequencySessionCubit({
     required this.identityStore,
     required this.recentFrequenciesStore,
@@ -350,6 +355,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         _onLinkQuality(m);
       case BitrateHint m:
         _onBitrateHint(m);
+      case HostTransfer m:
+        // If I'm the designated new host, promote. Otherwise update
+        // hostPeerId so the old host's Leave isn't mistaken for a room-kill
+        // and enter reconnecting so the UI shows progress while the new
+        // host starts up. Non-promoted guests will fall back to Discovery
+        // via the normal heartbeat-timeout → reconnect → lost path if they
+        // can't reach the new host. Hosts should not receive their own
+        // HostTransfer back (we're on the RESPONSE characteristic the
+        // host writes to), so the `roomIsHost` guard is just defensive.
+        final current = state;
+        if (isClosed || current is! SessionRoom || current.roomIsHost) break;
+        if (m.newHostPeerId == _localPeerId) {
+          unawaited(_promoteToHost(m.sessionUuid));
+        } else {
+          emit(current.copyWith(
+            hostPeerId: m.newHostPeerId,
+            connectionPhase: ConnectionPhase.reconnecting,
+          ));
+        }
       // These message types are handled by future issues
       // (voice-activity detection, join request flow). Silently drop.
       case TalkingState():
@@ -831,6 +855,90 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     unawaited(t.send(msg));
   }
 
+  /// Sends [HostTransfer] to the room, nominating [newHostPeerId] as the
+  /// successor. Waits 200 ms after the send to give the message time to
+  /// arrive over the GATT write characteristic before the caller tears down
+  /// the server. No-op when the transport is absent (tests / loopback builds).
+  Future<void> _initiateHostTransfer(
+    SessionRoom current,
+    String newHostPeerId,
+  ) async {
+    final t = _transport;
+    final sessionUuid = _sessionUuid;
+    if (t == null || sessionUuid == null) return;
+    final String peerId;
+    try {
+      peerId = _localPeerId ?? await identityStore.getPeerId();
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('Failed to resolve peerId for host transfer: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      return;
+    }
+    if (isClosed) return;
+    final msg = HostTransfer(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      newHostPeerId: newHostPeerId,
+      sessionUuid: sessionUuid,
+    );
+    await t.send(msg);
+    // Brief hold so the BLE write completes before the GATT server shuts down.
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+
+  /// Transitions the local peer from guest to host for the current room.
+  /// Called when a [HostTransfer] message names [_localPeerId] as the
+  /// new host.
+  ///
+  /// Stops the guest-only reporters (signal, link-quality), starts the
+  /// host BLE surfaces (advertising + GATT server) with the provided
+  /// [sessionUuid], and updates state to [roomIsHost: true]. The old
+  /// host's peerId is removed from the roster; a self-entry is added if
+  /// not already present (it should be, since the roster includes all
+  /// peers including the local one).
+  Future<void> _promoteToHost(String sessionUuid) async {
+    if (isClosed) return;
+    final current = state;
+    if (current is! SessionRoom || current.roomIsHost) return;
+    // Stop guest-only services before taking the host role.
+    _signalReporter.stop();
+    _linkQualityReporter.stop();
+    _reconnectController?.cancel();
+    _reconnectController = null;
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = null;
+    final localPeerId = _localPeerId ?? await identityStore.getPeerId();
+    if (isClosed) return;
+    // Remove the departing host from the roster and ensure the local
+    // peer (the new host) has an entry.
+    final roster = current.roster
+        .where((p) => p.peerId != current.hostPeerId)
+        .toList();
+    if (!roster.any((p) => p.peerId == localPeerId)) {
+      roster.add(ProtocolPeer(peerId: localPeerId, displayName: current.myName));
+    }
+    _sessionUuid = sessionUuid;
+    _localPeerId = localPeerId;
+    emit(current.copyWith(
+      roomIsHost: true,
+      hostPeerId: localPeerId,
+      roster: roster,
+      macAddress: null,
+      sessionUuidLow8: null,
+      connectionPhase: ConnectionPhase.online,
+    ));
+    // Start host BLE surfaces so remaining guests can reconnect.
+    final audio = _audio;
+    if (audio != null) {
+      unawaited(audio.startAdvertising(
+        sessionUuid: sessionUuid,
+        displayName: current.myName,
+      ));
+      unawaited(audio.startGattServer());
+    }
+  }
+
   /// Called when local voice activity detection triggers. Sends a [TalkingState]
   /// message over the BLE control transport to notify other peers about the
   /// local user's speaking state.
@@ -1014,6 +1122,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // logged on the future and surfaced on next launch as a missing
       // entry; nothing else depends on success here.
       unawaited(_recordRecentFrequency(roomFreq));
+      _sessionUuid = sessionUuid;
       room = SessionRoom(
         myName: myName,
         roomFreq: roomFreq,
@@ -1094,6 +1203,20 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   Future<void> leaveRoom() async {
     final current = state;
     if (current is! SessionRoom) return;
+    // If the host is leaving while guests are present, hand the room off
+    // to the first available guest rather than killing the room for everyone.
+    // We fire-and-forget the transfer message and give it a brief window to
+    // land on the wire before tearing down the GATT server. Guests who receive
+    // it before the connection drops will promote their new host immediately;
+    // any who don't will fall back to the normal reconnect / Discovery path.
+    if (current.roomIsHost) {
+      final guests = current.roster
+          .where((p) => p.peerId != current.hostPeerId)
+          .toList();
+      if (guests.isNotEmpty) {
+        await _initiateHostTransfer(current, guests.first.peerId);
+      }
+    }
     // Symmetric teardown of the host BLE surfaces booted in joinRoom.
     // Without this the device keeps advertising and serving GATT after
     // the host backs out — strangers nearby would still see the room and
@@ -1137,6 +1260,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // would otherwise swallow the next session's first messages.
     _transport?.forgetAllPeers();
     _seq = 0;
+    _sessionUuid = null;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
     emit(SessionDiscovery(

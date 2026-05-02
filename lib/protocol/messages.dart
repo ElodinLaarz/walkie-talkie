@@ -160,6 +160,7 @@ sealed class FrequencyMessage {
       'link_quality' => LinkQuality._fromJson(json),
       'bitrate_hint' => BitrateHint._fromJson(json),
       'ping' => Heartbeat._fromJson(json),
+      'host_transfer' => HostTransfer._fromJson(json),
       _ => throw FormatException('Unknown frequency message kind: $kind'),
     };
   }
@@ -734,4 +735,45 @@ final class BitrateHint extends FrequencyMessage {
       bps: bpsRaw,
     );
   }
+}
+
+// ── Host handover ────────────────────────────────────────────────────────────
+
+/// Sent by the current host just before it leaves when guests are present.
+/// The named peer should start advertising + serving GATT with [sessionUuid]
+/// and take over as the new host. All other peers update their [hostPeerId]
+/// so subsequent messages from the old host (e.g. [Leave]) are not
+/// misinterpreted as a room-killing event.
+final class HostTransfer extends FrequencyMessage {
+  final String newHostPeerId;
+
+  /// Full session UUID the new host must use when calling startAdvertising,
+  /// so the room frequency stays stable for guests that need to reconnect.
+  final String sessionUuid;
+
+  const HostTransfer({
+    required super.peerId,
+    required super.seq,
+    required super.atMs,
+    required this.newHostPeerId,
+    required this.sessionUuid,
+  });
+
+  @override
+  String get kind => 'host_transfer';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ..._envelope(),
+        'newHostPeerId': newHostPeerId,
+        'sessionUuid': sessionUuid,
+      };
+
+  factory HostTransfer._fromJson(Map<String, dynamic> j) => HostTransfer(
+        peerId: j['peerId'] as String,
+        seq: j['seq'] as int,
+        atMs: j['atMs'] as int,
+        newHostPeerId: j['newHostPeerId'] as String,
+        sessionUuid: j['sessionUuid'] as String,
+      );
 }

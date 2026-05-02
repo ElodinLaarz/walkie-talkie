@@ -3384,6 +3384,260 @@ void main() {
       },
     );
 
+    // ── Host handover ────────────────────────────────────────────────────────
+
+    group('host handover', () {
+      // Shared transport factory matching the pattern used by the heartbeat /
+      // signal-report groups above.
+      ({
+        BleControlTransport transport,
+        List<Uint8List> outbox,
+        StreamController<({String endpointId, Uint8List bytes})> inbox,
+      }) makeT() {
+        final outbox = <Uint8List>[];
+        final inbox =
+            StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async => outbox.add(bytes),
+        );
+        return (transport: transport, outbox: outbox, inbox: inbox);
+      }
+
+      // Convenience: inject a FrequencyMessage through the inbox.
+      void injectMsg(
+        StreamController<({String endpointId, Uint8List bytes})> inbox,
+        FrequencyMessage msg,
+      ) {
+        for (final frag in encodeFragments(msg.encode())) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+      }
+
+      test(
+        'leaveRoom as host with guests sends HostTransfer before teardown',
+        () async {
+          final t = makeT();
+          final cubit = _makeCubit(
+            transport: t.transport,
+            mintSessionUuid: () => _testHostSessionUuid,
+          );
+          await cubit.bootstrap();
+          cubit.emit(const SessionDiscovery(myName: 'Maya'));
+          await cubit.joinRoom(isHost: true);
+          await Future<void>.delayed(Duration.zero);
+
+          // Inject a guest peer into the roster.
+          final roomBeforeLeave = cubit.state as SessionRoom;
+          cubit.emit(roomBeforeLeave.copyWith(
+            roster: [
+              const ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+              const ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+            ],
+          ));
+
+          await cubit.leaveRoom();
+          await Future<void>.delayed(Duration.zero);
+
+          // Reassemble outbound fragments and look for a HostTransfer.
+          final reassembler = FragmentReassembler();
+          final outMsgs = <FrequencyMessage>[];
+          for (final raw in t.outbox) {
+            final json = reassembler.feed(raw);
+            if (json != null) outMsgs.add(FrequencyMessage.decode(json));
+          }
+          final transfers = outMsgs.whereType<HostTransfer>().toList();
+          expect(transfers, hasLength(1));
+          expect(transfers.single.newHostPeerId, 'peer-2');
+          expect(transfers.single.sessionUuid, _testHostSessionUuid);
+
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        },
+      );
+
+      test(
+        'leaveRoom as host with NO guests does not send HostTransfer',
+        () async {
+          final t = makeT();
+          final cubit = _makeCubit(
+            transport: t.transport,
+            mintSessionUuid: () => _testHostSessionUuid,
+          );
+          await cubit.bootstrap();
+          cubit.emit(const SessionDiscovery(myName: 'Maya'));
+          await cubit.joinRoom(isHost: true);
+          await Future<void>.delayed(Duration.zero);
+          // Roster has only the local host — no guests.
+
+          t.outbox.clear();
+          await cubit.leaveRoom();
+          await Future<void>.delayed(Duration.zero);
+
+          // No HostTransfer among sent messages — just check wire bytes.
+          final wire = t.outbox.map((b) => String.fromCharCodes(b)).join();
+          expect(wire, isNot(contains('host_transfer')));
+
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        },
+      );
+
+      test(
+        'receiving HostTransfer as the promoted peer transitions to host',
+        () async {
+          // Guest cubit with localPeerId = 'peer-2' receives a HostTransfer
+          // that names it as the new host. Expect roomIsHost→true and the
+          // old host removed from the roster.
+          final t = makeT();
+          final store = _FakeStore(initial: 'Devon');
+          store._peerId = 'peer-2';
+          final cubit = _makeCubit(
+            identityStore: store,
+            transport: t.transport,
+          );
+          await cubit.bootstrap();
+          cubit.emit(const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+            ],
+          ));
+
+          injectMsg(t.inbox, HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ));
+          // Two event-loop turns: one for the stream delivery, one for the
+          // async _promoteToHost body.
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          final room = cubit.state as SessionRoom;
+          expect(room.roomIsHost, isTrue);
+          expect(room.hostPeerId, 'peer-2');
+          expect(room.roster.map((p) => p.peerId), isNot(contains('peer-1')));
+          expect(room.macAddress, isNull);
+          expect(room.connectionPhase, ConnectionPhase.online);
+
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        },
+      );
+
+      test(
+        'receiving HostTransfer as a non-promoted guest updates hostPeerId '
+        'and enters reconnecting',
+        () async {
+          final t = makeT();
+          final store = _FakeStore(initial: 'Charlie');
+          store._peerId = 'peer-3';
+          final cubit = _makeCubit(
+            identityStore: store,
+            transport: t.transport,
+          );
+          await cubit.bootstrap();
+          cubit.emit(const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Charlie'),
+            ],
+          ));
+
+          injectMsg(t.inbox, HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ));
+          await Future<void>.delayed(Duration.zero);
+
+          final room = cubit.state as SessionRoom;
+          expect(room.roomIsHost, isFalse);
+          expect(room.hostPeerId, 'peer-2');
+          expect(room.connectionPhase, ConnectionPhase.reconnecting);
+
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        },
+      );
+
+      test(
+        'Leave from old host is not a room-kill after HostTransfer '
+        'updates hostPeerId',
+        () async {
+          // After HostTransfer, peer-2 is the new hostPeerId. A subsequent
+          // Leave from peer-1 (old host) must not trigger leaveRoom().
+          final t = makeT();
+          final store = _FakeStore(initial: 'Charlie');
+          store._peerId = 'peer-3';
+          final cubit = _makeCubit(
+            identityStore: store,
+            transport: t.transport,
+          );
+          await cubit.bootstrap();
+          cubit.emit(const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Charlie'),
+            ],
+          ));
+
+          // First: HostTransfer moves hostPeerId to peer-2.
+          injectMsg(t.inbox, HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ));
+          await Future<void>.delayed(Duration.zero);
+
+          // Then: old host sends Leave.
+          injectMsg(t.inbox, const Leave(peerId: 'peer-1', seq: 2, atMs: 0));
+          await Future<void>.delayed(Duration.zero);
+
+          // Room should still be active (not Discovery).
+          expect(cubit.state, isA<SessionRoom>());
+          // peer-1 removed from roster by the Leave handler.
+          final room = cubit.state as SessionRoom;
+          expect(room.roster.map((p) => p.peerId), isNot(contains('peer-1')));
+
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        },
+      );
+    });
+
   });
 
   group('FrequencySessionState', () {
