@@ -17,12 +17,6 @@ on:
 permissions:
   contents: read
 
-# Allow only one concurrent deployment; skip queued runs but do not cancel
-# an in-progress run since that would leave the live site in a partial state.
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -54,6 +48,12 @@ jobs:
     permissions:
       pages: write
       id-token: write
+    # Serialize deploys only — PR builds run in parallel, but only one
+    # production deploy proceeds at a time. cancel-in-progress=false avoids
+    # leaving the live site in a partial state.
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
