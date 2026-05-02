@@ -907,21 +907,25 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           else
             SizedBox(
               width: 102,
-              child: _meMuted
-                  ? FreqButton(
-                      icon: Icons.mic_off,
-                      label: 'Unmute',
+              child: Builder(
+                builder: (context) {
+                  final c = FrequencyTheme.of(context).colors;
+                  return Semantics(
+                    toggled: _meMuted,
+                    label: 'Microphone',
+                    button: true,
+                    excludeSemantics: true,
+                    child: FreqButton(
+                      icon: _meMuted ? Icons.mic_off : Icons.mic,
+                      label: _meMuted ? 'Unmute' : 'Mute',
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       fontSize: 13,
-                      onPressed: () => _setOpenMicMuted(false),
-                    )
-                  : PrimaryButton(
-                      icon: Icons.mic,
-                      label: 'Mute',
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      fontSize: 13,
-                      onPressed: () => _setOpenMicMuted(true),
+                      labelColor: _meMuted ? c.danger : null,
+                      onPressed: () => _setOpenMicMuted(!_meMuted),
                     ),
+                  );
+                },
+              ),
             ),
         ],
       ),

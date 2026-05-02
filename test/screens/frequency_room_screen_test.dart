@@ -16,6 +16,7 @@ import 'package:walkie_talkie/services/blocked_peers_store.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
+import 'package:walkie_talkie/widgets/frequency_atoms.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 
 /// MethodChannel name the audio service uses to talk to the native engine.
@@ -264,6 +265,39 @@ void main() {
       expect(find.text('Caleb'), findsOneWidget);
       expect(find.text('Mute'), findsOneWidget);
     });
+
+    testWidgets(
+      'mute toggle uses consistent FreqButton in both states — no PrimaryButton swap (#224)',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Unmuted: the mute control is FreqButton, not PrimaryButton.
+        expect(find.byType(PrimaryButton), findsNothing);
+
+        // The closest Semantics ancestor of the button label carries the
+        // toggled flag so screen readers announce the on/off state.
+        final semanticsUnmuted = tester
+            .widgetList<Semantics>(
+              find.ancestor(of: find.text('Mute'), matching: find.byType(Semantics)),
+            )
+            .firstWhere((s) => s.properties.toggled != null);
+        expect(semanticsUnmuted.properties.toggled, isFalse);
+
+        await tester.tap(find.text('Mute'));
+        await tester.pump();
+
+        // Muted: still FreqButton, no PrimaryButton.
+        expect(find.byType(PrimaryButton), findsNothing);
+
+        final semanticsMuted = tester
+            .widgetList<Semantics>(
+              find.ancestor(of: find.text('Unmute'), matching: find.byType(Semantics)),
+            )
+            .firstWhere((s) => s.properties.toggled != null);
+        expect(semanticsMuted.properties.toggled, isTrue);
+      },
+    );
 
     testWidgets('PTT mode swaps the mute button for Hold to talk',
         (tester) async {
