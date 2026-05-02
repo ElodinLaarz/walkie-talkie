@@ -1049,19 +1049,27 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Enters Room. [isHost] is true when the user created the frequency,
   /// false when they tuned in to an existing one. The [freq] argument is
   /// required on the guest path (it carries the discovered MHz string)
-  /// and ignored on the host path (the room frequency is derived from a
-  /// freshly-minted sessionUuid). No-op if the user isn't on Discovery
-  /// (shouldn't happen — Discovery is the only screen that triggers it).
+  /// and ignored on the host path (the room frequency is derived from
+  /// the host's sessionUuid — either freshly minted or, on Resume,
+  /// supplied via [existingSessionUuid]). No-op if the user isn't on
+  /// Discovery (shouldn't happen — Discovery is the only screen that
+  /// triggers it).
   ///
-  /// **Host path.** Mints a fresh `sessionUuid`, derives the room's
-  /// cosmetic [roomFreq] from its low 12 bits (the same mapping guests
-  /// use when decoding the advertisement), self-seeds the roster with
-  /// the local user, and asks the audio service to start LE advertising
-  /// + the GATT server so other phones can see and dial the room. The
-  /// [freq] argument is ignored on this path — the freshly-minted UUID
-  /// is the source of truth for both the cosmetic display and what
-  /// guests will eventually see in their discovery list. Recorded to
-  /// the recent-hosted list as a side-effect.
+  /// **Host path.** When [existingSessionUuid] is null (the "Start a new
+  /// frequency" path), mints a fresh `sessionUuid`. When provided (the
+  /// "Resume" path tapped on a recent row), reuses it so the room's
+  /// `mhzDisplay` matches the original session and guests reconnecting to
+  /// the same advertised UUID land in the same room. Either way, derives
+  /// the room's cosmetic [roomFreq] from the UUID's low 12 bits (the same
+  /// mapping guests use when decoding the advertisement), self-seeds the
+  /// roster with the local user, and asks the audio service to start LE
+  /// advertising + the GATT server so other phones can see and dial the
+  /// room. The [freq] argument is ignored on this path — the UUID is the
+  /// source of truth for both the cosmetic display and what guests
+  /// eventually see in their discovery list. Recorded to the recent-hosted
+  /// list as a side-effect, with the sessionUuid persisted alongside the
+  /// freq so a subsequent Resume can reconstitute the same session
+  /// (#219).
   ///
   /// **Guest path.** Uses [freq] as the room's cosmetic display (it
   /// already matches the advertised UUID's mhzDisplay since both flow
@@ -1084,16 +1092,23 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     String? freq,
     String? macAddress,
     String? sessionUuidLow8,
+    String? existingSessionUuid,
   }) async {
+    assert(
+      existingSessionUuid == null || isHost,
+      'existingSessionUuid is only meaningful on the host (Resume) path — '
+      'guests dial the host\'s advertised UUID, they do not reuse a stored one',
+    );
     final current = state;
     if (current is! SessionDiscovery) return;
     _seq = 0;
     final SessionRoom room;
     if (isHost) {
-      // Mint the canonical session identity. Everything else on the host
+      // Reuse the recent row's sessionUuid on Resume; otherwise mint a
+      // fresh canonical session identity. Everything else on the host
       // path (advertised manufacturer payload, cosmetic mhz, hostPeerId
       // self-seed) flows from this UUID + the local peerId.
-      final sessionUuid = _mintSessionUuid();
+      final sessionUuid = existingSessionUuid ?? _mintSessionUuid();
       // Resolve the local peerId for the self-seed. The cache covers
       // the common case where bootstrap has already run; falls back to
       // the store otherwise. A hard failure aborts the host path —
@@ -1129,7 +1144,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // room, so we shouldn't await disk I/O before emitting. Errors are
       // logged on the future and surfaced on next launch as a missing
       // entry; nothing else depends on success here.
-      unawaited(_recordRecentFrequency(roomFreq));
+      //
+      // sessionUuid rides along so the recent row carries the canonical
+      // session identity — Resume on this row reads it back through
+      // `joinRoom(existingSessionUuid: ...)` and lands in the same room
+      // instead of minting a fresh UUID (#219).
+      unawaited(_recordRecentFrequency(roomFreq, sessionUuid: sessionUuid));
       _sessionUuid = sessionUuid;
       room = SessionRoom(
         myName: myName,
@@ -1425,9 +1445,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
   }
 
-  Future<void> _recordRecentFrequency(String freq) async {
+  Future<void> _recordRecentFrequency(
+    String freq, {
+    String? sessionUuid,
+  }) async {
     try {
-      await recentFrequenciesStore.record(freq);
+      await recentFrequenciesStore.record(freq, sessionUuid: sessionUuid);
     } catch (error, stackTrace) {
       if (kDebugMode) debugPrint('Failed to record recent frequency: $error');
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);

@@ -256,6 +256,65 @@ void main() {
     );
 
     testWidgets(
+      'tapping Resume threads the row\'s sessionUuid through to onPick (#219)',
+      (tester) async {
+        // The fix for #219: Resume must carry the persisted sessionUuid so
+        // the cubit reuses it instead of minting a fresh one. This is what
+        // makes Resume actually rejoin the same room.
+        const uuid = '00000000-0000-4000-8000-0000000000a3';
+        DiscoveryResult? picked;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (r) => picked = r,
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '104.3', sessionUuid: uuid),
+            ],
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.text('Resume'));
+        await tester.pump();
+
+        expect(picked, isNotNull);
+        expect(picked!.isHost, isTrue);
+        expect(picked!.freq, '104.3');
+        expect(picked!.hostSessionUuid, uuid);
+      },
+    );
+
+    testWidgets(
+      'Resume on a legacy row without a sessionUuid passes null through '
+      '(falls back to mint on the cubit side)',
+      (tester) async {
+        // Pre-#219 rows have sessionUuid == null. The screen must pass that
+        // through verbatim — the cubit's host path treats null as "mint
+        // fresh," which preserves pre-fix behaviour for legacy rows until
+        // the user re-hosts.
+        DiscoveryResult? picked;
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (r) => picked = r,
+            onRename: (_) {},
+            recentHostedFrequencies: const [
+              RecentFrequency(freq: '92.4'),
+            ],
+          ),
+        ));
+        await tester.pump();
+
+        await tester.tap(find.text('Resume'));
+        await tester.pump();
+
+        expect(picked, isNotNull);
+        expect(picked!.hostSessionUuid, isNull);
+      },
+    );
+
+    testWidgets(
       'renders nickname instead of default title when one is set on a recent',
       (tester) async {
         await tester.pumpWidget(_wrap(

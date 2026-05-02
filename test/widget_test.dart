@@ -82,7 +82,7 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   @override
-  Future<void> record(String freq) async {
+  Future<void> record(String freq, {String? sessionUuid}) async {
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
     final existing = _rows.firstWhere(
@@ -90,9 +90,20 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
     );
     if (existing.recordedAt < 0) {
-      _rows.add(_FakeRecentRow(existing.entry, _nextRecordedAt++));
+      _rows.add(_FakeRecentRow(
+        RecentFrequency(freq: trimmed, sessionUuid: sessionUuid),
+        _nextRecordedAt++,
+      ));
     } else {
       existing.recordedAt = _nextRecordedAt++;
+      if (sessionUuid != null) {
+        existing.entry = RecentFrequency(
+          freq: existing.entry.freq,
+          nickname: existing.entry.nickname,
+          pinned: existing.entry.pinned,
+          sessionUuid: sessionUuid,
+        );
+      }
     }
     final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
       ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));

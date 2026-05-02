@@ -117,9 +117,16 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
     return List<RecentFrequency>.unmodifiable(result);
   }
 
+  /// Most recent `(freq, sessionUuid)` pair passed to [record], so tests
+  /// can assert that the cubit's host path threads the freshly-minted UUID
+  /// through to the store (#219). `null` for the uuid when the caller
+  /// didn't supply one — pre-#219 callers and a few legacy test paths.
+  ({String freq, String? sessionUuid})? lastRecordCall;
+
   @override
-  Future<void> record(String freq) async {
+  Future<void> record(String freq, {String? sessionUuid}) async {
     recordCalls++;
+    lastRecordCall = (freq: freq, sessionUuid: sessionUuid);
     if (throwOnRecord) throw StateError('boom');
     final trimmed = freq.trim();
     if (trimmed.isEmpty) return;
@@ -128,11 +135,26 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
     );
     if (existing.recordedAt < 0) {
-      _rows.add(_FakeRecentRow(existing.entry, _nextRecordedAt++));
+      // Fresh row — adopt the supplied uuid (or null on legacy callers).
+      _rows.add(_FakeRecentRow(
+        RecentFrequency(freq: trimmed, sessionUuid: sessionUuid),
+        _nextRecordedAt++,
+      ));
     } else {
       // Bump the existing row's recordedAt; nickname + pinned preserved
       // so re-recording a curated entry doesn't silently strip metadata.
+      // sessionUuid follows the production store's COALESCE rule: a
+      // non-null incoming uuid overwrites whatever was stored, a null
+      // incoming leaves the stored value alone.
       existing.recordedAt = _nextRecordedAt++;
+      if (sessionUuid != null) {
+        existing.entry = RecentFrequency(
+          freq: existing.entry.freq,
+          nickname: existing.entry.nickname,
+          pinned: existing.entry.pinned,
+          sessionUuid: sessionUuid,
+        );
+      }
     }
     // Mirror the production cap on UNPINNED entries; pinned rows exempt.
     final unpinnedSorted = _rows.where((r) => !r.entry.pinned).toList()
@@ -156,6 +178,7 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: value,
       pinned: _rows[idx].entry.pinned,
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
   }
 
@@ -169,6 +192,7 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       freq: _rows[idx].entry.freq,
       nickname: _rows[idx].entry.nickname,
       pinned: pinned,
+      sessionUuid: _rows[idx].entry.sessionUuid,
     );
     // Intentionally do NOT touch recordedAt — unpinning should demote a
     // row back to its real recency position relative to other unpinned
@@ -825,6 +849,74 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         expect(recent.recordCalls, 0);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host threads the freshly-minted sessionUuid into record() '
+      'so a later Resume can reconstitute the same room (#219)',
+      () async {
+        // The Resume bug: pre-#219, the cubit recorded only the freq, so
+        // tapping Resume re-minted a fresh UUID and landed the user in a
+        // different room. The fix persists the host-mint sessionUuid
+        // alongside the freq.
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(isHost: true);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(recent.lastRecordCall, isNotNull);
+        expect(recent.lastRecordCall!.freq, '104.3');
+        expect(recent.lastRecordCall!.sessionUuid, _testHostSessionUuid);
+        // And the value round-trips through the store so Discovery sees it.
+        final detailed = await recent.getRecentDetailed();
+        expect(detailed.single.sessionUuid, _testHostSessionUuid);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'joinRoom as host with existingSessionUuid reuses it instead of '
+      'minting a fresh one (#219 Resume path)',
+      () async {
+        // Resume: the discovery screen plumbs the recent row's stored
+        // sessionUuid through `existingSessionUuid`. The cubit must use
+        // it verbatim so the room's `roomFreq` matches the row the user
+        // tapped — _mintSessionUuid is only the fallback.
+        var mintCalls = 0;
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(
+          recentFrequenciesStore: recent,
+          mintSessionUuid: () {
+            mintCalls++;
+            return 'fresh-uuid-should-not-be-used';
+          },
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+
+        await cubit.joinRoom(
+          isHost: true,
+          existingSessionUuid: _testHostSessionUuid,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(mintCalls, 0, reason: 'Resume must not mint a fresh UUID');
+        expect(cubit.state, isA<SessionRoom>());
+        final room = cubit.state as SessionRoom;
+        expect(room.roomFreq, '104.3');
+        // And the re-record carries the same uuid so a subsequent Resume
+        // sees an updated recorded_at but the same identity — the
+        // recents row doesn't fork into a new entry.
+        expect(recent.lastRecordCall!.sessionUuid, _testHostSessionUuid);
+        final detailed = await recent.getRecentDetailed();
+        expect(detailed, hasLength(1));
+        expect(detailed.single.freq, '104.3');
+        expect(detailed.single.sessionUuid, _testHostSessionUuid);
 
         await cubit.close();
       },
@@ -3912,7 +4004,7 @@ class _GatedRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   @override
-  Future<void> record(String freq) async {}
+  Future<void> record(String freq, {String? sessionUuid}) async {}
 
   @override
   Future<void> setNickname(String freq, String? nickname) async {}

@@ -361,13 +361,19 @@ class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver
             unawaited(
               cubit.joinRoom(
                 isHost: result.isHost,
-                // Host path ignores `freq` — the cubit derives it from a
-                // freshly-minted sessionUuid (#39). Pass it through anyway
-                // for the guest path, where it carries the discovered
-                // session's cosmetic mhzDisplay.
+                // Host path ignores `freq` — the cubit derives it from
+                // the sessionUuid (freshly minted, or supplied via
+                // existingSessionUuid on Resume — see #219). Pass it
+                // through anyway for the guest path, where it carries
+                // the discovered session's cosmetic mhzDisplay.
                 freq: result.isHost ? null : result.freq,
                 macAddress: result.macAddress,
                 sessionUuidLow8: result.sessionUuidLow8,
+                // Populated only on Resume — recent-row taps thread the
+                // persisted sessionUuid through so the cubit reuses it
+                // instead of minting a new one (#219). Null on "Start a
+                // new frequency" and on legacy rows that pre-date v4.
+                existingSessionUuid: result.hostSessionUuid,
               ),
             );
           },

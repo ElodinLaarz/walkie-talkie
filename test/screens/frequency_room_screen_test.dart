@@ -974,7 +974,7 @@ class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
   @override
   Future<List<RecentFrequency>> getRecentDetailed() async => const [];
   @override
-  Future<void> record(String freq) async {}
+  Future<void> record(String freq, {String? sessionUuid}) async {}
   @override
   Future<void> setNickname(String freq, String? nickname) async {}
   @override
