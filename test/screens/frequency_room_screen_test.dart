@@ -16,6 +16,7 @@ import 'package:walkie_talkie/services/blocked_peers_store.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
+import 'package:walkie_talkie/widgets/frequency_atoms.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 
 /// MethodChannel name the audio service uses to talk to the native engine.
@@ -292,16 +293,34 @@ void main() {
 
     testWidgets('play/pause flips the transport icon and the Live/Paused badge',
         (tester) async {
-      await tester.pumpWidget(_wrap(_room()));
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
+
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit));
       await tester.pump();
 
-      // Initial: playing → pause icon visible (the transport button shows
-      // "what tapping it will do"), badge says Live.
+      // Land a playing snapshot so there is a real track and liveActive=true.
+      cubit.applyJoinAccepted(JoinAccepted(
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        hostPeerId: 'p-host',
+        roster: const [],
+        mediaState: const MediaState(
+          source: 'YouTube Music',
+          trackIdx: 0,
+          playing: true,
+          positionMs: 0,
+        ),
+      ));
+      await tester.pump();
+
+      // Playing with real track: pause icon visible, badge says Live.
       expect(find.byIcon(Icons.pause), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.text('Live'), findsOneWidget);
 
-      // Tap the play/pause button.
+      // Tap pause — command echoes back through the real cubit's stream.
       await tester.tap(find.byIcon(Icons.pause));
       await tester.pump();
 
@@ -881,6 +900,69 @@ void main() {
           audioCalls.last,
           isMethodCall('setMuted', arguments: {'muted': true}),
         );
+      },
+    );
+
+    // --- NowPlayingCard idle state (issue #223) ---
+
+    testWidgets(
+      'idle state: VuMeter is static and slider/time row are absent '
+      'before any media snapshot lands (#223)',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // No media snapshot → emptyMediaLib (durationSeconds == 0).
+        // The card must show "Paused" (not "Live") and must not render
+        // the Slider or time labels that would show negative numbers.
+        expect(find.text('Paused'), findsOneWidget);
+        expect(find.text('Live'), findsNothing);
+        expect(find.byType(Slider), findsNothing);
+        // 'Nothing playing' is the emptyMediaLib placeholder title.
+        expect(find.text('Nothing playing'), findsOneWidget);
+        // VuMeter must be inactive (static bars) in the idle state.
+        final vuMeter = tester.widget<VuMeter>(find.byType(VuMeter).first);
+        expect(vuMeter.active, false);
+      },
+    );
+
+    testWidgets(
+      'idle → live: slider and time row appear once a playing snapshot lands (#223)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Idle state — no Slider yet, VuMeter inactive.
+        expect(find.byType(Slider), findsNothing);
+        expect(find.text('Live'), findsNothing);
+        expect(tester.widget<VuMeter>(find.byType(VuMeter).first).active, false);
+
+        // Host publishes a playing snapshot.
+        cubit.applyJoinAccepted(JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            source: 'YouTube Music',
+            trackIdx: 0,
+            playing: true,
+            positionMs: 5000,
+          ),
+        ));
+        await tester.pump();
+
+        // Slider and time labels are now visible.
+        expect(find.byType(Slider), findsOneWidget);
+        expect(find.text('Live'), findsOneWidget);
+        // Elapsed time (5 s).
+        expect(find.text('0:05'), findsOneWidget);
+        // VuMeter must now be active (animating bars).
+        expect(tester.widget<VuMeter>(find.byType(VuMeter).first).active, true);
       },
     );
 

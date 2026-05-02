@@ -295,13 +295,28 @@ class VuMeter extends StatefulWidget {
 }
 
 class _VuMeterState extends State<VuMeter> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat();
+  late final AnimationController _ctrl;
 
   static const _heights = [0.40, 0.90, 0.55, 0.75];
   static const _delays = [0.0, 0.167, 0.333, 0.5];
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    if (widget.active) _ctrl.repeat();
+  }
+
+  @override
+  void didUpdateWidget(VuMeter old) {
+    super.didUpdateWidget(old);
+    if (widget.active == old.active) return;
+    if (widget.active) {
+      _ctrl.repeat();
+    } else {
+      _ctrl.stop();
+    }
+  }
 
   @override
   void dispose() {

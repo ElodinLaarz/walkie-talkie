@@ -55,7 +55,7 @@ const MediaSourceLib emptyMediaLib = MediaSourceLib(
   name: '',
   kind: MediaKind.music,
   queue: [
-    Track(title: 'Nothing playing', artist: '—', durationSeconds: 1, tag: ''),
+    Track(title: 'Nothing playing', artist: '—', durationSeconds: 0, tag: ''),
   ],
 );
 
