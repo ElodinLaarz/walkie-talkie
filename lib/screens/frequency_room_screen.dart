@@ -231,6 +231,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                   btDevice: 'Bluetooth',
                 );
               }
+            } else if (_me.btDevice.isNotEmpty) {
+              // Native routed away from Bluetooth (device disconnected or
+              // switched by the system). Clear btDevice so the BT row in
+              // the output picker is shown as disabled.
+              _me = Person(
+                id: _me.id, name: _me.name,
+                initials: _me.initials, hue: _me.hue,
+                btDevice: '',
+              );
             }
           });
         }
