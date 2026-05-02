@@ -17,10 +17,13 @@ Run: python3 scripts/gen_tablet_screenshots.py
 """
 import math
 import os
-from PIL import Image, ImageDraw, ImageFont
+import sys
 
-FONT_BD  = "C:/Windows/Fonts/segoeuib.ttf"
-FONT_REG = "C:/Windows/Fonts/segoeui.ttf"
+# Allow running from the repo root or from the scripts/ directory.
+sys.path.insert(0, os.path.dirname(__file__))
+from _fonts import FONT_BD, FONT_REG  # noqa: E402
+
+from PIL import Image, ImageDraw, ImageFont
 
 BLUE      = (52,  152, 219)
 DARK_BLUE = (26,  109, 174)
@@ -40,8 +43,11 @@ BASE_W = 1080   # phone reference width (for scaling)
 # ── Helpers (all size-aware via the scale parameter) ─────────────────────────
 
 def fnt(size, bold=False, scale=1.0):
-    """Return a Pillow ImageFont scaled to the canvas width."""
-    return ImageFont.truetype(FONT_BD if bold else FONT_REG, max(10, int(size * scale)))
+    """Return a Pillow ImageFont scaled to the canvas width (auto-detected system font)."""
+    path = FONT_BD if bold else FONT_REG
+    if path == "default":
+        return ImageFont.load_default()
+    return ImageFont.truetype(path, max(10, int(size * scale)))
 
 
 def s(value, scale):
