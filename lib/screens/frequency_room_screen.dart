@@ -111,7 +111,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   bool _playing = false;
   int _progress = 0;
   late _LastAction _lastAction;
-  AudioOutput _output = AudioOutput.bluetooth;
+  AudioOutput _output = AudioOutput.speaker;
 
   /// The canonical media source for this session — the `source` string
   /// the protocol uses (`'Podcasts'`, `'YouTube Music'`, etc). Seeded
@@ -210,9 +210,38 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             (e) => e.name == outputStr,
             orElse: () => _output,
           );
-          if (newOutput != _output) {
-            setState(() => _output = newOutput);
-          }
+          setState(() {
+            _output = newOutput;
+            if (newOutput == AudioOutput.bluetooth) {
+              // Record that a BT device is active. Use the name from the event
+              // if provided; otherwise keep the current known name or fall back
+              // to a generic placeholder so the row in the output sheet is
+              // shown as enabled (not greyed-out).
+              final btNameFromEvent = event['btName'] as String?;
+              if (btNameFromEvent != null && btNameFromEvent.isNotEmpty) {
+                _me = Person(
+                  id: _me.id, name: _me.name,
+                  initials: _me.initials, hue: _me.hue,
+                  btDevice: btNameFromEvent,
+                );
+              } else if (_me.btDevice.isEmpty) {
+                _me = Person(
+                  id: _me.id, name: _me.name,
+                  initials: _me.initials, hue: _me.hue,
+                  btDevice: 'Bluetooth',
+                );
+              }
+            } else if (_me.btDevice.isNotEmpty) {
+              // Native routed away from Bluetooth (device disconnected or
+              // switched by the system). Clear btDevice so the BT row in
+              // the output picker is shown as disabled.
+              _me = Person(
+                id: _me.id, name: _me.name,
+                initials: _me.initials, hue: _me.hue,
+                btDevice: '',
+              );
+            }
+          });
         }
       } else if (type == 'leaveRoom') {
         widget.onLeave();
@@ -1111,11 +1140,19 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       if (success) {
         setState(() => _output = picked);
       } else {
-        // If routing failed (e.g., no Bluetooth device available), keep
-        // the current selection and optionally show a toast. For now, we
-        // silently keep the previous output rather than updating the UI
-        // to a non-functional state.
         if (kDebugMode) debugPrint('Failed to route audio to $outputStr, keeping current output');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                picked == AudioOutput.bluetooth
+                    ? 'No Bluetooth device available — connect headphones first'
+                    : "Couldn't switch to ${picked.label}",
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     }
   }
