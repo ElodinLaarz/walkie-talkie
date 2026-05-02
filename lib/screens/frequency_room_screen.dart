@@ -912,7 +912,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 // readers announce "on" when transmitting and "off" when muted.
                 toggled: !_meMuted,
                 label: 'Microphone',
-                button: true,
+                enabled: true,
                 excludeSemantics: true,
                 onTap: () => _setOpenMicMuted(!_meMuted),
                 child: FreqButton(
@@ -920,7 +920,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                   label: _meMuted ? 'Unmute' : 'Mute',
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   fontSize: 13,
-                  labelColor: _meMuted ? FrequencyTheme.of(context).colors.danger : null,
+                  labelColor: _meMuted ? c.danger : null,
                   onPressed: () => _setOpenMicMuted(!_meMuted),
                 ),
               ),
