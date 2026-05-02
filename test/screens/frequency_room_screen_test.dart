@@ -282,6 +282,9 @@ void main() {
             )
             .firstWhere((s) => s.properties.toggled != null);
         expect(semanticsUnmuted.properties.toggled, isTrue);
+        // onTap must be present so screen readers can activate the control
+        // even though excludeSemantics drops the FreqButton child tree.
+        expect(semanticsUnmuted.properties.onTap, isNotNull);
 
         await tester.tap(find.text('Mute'));
         await tester.pump();
@@ -289,13 +292,14 @@ void main() {
         // Muted: still FreqButton, no PrimaryButton.
         expect(find.byType(PrimaryButton), findsNothing);
 
-        // Muted → mic off → toggled=false.
+        // Muted → mic off → toggled=false; tap action still present.
         final semanticsMuted = tester
             .widgetList<Semantics>(
               find.ancestor(of: find.text('Unmute'), matching: find.byType(Semantics)),
             )
             .firstWhere((s) => s.properties.toggled != null);
         expect(semanticsMuted.properties.toggled, isFalse);
+        expect(semanticsMuted.properties.onTap, isNotNull);
       },
     );
 

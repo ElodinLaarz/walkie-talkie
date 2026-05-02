@@ -914,6 +914,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 label: 'Microphone',
                 button: true,
                 excludeSemantics: true,
+                onTap: () => _setOpenMicMuted(!_meMuted),
                 child: FreqButton(
                   icon: _meMuted ? Icons.mic_off : Icons.mic,
                   label: _meMuted ? 'Unmute' : 'Mute',
