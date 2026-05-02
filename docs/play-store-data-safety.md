@@ -65,7 +65,12 @@ The app stores no user data on any server. To delete all local data:
 
 Or simply uninstall the app.
 
-For the **"Account and data deletion" URL** Play Console requires: link to the
-in-app Settings screen → "Clear local data" action, or point to this document
-with the instructions above. Suggested URL: your GitHub Pages privacy-policy
-page (already filed under [docs/privacy-policy.md](privacy-policy.md)).
+For the **"Account and data deletion" URL** Play Console requires, use:
+
+```
+https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion
+```
+
+This anchors directly to the Data Retention and Deletion section of the public
+privacy policy, which explains that uninstalling the app removes all local data
+and that there is no server-side account to delete.

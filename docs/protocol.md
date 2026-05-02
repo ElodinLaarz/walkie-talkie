@@ -1,3 +1,9 @@
+---
+layout: page
+title: Wire Protocol
+permalink: /protocol/
+---
+
 # Frequency Wire Protocol — v1
 
 This document defines the wire protocol that Frequency phones use to discover
