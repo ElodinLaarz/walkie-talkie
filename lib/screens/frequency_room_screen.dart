@@ -518,7 +518,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
             final nextSource = cmd.source;
-            final nextIdx = cmd.trackIdx!;
+            // Clamp wire input to prevent negative indexing or huge placeholder
+            // allocations from a malformed or future peer.
+            const maxPlaceholderTracks = 500;
+            final nextIdx = cmd.trackIdx!.clamp(0, maxPlaceholderTracks - 1);
             // When the host switches source, rebuild the placeholder lib for
             // the new source; otherwise grow the existing one if the incoming
             // trackIdx exceeds the current queue length (Copilot review #153).
@@ -1112,8 +1115,32 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _showSourceSheet();
               }
             : null,
+        // Only show "Open in app" when the source has a known deep-link URI
+        // and the lib name is already set (hides button before the first
+        // host snapshot populates lib.name from emptyMediaLib's '').
+        onOpenInSource: widget.isHost &&
+                _lib.name.isNotEmpty &&
+                MediaSourceExtension.fromWireKey(_source).appUri != null
+            ? () {
+                Navigator.pop(ctx);
+                _openSourceApp();
+              }
+            : null,
       ),
     );
+  }
+
+  Future<void> _openSourceApp() async {
+    final source = MediaSourceExtension.fromWireKey(_source);
+    final launched = await launchSourceApp(source);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open ${source.label}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _showInviteSheet() async {
