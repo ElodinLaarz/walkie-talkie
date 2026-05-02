@@ -275,14 +275,13 @@ void main() {
         // Unmuted: the mute control is FreqButton, not PrimaryButton.
         expect(find.byType(PrimaryButton), findsNothing);
 
-        // The closest Semantics ancestor of the button label carries the
-        // toggled flag so screen readers announce the on/off state.
+        // toggled=true means "microphone is active/on"; unmuted → toggled=true.
         final semanticsUnmuted = tester
             .widgetList<Semantics>(
               find.ancestor(of: find.text('Mute'), matching: find.byType(Semantics)),
             )
             .firstWhere((s) => s.properties.toggled != null);
-        expect(semanticsUnmuted.properties.toggled, isFalse);
+        expect(semanticsUnmuted.properties.toggled, isTrue);
 
         await tester.tap(find.text('Mute'));
         await tester.pump();
@@ -290,12 +289,13 @@ void main() {
         // Muted: still FreqButton, no PrimaryButton.
         expect(find.byType(PrimaryButton), findsNothing);
 
+        // Muted → mic off → toggled=false.
         final semanticsMuted = tester
             .widgetList<Semantics>(
               find.ancestor(of: find.text('Unmute'), matching: find.byType(Semantics)),
             )
             .firstWhere((s) => s.properties.toggled != null);
-        expect(semanticsMuted.properties.toggled, isTrue);
+        expect(semanticsMuted.properties.toggled, isFalse);
       },
     );
 

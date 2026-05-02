@@ -907,24 +907,21 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           else
             SizedBox(
               width: 102,
-              child: Builder(
-                builder: (context) {
-                  final c = FrequencyTheme.of(context).colors;
-                  return Semantics(
-                    toggled: _meMuted,
-                    label: 'Microphone',
-                    button: true,
-                    excludeSemantics: true,
-                    child: FreqButton(
-                      icon: _meMuted ? Icons.mic_off : Icons.mic,
-                      label: _meMuted ? 'Unmute' : 'Mute',
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      fontSize: 13,
-                      labelColor: _meMuted ? c.danger : null,
-                      onPressed: () => _setOpenMicMuted(!_meMuted),
-                    ),
-                  );
-                },
+              child: Semantics(
+                // toggled=true means "microphone is on/active" so screen
+                // readers announce "on" when transmitting and "off" when muted.
+                toggled: !_meMuted,
+                label: 'Microphone',
+                button: true,
+                excludeSemantics: true,
+                child: FreqButton(
+                  icon: _meMuted ? Icons.mic_off : Icons.mic,
+                  label: _meMuted ? 'Unmute' : 'Mute',
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  fontSize: 13,
+                  labelColor: _meMuted ? FrequencyTheme.of(context).colors.danger : null,
+                  onPressed: () => _setOpenMicMuted(!_meMuted),
+                ),
               ),
             ),
         ],
