@@ -1,0 +1,81 @@
+name: Play Store — Deploy to Internal Track
+
+# Triggered automatically after the release build succeeds on a version tag,
+# or manually via workflow_dispatch (e.g. to re-submit an existing artifact).
+#
+# The job is a no-op when PLAY_STORE_JSON_KEY_BASE64 is not set, so it is
+# safe to land before the Play Console service-account key is wired up.
+on:
+  workflow_run:
+    workflows: ["Release Build"]
+    types: [completed]
+
+  # Manual trigger: supply the run ID of a successful "Release Build" run to
+  # fetch its AAB artifact, or leave RELEASE_RUN_ID blank to skip the upload.
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: "GitHub Actions run ID of the Release Build to deploy"
+        required: false
+
+jobs:
+  deploy:
+    name: Upload AAB to Play Store internal track
+    # Only run when the upstream release build succeeded (auto-trigger path).
+    # The workflow_dispatch path always runs so operators can re-trigger.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read    # needed to download artifacts from another run
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Determine source run ID
+        id: run_id
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "id=${{ github.event.inputs.release_run_id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download signed AAB from release build
+        if: steps.run_id.outputs.id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: release-aab
+          run-id: ${{ steps.run_id.outputs.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: aab
+
+      - name: Decode Play Store service-account key
+        env:
+          PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
+        run: |
+          if [ -z "$PLAY_STORE_JSON_KEY_BASE64" ]; then
+            echo "PLAY_STORE_JSON_KEY_BASE64 secret not set — skipping deploy"
+            exit 0
+          fi
+          echo "$PLAY_STORE_JSON_KEY_BASE64" | base64 -d > "${{ runner.temp }}/play-store-key.json"
+          echo "PLAY_STORE_JSON_KEY_PATH=${{ runner.temp }}/play-store-key.json" >> "$GITHUB_ENV"
+
+      - name: Deploy AAB to internal track via fastlane supply
+        if: >
+          env.PLAY_STORE_JSON_KEY_PATH != '' &&
+          steps.run_id.outputs.id != ''
+        env:
+          AAB_PATH: aab/app-release.aab
+        run: bundle exec fastlane android deploy_internal
+
+      - name: Clean up key
+        if: always()
+        run: rm -f "${{ runner.temp }}/play-store-key.json"
