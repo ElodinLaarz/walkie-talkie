@@ -31,14 +31,17 @@ os.makedirs(OUT, exist_ok=True)
 
 
 def fnt(size, bold=False):
+    """Return a Pillow ImageFont at the given point size (Segoe UI bold or regular)."""
     return ImageFont.truetype(FONT_BD if bold else FONT_REG, size)
 
 
 def rounded_rect(draw, xy, r, fill=None, outline=None, width=1):
+    """Draw a rounded rectangle; thin wrapper around draw.rounded_rectangle."""
     draw.rounded_rectangle(xy, radius=r, fill=fill, outline=outline, width=width)
 
 
 def status_bar(draw, y=0, h=80):
+    """Draw a blue Android-style status bar with time, signal bars, and battery icon."""
     draw.rectangle([0, y, W, y + h], fill=BLUE)
     draw.text((50, y + (h - 34) // 2 + 2), "9:41", font=fnt(34, True), fill=WHITE)
     bx, by = W - 130, y + h // 2 - 14
@@ -51,6 +54,7 @@ def status_bar(draw, y=0, h=80):
 
 
 def nav_bar(draw):
+    """Draw the Android three-button navigation bar at the bottom of the canvas."""
     draw.rectangle([0, H - 100, W, H], fill=(240, 240, 240))
     for i, ic in enumerate(["<", "O", "[]"]):
         nx = W // 4 * (i + 1)
@@ -58,6 +62,7 @@ def nav_bar(draw):
 
 
 def avatar(draw, cx, cy, r, color, initials):
+    """Draw a circular avatar chip at (cx, cy) with radius r, background color, and two-letter initials."""
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
     f = fnt(r, True)
     tw = draw.textlength(initials, font=f)
@@ -68,6 +73,7 @@ def avatar(draw, cx, cy, r, color, initials):
 # Screenshot 1 — Discovery
 # ──────────────────────────────────────────────────────────────
 def make_discovery():
+    """Render the Discovery screen mockup and save to phoneScreenshots/1.png."""
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
@@ -128,6 +134,7 @@ def make_discovery():
 # Screenshot 2 — Room
 # ──────────────────────────────────────────────────────────────
 def make_room():
+    """Render the Frequency Room screen mockup and save to phoneScreenshots/2.png."""
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
@@ -197,6 +204,7 @@ def make_room():
 # Screenshot 3 — Settings
 # ──────────────────────────────────────────────────────────────
 def make_settings():
+    """Render the Settings screen mockup and save to phoneScreenshots/3.png."""
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
@@ -206,11 +214,13 @@ def make_settings():
     y = 192
 
     def sec_hdr(y, title):
+        """Draw a grey section-header band with an all-caps label; returns the new y position."""
         d.rectangle([0, y, W, y + 72], fill=(240, 244, 248))
         d.text((54, y + 22), title, font=fnt(30, True), fill=TEXT2)
         return y + 72
 
     def toggle_row(y, title, subtitle, on=True, rh=148):
+        """Draw a settings row with a title, optional subtitle, and a Material-style toggle; returns the new y position."""
         d.rectangle([0, y, W, y + rh], fill=CARD_BG)
         d.line([54, y + rh - 1, W - 54, y + rh - 1], fill=DIVIDER)
         d.text((54, y + 26), title, font=fnt(38, True), fill=TEXT1)
@@ -224,6 +234,7 @@ def make_settings():
         return y + rh
 
     def link_row(y, title, rh=110):
+        """Draw a settings row that acts as a navigation link (with a trailing chevron); returns the new y position."""
         d.rectangle([0, y, W, y + rh], fill=CARD_BG)
         d.line([54, y + rh - 1, W - 54, y + rh - 1], fill=DIVIDER)
         d.text((54, y + (rh - 38) // 2), title, font=fnt(38), fill=TEXT1)
