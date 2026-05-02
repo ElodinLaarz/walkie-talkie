@@ -882,7 +882,15 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       newHostPeerId: newHostPeerId,
       sessionUuid: sessionUuid,
     );
-    await t.send(msg);
+    // Best-effort: a closing BLE link may throw here. Swallow the error so
+    // leaveRoom() teardown always proceeds — the promoted peer will fall back
+    // to Discovery if it never receives the message.
+    try {
+      await t.send(msg);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('HostTransfer send failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+    }
     // Brief hold so the BLE write completes before the GATT server shuts down.
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
