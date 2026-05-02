@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/frequency_session_cubit.dart';
@@ -971,10 +972,83 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               title: '${person.name} was removed',
             ));
           },
+          onReport: () => _reportPeer(ctx, person),
         );
       },
     );
   }
+
+  Future<void> _reportPeer(BuildContext drawerCtx, Person person) async {
+    // Defensive guard: if _myPeerId failed to resolve, the local peer can leak
+    // into the visible roster (the filter at the cubit-state branch skips
+    // null), letting the user open their own drawer and self-block. Bail
+    // without mutating mute or block state.
+    if (person.id == _me.id || person.id == _myPeerId) {
+      Navigator.pop(drawerCtx);
+      return;
+    }
+    // Sanitize the display name once for every UI surface so a malicious peer
+    // cannot inject newlines or zero-width chars into toasts / dialog titles.
+    final safeName = _sanitizeField(person.name);
+    // Capture prior mute state so we can revert accurately on failure without
+    // accidentally unmuting a peer that was already muted before the report.
+    final wasMuted = _peerMuted.contains(person.id);
+    // Optimistically update in-memory mute state so the room UI responds
+    // immediately; we revert below if the DB write fails.
+    setState(() {
+      _peerMuted.add(person.id);
+    });
+    Navigator.pop(drawerCtx);
+
+    bool blocked = false;
+    try {
+      await _blockedPeersStore.block(person.id);
+      blocked = true;
+    } catch (_) {
+      // Persistence failed — revert the optimistic change only if the peer
+      // was not already muted before this report action.
+      if (mounted && !wasMuted) setState(() => _peerMuted.remove(person.id));
+    }
+
+    if (!mounted) return;
+
+    if (blocked) {
+      FrequencyToastHost.of(context).push(FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: '$safeName blocked',
+      ));
+      final report = _buildSanitizedReport(person);
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => _ReportSentDialog(
+          peerName: safeName,
+          reportText: report,
+        ),
+      );
+    } else {
+      FrequencyToastHost.of(context).push(FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: 'Could not block $safeName — try again',
+      ));
+    }
+  }
+
+  String _buildSanitizedReport(Person person) {
+    final timestamp = DateTime.now().toUtc().toIso8601String();
+    return 'Walkie Talkie abuse report\n'
+        'Time (UTC): $timestamp\n'
+        'Frequency: ${_sanitizeField(widget.freq)}\n'
+        'Peer display name: ${_sanitizeField(person.name)}\n'
+        'Peer BLE device: ${_sanitizeField(person.btDevice)}\n';
+  }
+
+  // Strip control characters and Unicode line separators from user-controlled
+  // strings so a malicious peer name or device name cannot inject extra lines
+  // into the report (covers ASCII C0/C1 control chars and U+2028/U+2029).
+  static String _sanitizeField(String s) => s
+      .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]'), ' ')
+      .replaceAll(RegExp(r' +'), ' ')
+      .trim();
 
   Future<void> _showQueueSheet() async {
     final c = FrequencyTheme.of(context).colors;
@@ -1047,6 +1121,90 @@ class _LastAction {
   final String action;
   final String when;
   const _LastAction({required this.by, required this.action, required this.when});
+}
+
+class _ReportSentDialog extends StatefulWidget {
+  final String peerName;
+  final String reportText;
+
+  const _ReportSentDialog({required this.peerName, required this.reportText});
+
+  @override
+  State<_ReportSentDialog> createState() => _ReportSentDialogState();
+}
+
+class _ReportSentDialogState extends State<_ReportSentDialog> {
+  bool _copied = false;
+  Timer? _copiedResetTimer;
+
+  @override
+  void dispose() {
+    _copiedResetTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // scrollable: true wraps the content in a SingleChildScrollView so a long
+    // peer / device name or large accessibility text scale doesn't overflow
+    // on small screens.
+    return AlertDialog(
+      scrollable: true,
+      title: Text('${widget.peerName} blocked'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'They have been muted and blocked. To report this incident to support, copy the report below and email it to support@elodin.app.',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SelectableText(
+              widget.reportText,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Dismiss'),
+        ),
+        FilledButton.icon(
+          icon: Icon(_copied ? Icons.check : Icons.copy),
+          label: Text(_copied ? 'Copied' : 'Copy report'),
+          onPressed: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              await Clipboard.setData(ClipboardData(text: widget.reportText));
+              if (!mounted) return;
+              setState(() => _copied = true);
+              // Revert the label so the user can copy again — the "Copied"
+              // state is feedback, not a permanent disable.
+              _copiedResetTimer?.cancel();
+              _copiedResetTimer = Timer(const Duration(seconds: 2), () {
+                if (mounted) setState(() => _copied = false);
+              });
+            } catch (_) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Could not copy to clipboard')),
+                );
+              }
+            }
+          },
+        ),
+      ],
+    );
+  }
 }
 
 
