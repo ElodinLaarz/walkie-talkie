@@ -27,15 +27,16 @@ Design used:
 File names: `phoneScreenshots/1.png`, `2.png`, `3.png`
 Required size: Between 320 px and 3840 px on the longest side; aspect ratio 16:9 or 9:16 recommended.
 
-**Status: not yet captured.** Place screenshots here once captured, then run
-`bundle exec fastlane android upload_images` to push them.
+**Status: committed** — three 1080x1920 mockups generated from `scripts/gen_screenshots.py`.
+Upload with `bundle exec fastlane android upload_images`.
 
-Suggested shots (capture on a Pixel 8 or similar at 1080x2400):
-1. **Discovery screen** — showing 2-3 nearby frequency rows with the radar animation.
-2. **Frequency room** — showing the central dial, 2 peer chips with talking rings, and the PTT button.
-3. **Settings screen** — showing the PTT mode toggle and About section.
+Screenshots:
+1. **Discovery screen** (`1.png`) — nearby frequency rows with radar animation, "Tune in" buttons, and "Start a new Frequency" card.
+2. **Frequency room** (`2.png`) — 98.7 MHz dial, two peer chips orbiting it, PTT and Mute buttons.
+3. **Settings screen** (`3.png`) — Voice/Display/Privacy/About sections with toggles and links.
 
-To capture: `adb exec-out screencap -p > phoneScreenshots/1.png` (repeat for each screen).
+To replace with real device captures:
+`adb exec-out screencap -p > phoneScreenshots/1.png` (repeat for each screen).
 
 ## 7-inch tablet screenshots (recommended)
 
