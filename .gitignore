@@ -63,8 +63,9 @@ key.properties
 
 # Play Store service-account key (fastlane/Appfile fallback path).
 # Never commit a real service-account key — store it as a base64-encoded
-# GitHub Secret (PLAY_STORE_JSON_KEY_BASE64) and decode it at runtime.
-play-store-credentials.json
+# GitHub Secret and decode it to play-store-credentials.json at runtime.
+# Wildcard also covers env-specific variants (e.g. play-store-credentials-dev.json).
+play-store-credentials*.json
 
 # iOS/XCode related
 **/ios/**/*.mode1v3
