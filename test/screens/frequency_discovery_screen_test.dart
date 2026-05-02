@@ -216,7 +216,7 @@ void main() {
           // All values must end in exactly one decimal digit (0.1 MHz precision).
           expect(picked!.freq, matches(r'^\d+\.\d$'),
               reason: 'freq ${picked!.freq} lacks single-decimal precision');
-          if (!picked.freq.endsWith('.1')) sawNonDotOne = true;
+          if (!picked!.freq.endsWith('.1')) sawNonDotOne = true;
         }
 
         // Regression guard: old 20-bucket logic always produced `*.1`.
