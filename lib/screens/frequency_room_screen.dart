@@ -171,6 +171,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // startVoice resolves — without it, the trailing calls would land after
     // dispose has fired stopVoice and tell a torn-down engine to change state.
     final cubit = context.read<FrequencySessionCubit>();
+    // Seed _myPeerId from the cubit's already-cached localPeerId so the
+    // roster filter is correct from frame 1, eliminating the flash where
+    // the local user briefly appears as a peer (issue #222).
+    _myPeerId = cubit.localPeerId;
     unawaited(() async {
       final serviceStarted = await _audio.startService(freq: widget.freq);
       if (!mounted || !serviceStarted) return;
@@ -266,9 +270,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     try {
       final peerId = await context.read<FrequencySessionCubit>().identityStore.getPeerId();
       if (!mounted) return;
-      // Stored without setState — the field only affects attribution in
-      // the next [_onMediaCommand], which sets state itself.
-      _myPeerId = peerId;
+      // setState so the roster filter re-renders with the resolved id.
+      // In practice _myPeerId was already seeded synchronously from the
+      // cubit in initState, so this is a no-op except when bootstrap
+      // hasn't completed yet (e.g. in tests that construct the screen
+      // before the cubit finishes bootstrapping).
+      setState(() => _myPeerId = peerId);
     } catch (_) {
       // Identity store failure is non-fatal here: if this one-time read
       // fails, attribution falls back to "remote sender" for this

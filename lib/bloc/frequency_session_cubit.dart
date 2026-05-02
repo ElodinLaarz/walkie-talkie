@@ -200,6 +200,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   @visibleForTesting
   int get debugSeq => _seq;
 
+  /// The local peer's stable id, cached during [bootstrap]. Non-null after
+  /// bootstrap completes; screens can read this synchronously to avoid an
+  /// extra round-trip to the identity store.
+  String? get localPeerId => _localPeerId;
+
   /// Full session UUID for the current room. Set on the host path by
   /// [joinRoom] and on the guest path by [_promoteToHost]. Used by
   /// [_initiateHostTransfer] to tell the promoted peer what UUID to advertise.
