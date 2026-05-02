@@ -461,6 +461,7 @@ void main() {
           LinkQuality() => 'link_quality',
           BitrateHint() => 'bitrate_hint',
           Heartbeat() => 'ping',
+          HostTransfer() => 'host_transfer',
         };
 
     test('every kind has a branch', () {
