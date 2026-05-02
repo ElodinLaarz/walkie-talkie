@@ -184,6 +184,51 @@ void main() {
     });
 
     testWidgets(
+      'preview freq is in the full FM range [88.0, 107.9] and has .1 precision',
+      (tester) async {
+        // Range bounds match FrequencySession.randomMhzDisplay.
+        const minFreq = 88.0;
+        const maxFreq = 107.9;
+        var sawNonDotOne = false;
+
+        // Use a unique ValueKey per iteration so each pumpWidget call triggers
+        // a fresh State and a new initState() / _newFreq draw from the RNG.
+        for (var i = 0; i < 20; i++) {
+          DiscoveryResult? picked;
+          await tester.pumpWidget(_wrap(
+            FrequencyDiscoveryScreen(
+              key: ValueKey(i),
+              myName: 'Maya',
+              onPick: (r) => picked = r,
+              onRename: (_) {},
+            ),
+          ));
+          await tester.pump();
+          await tester.tap(find.text('Start a new Frequency'));
+          await tester.pump();
+
+          expect(picked, isNotNull);
+          final freq = double.parse(picked!.freq);
+          expect(freq, greaterThanOrEqualTo(minFreq),
+              reason: 'freq $freq below $minFreq');
+          expect(freq, lessThanOrEqualTo(maxFreq),
+              reason: 'freq $freq above $maxFreq');
+          // All values must end in exactly one decimal digit (0.1 MHz precision).
+          expect(picked!.freq, matches(r'^\d+\.\d$'),
+              reason: 'freq ${picked!.freq} lacks single-decimal precision');
+          if (!picked!.freq.endsWith('.1')) sawNonDotOne = true;
+        }
+
+        // Regression guard: old 20-bucket logic always produced `*.1`.
+        // With 200 buckets, 90% of values don't end in .1, so 20 draws almost
+        // certainly include at least one non-.1 value.
+        expect(sawNonDotOne, isTrue,
+            reason:
+                'all samples ended in .1 — old 20-bucket logic may have regressed');
+      },
+    );
+
+    testWidgets(
       'omits the Recent section when there are no persisted frequencies',
       (tester) async {
         await tester.pumpWidget(_wrap(

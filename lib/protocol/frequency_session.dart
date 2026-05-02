@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Identity of a single frequency room.
 ///
 /// `sessionUuid` is canonical and used for all routing decisions. The
@@ -29,6 +31,15 @@ class FrequencySession {
       n >>= 5;
     }
     return out.toString();
+  }
+
+  /// Returns a random display frequency in [88.0, 107.9] MHz using the same
+  /// 200-bucket arithmetic as [mhzDisplay], so preview UIs stay in sync with
+  /// the real range without duplicating the formula.
+  static String randomMhzDisplay(math.Random rnd) {
+    const baseTenths = 880;
+    const buckets = 200;
+    return ((baseTenths + rnd.nextInt(buckets)) / 10.0).toStringAsFixed(1);
   }
 
   static const _codeAlphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

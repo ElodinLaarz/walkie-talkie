@@ -9,6 +9,7 @@ import '../bloc/discovery_state.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../l10n/styled_template.dart';
 import '../protocol/discovery.dart';
+import '../protocol/frequency_session.dart';
 import '../services/recent_frequencies_store.dart';
 import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
@@ -117,13 +118,11 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   DiscoveryCubit? _cubit;
 
   late final String _newFreq;
-  static const _freqRng = 20;
 
   @override
   void initState() {
     super.initState();
-    final rnd = Random();
-    _newFreq = (88 + rnd.nextInt(_freqRng) + 0.1).toStringAsFixed(1);
+    _newFreq = FrequencySession.randomMhzDisplay(Random());
     
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
