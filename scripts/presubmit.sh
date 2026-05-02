@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+echo "Validating Play Store metadata character limits..."
+bash "$(dirname "$0")/validate_store_metadata.sh"
+
 echo "Running formatting checks..."
 dart format --output=none --set-exit-if-changed .
 
