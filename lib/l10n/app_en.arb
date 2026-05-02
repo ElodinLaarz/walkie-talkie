@@ -293,6 +293,26 @@
     "@discoveryRecentMenuUnpin": {
         "description": "Item in the per-row Recent overflow menu when the row is currently pinned — removes the pin and re-subjects the row to the rolling cap."
     },
+    "discoveryRecentMenuDelete": "Delete",
+    "@discoveryRecentMenuDelete": {
+        "description": "Item in the per-row Recent overflow menu — removes this row from the local history permanently."
+    },
+    "discoveryRecentDeletePinnedTitle": "Delete pinned channel?",
+    "@discoveryRecentDeletePinnedTitle": {
+        "description": "Title of the confirmation dialog shown before deleting a pinned recent row, warning the user they are about to remove a curated entry."
+    },
+    "discoveryRecentDeletePinnedBody": "This channel is pinned. Deleting it will remove it from your history permanently.",
+    "@discoveryRecentDeletePinnedBody": {
+        "description": "Body text of the confirmation dialog shown before deleting a pinned recent row."
+    },
+    "discoveryRecentDeleteConfirm": "Delete",
+    "@discoveryRecentDeleteConfirm": {
+        "description": "Confirm button label in the delete-pinned-channel dialog."
+    },
+    "discoveryRecentDeleteCancel": "Cancel",
+    "@discoveryRecentDeleteCancel": {
+        "description": "Cancel button label in the delete-pinned-channel dialog."
+    },
     "discoveryRecentPinnedBadge": "PINNED",
     "@discoveryRecentPinnedBadge": {
         "description": "Small all-caps eyebrow shown next to the title of a pinned recent row — a redundant cue alongside the pin glyph in the row's icon disc."

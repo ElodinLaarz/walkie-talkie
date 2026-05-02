@@ -160,6 +160,12 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   @override
+  Future<void> delete(String freq) async {
+    final trimmed = freq.trim();
+    _rows.removeWhere((r) => r.entry.freq == trimmed);
+  }
+
+  @override
   Future<void> clear() async => _rows.clear();
 }
 

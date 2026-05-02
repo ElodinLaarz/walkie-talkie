@@ -1099,6 +1099,8 @@ class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
   @override
   Future<void> setPinned(String freq, bool pinned) async {}
   @override
+  Future<void> delete(String freq) async {}
+  @override
   Future<void> clear() async {}
 }
 

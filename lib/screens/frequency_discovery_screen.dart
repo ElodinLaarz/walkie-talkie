@@ -99,6 +99,10 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   /// to the top of the list and are exempt from the cap.
   final void Function(String freq, bool pinned)? onSetRecentPinned;
 
+  /// Deletes a single recent frequency from the persisted list. The row
+  /// disappears from the UI immediately on success.
+  final void Function(String freq)? onDeleteRecent;
+
   const FrequencyDiscoveryScreen({
     super.key,
     required this.onPick,
@@ -107,6 +111,7 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
     this.recentHostedFrequencies = const [],
     this.onSetRecentNickname,
     this.onSetRecentPinned,
+    this.onDeleteRecent,
   });
 
   @override
@@ -437,6 +442,11 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                         widget.recentHostedFrequencies[i].freq,
                         !widget.recentHostedFrequencies[i].pinned,
                       ),
+              onDelete: widget.onDeleteRecent == null
+                  ? null
+                  : () => _confirmAndDeleteRecent(
+                        widget.recentHostedFrequencies[i],
+                      ),
             ),
         ],
       ),
@@ -462,6 +472,36 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     final cb = widget.onSetRecentNickname;
     if (cb == null) return;
     cb(entry.freq, result.nickname);
+  }
+
+  /// Deletes [entry] from the persisted recents. Pinned rows show a
+  /// confirmation dialog first so the user can't fat-finger away a
+  /// curated entry — unpinned rows are removed immediately.
+  Future<void> _confirmAndDeleteRecent(RecentFrequency entry) async {
+    final cb = widget.onDeleteRecent;
+    if (cb == null) return;
+    if (entry.pinned) {
+      final l10n = AppLocalizations.of(context);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(l10n.discoveryRecentDeletePinnedTitle),
+          content: Text(l10n.discoveryRecentDeletePinnedBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.discoveryRecentDeleteCancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(l10n.discoveryRecentDeleteConfirm),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    cb(entry.freq);
   }
 
   Widget _buildNearbyList(BuildContext context) {
@@ -705,6 +745,7 @@ class _RecentRow extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback? onRename;
   final VoidCallback? onTogglePin;
+  final VoidCallback? onDelete;
 
   const _RecentRow({
     super.key,
@@ -715,13 +756,14 @@ class _RecentRow extends StatelessWidget {
     required this.onResume,
     this.onRename,
     this.onTogglePin,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
     final l10n = AppLocalizations.of(context);
-    final hasMenu = onRename != null || onTogglePin != null;
+    final hasMenu = onRename != null || onTogglePin != null || onDelete != null;
     final title = entry.nickname ?? l10n.discoveryRecentRowTitle;
     return Material(
       color: c.surface,
@@ -809,6 +851,7 @@ class _RecentRow extends StatelessWidget {
                   pinned: entry.pinned,
                   onRename: onRename,
                   onTogglePin: onTogglePin,
+                  onDelete: onDelete,
                 ),
               ],
               const SizedBox(width: 4),
@@ -865,11 +908,13 @@ class _RecentRowMenu extends StatelessWidget {
   final bool pinned;
   final VoidCallback? onRename;
   final VoidCallback? onTogglePin;
+  final VoidCallback? onDelete;
 
   const _RecentRowMenu({
     required this.pinned,
     required this.onRename,
     required this.onTogglePin,
+    required this.onDelete,
   });
 
   @override
@@ -894,6 +939,11 @@ class _RecentRowMenu extends StatelessWidget {
                   : l10n.discoveryRecentMenuPin,
             ),
           ),
+        if (onDelete != null)
+          PopupMenuItem<_RecentRowMenuAction>(
+            value: _RecentRowMenuAction.delete,
+            child: Text(l10n.discoveryRecentMenuDelete),
+          ),
       ],
       onSelected: (action) {
         switch (action) {
@@ -901,13 +951,15 @@ class _RecentRowMenu extends StatelessWidget {
             onRename?.call();
           case _RecentRowMenuAction.togglePin:
             onTogglePin?.call();
+          case _RecentRowMenuAction.delete:
+            onDelete?.call();
         }
       },
     );
   }
 }
 
-enum _RecentRowMenuAction { rename, togglePin }
+enum _RecentRowMenuAction { rename, togglePin, delete }
 
 /// Result of [_RecentNicknameSheet]'s submission. Wrapped in a class
 /// rather than passing a bare `String?` because a null pop value already
