@@ -43,10 +43,24 @@ To replace with real device captures:
 File names: `sevenInchScreenshots/1.png`, `2.png`
 Play Console recommends at least 2 even if the app is phone-only.
 
-**Status: not yet captured.**
+**Status: committed** — two 1200x1920 mockups generated from `scripts/gen_tablet_screenshots.py`.
+
+Screenshots:
+1. **Discovery screen** (`1.png`) — nearby frequency rows with radar, Tune-in buttons, Start card.
+2. **Frequency room** (`2.png`) — 98.7 MHz dial, two peer chips orbiting, PTT and Mute buttons.
+
+To replace with real device captures:
+`adb exec-out screencap -p > sevenInchScreenshots/1.png`
 
 ## 10-inch tablet screenshots (recommended)
 
 File names: `tenInchScreenshots/1.png`, `2.png`
 
-**Status: not yet captured.**
+**Status: committed** — two 1600x2560 mockups generated from `scripts/gen_tablet_screenshots.py`.
+
+Screenshots:
+1. **Discovery screen** (`1.png`) — same layout as 7-inch at higher density.
+2. **Frequency room** (`2.png`) — same layout as 7-inch at higher density.
+
+To replace with real device captures:
+`adb exec-out screencap -p > tenInchScreenshots/1.png`
