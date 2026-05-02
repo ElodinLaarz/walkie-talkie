@@ -373,14 +373,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     final clampedIdx = trackIdx < 0 ? 0 : trackIdx;
     final placeholderDurationSec =
         positionSec * 2 < 60 ? 60 : positionSec * 2;
+    // Use the human-readable display label for MediaSourceLib.name so UI
+    // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
+    // showing raw wire keys like "spotify" or "pocket_casts".
+    final displayName = MediaSourceExtension.fromWireKey(source).label;
     return MediaSourceLib(
-      name: source,
+      name: displayName,
       kind: emptyMediaLib.kind,
       queue: [
         for (var i = 0; i <= clampedIdx; i++)
           Track(
             title: 'Track ${i + 1}',
-            artist: source,
+            artist: displayName,
             durationSeconds: placeholderDurationSec,
             tag: '',
           ),
