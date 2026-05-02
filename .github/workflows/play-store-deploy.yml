@@ -60,6 +60,11 @@ jobs:
               HEAD_SHA=$(gh api \
                 "repos/${{ github.repository }}/actions/runs/${RUN_ID}" \
                 --jq '.head_sha')
+              if [ -z "$HEAD_SHA" ] || [ "$HEAD_SHA" = "null" ]; then
+                echo "::error::Could not resolve head_sha for run ${RUN_ID}." \
+                     "Verify the run ID is correct and GITHUB_TOKEN has actions:read access."
+                exit 1
+              fi
             else
               RUN_ID=""
               HEAD_SHA="${{ github.sha }}"
@@ -92,6 +97,7 @@ jobs:
           path: aab
 
       - name: Decode Play Store service-account key
+        if: steps.source.outputs.run_id != ''
         env:
           PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
         run: |
