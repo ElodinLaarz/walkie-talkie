@@ -677,7 +677,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     NowPlayingCard(
                       track: _track,
                       source: source,
-                      isPodcast: _source == 'Podcasts',
+                      isPodcast: MediaSourceExtension.fromWireKey(_source).isPodcast,
                       playing: _playing,
                       progress: _progress,
                       lastActionBy: _lastAction.by,

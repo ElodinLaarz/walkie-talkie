@@ -43,6 +43,12 @@ extension MediaSourceExtension on MediaSource {
         MediaSource.pocketCasts => 'Podcast episodes',
       };
 
+  bool get isPodcast => switch (this) {
+        MediaSource.podcasts => true,
+        MediaSource.pocketCasts => true,
+        _ => false,
+      };
+
   static MediaSource fromWireKey(String key) {
     for (final s in MediaSource.values) {
       if (s.wireKey == key) return s;
@@ -95,7 +101,7 @@ class MediaSourceSheet extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Switch what everyone in the room hears',
+                      'Change the shared media source for this room',
                       style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
                     ),
                   ],
@@ -151,6 +157,7 @@ class _SourceRow extends StatelessWidget {
       label: source.label,
       hint: source.subtitle,
       excludeSemantics: true,
+      onTap: () => Navigator.pop(context, source.wireKey),
       child: Material(
         color: selected ? c.surface2 : c.surface,
         child: InkWell(
