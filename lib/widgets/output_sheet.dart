@@ -19,7 +19,9 @@ extension AudioOutputExtension on AudioOutput {
       };
 
   String subFor(String bt) => switch (this) {
-        AudioOutput.bluetooth => bt.isEmpty ? 'Paired headphones' : bt,
+        AudioOutput.bluetooth => bt.isEmpty
+            ? 'No headphones connected — pair in system Bluetooth settings'
+            : bt,
         AudioOutput.earpiece => 'Private, held to ear',
         AudioOutput.speaker => 'Loud · everyone nearby hears',
       };
@@ -131,16 +133,20 @@ class _OutputRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final btUnavailable = output == AudioOutput.bluetooth && btName.isEmpty;
     return Semantics(
-      button: true,
-      selected: selected,
+      button: !btUnavailable,
+      enabled: !btUnavailable,
+      selected: selected && !btUnavailable,
       label: output.label,
       hint: output.subFor(btName),
       excludeSemantics: true,
-      child: Material(
-        color: selected ? c.surface2 : c.surface,
+      child: Opacity(
+        opacity: btUnavailable ? 0.45 : 1.0,
+        child: Material(
+        color: selected && !btUnavailable ? c.surface2 : c.surface,
         child: InkWell(
-          onTap: () => Navigator.pop(context, output),
+          onTap: btUnavailable ? null : () => Navigator.pop(context, output),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
             decoration: BoxDecoration(
@@ -154,14 +160,14 @@ class _OutputRow extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: selected ? c.accentSoft : c.surface2,
+                  color: selected && !btUnavailable ? c.accentSoft : c.surface2,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
                   output.icon,
                   size: 16,
-                  color: selected ? c.accentInk : c.ink2,
+                  color: selected && !btUnavailable ? c.accentInk : c.ink2,
                 ),
               ),
               const SizedBox(width: 12),
@@ -185,10 +191,11 @@ class _OutputRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (selected) Icon(Icons.check, size: 16, color: c.accent),
+              if (selected && !btUnavailable) Icon(Icons.check, size: 16, color: c.accent),
             ],
           ),
           ),
+        ),
         ),
       ),
     );
