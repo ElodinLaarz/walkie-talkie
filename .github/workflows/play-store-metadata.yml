@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate metadata character limits
+        run: bash scripts/validate_store_metadata.sh
+
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
