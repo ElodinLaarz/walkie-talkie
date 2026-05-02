@@ -101,9 +101,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SecurityFaqScreen), findsOneWidget);
 
-      // The icon uses semanticLabel "Close Privacy & Security FAQ" (distinct
-      // from the bottom "Got it" CTA) — find it by the close icon.
-      await tester.tap(find.byIcon(Icons.close));
+      // Find by semantics label to verify the accessibility contract, not
+      // just the icon glyph — guards against label regressions.
+      await tester.tap(find.bySemanticsLabel('Close Privacy & Security FAQ'));
       await tester.pumpAndSettle();
       expect(find.byType(SecurityFaqScreen), findsNothing);
     });
@@ -127,8 +127,13 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView), const Offset(0, -800));
-      await tester.pump();
+      // Use dragUntilVisible instead of a fixed-pixel drag so the test is
+      // stable across different viewport sizes.
+      await tester.dragUntilVisible(
+        find.text('Got it'),
+        find.byType(ListView),
+        const Offset(0, -200),
+      );
 
       await tester.tap(find.text('Got it'));
       await tester.pumpAndSettle();
@@ -138,6 +143,9 @@ void main() {
 
   group('FrequencySettingsScreen security FAQ link', () {
     setUp(() {
+      // Ensure the test binding is initialized before calling
+      // setMockInitialValues — matches the pattern used elsewhere in the suite.
+      TestWidgetsFlutterBinding.ensureInitialized();
       // The settings screen calls PackageInfo.fromPlatform() in its async
       // initState. Without mock values the platform channel throws, but the
       // screen's try-catch handles that and still sets _loaded=true.
