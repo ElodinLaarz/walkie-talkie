@@ -1,5 +1,7 @@
 title: Frequency
-description: "Offline, privacy-first voice rooms over Bluetooth LE — no internet required."
+description: "Offline, privacy-first voice rooms over Bluetooth LE — no internet required for core functionality."
+baseurl: "/walkie-talkie"
+url: "https://elodinlaarz.github.io"
 theme: minima
 
 minima:
@@ -8,8 +10,8 @@ minima:
     - platform: github
       user_url: "https://github.com/ElodinLaarz/walkie-talkie"
 
+# index.md is omitted: minima's site title already links to the home page.
 header_pages:
-  - index.md
   - privacy-policy.md
   - protocol.md
 

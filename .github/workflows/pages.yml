@@ -13,10 +13,9 @@ on:
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
+# Global minimum; elevated scopes are scoped to the deploy job only.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Allow only one concurrent deployment; skip queued runs but do not cancel
 # an in-progress run since that would leave the live site in a partial state.
@@ -31,7 +30,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      # Skip on PRs: Pages is not configured until the first push to main, and
+      # the action errors with 404 when the Pages site does not yet exist.
+      # The Jekyll build falls back to baseurl/url from docs/_config.yml.
       - name: Configure Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Build with Jekyll
@@ -41,11 +44,15 @@ jobs:
           destination: ./_site
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
 
   deploy:
     # Only deploy on pushes/dispatches to main, not on pull request builds.
     if: github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
