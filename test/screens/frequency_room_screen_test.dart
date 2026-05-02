@@ -16,6 +16,7 @@ import 'package:walkie_talkie/services/blocked_peers_store.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
+import 'package:walkie_talkie/widgets/frequency_atoms.dart';
 import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 
 /// MethodChannel name the audio service uses to talk to the native engine.
@@ -919,6 +920,9 @@ void main() {
         expect(find.byType(Slider), findsNothing);
         // 'Nothing playing' is the emptyMediaLib placeholder title.
         expect(find.text('Nothing playing'), findsOneWidget);
+        // VuMeter must be inactive (static bars) in the idle state.
+        final vuMeter = tester.widget<VuMeter>(find.byType(VuMeter).first);
+        expect(vuMeter.active, false);
       },
     );
 
@@ -931,9 +935,10 @@ void main() {
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
 
-        // Idle state — no Slider yet.
+        // Idle state — no Slider yet, VuMeter inactive.
         expect(find.byType(Slider), findsNothing);
         expect(find.text('Live'), findsNothing);
+        expect(tester.widget<VuMeter>(find.byType(VuMeter).first).active, false);
 
         // Host publishes a playing snapshot.
         cubit.applyJoinAccepted(JoinAccepted(
@@ -956,6 +961,8 @@ void main() {
         expect(find.text('Live'), findsOneWidget);
         // Elapsed time (5 s).
         expect(find.text('0:05'), findsOneWidget);
+        // VuMeter must now be active (animating bars).
+        expect(tester.widget<VuMeter>(find.byType(VuMeter).first).active, true);
       },
     );
 
