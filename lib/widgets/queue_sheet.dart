@@ -8,12 +8,18 @@ class QueueSheet extends StatelessWidget {
   final MediaSourceLib lib;
   final int currentIdx;
   final ValueChanged<int> onPlay;
+  /// Host-only: opens the source picker to switch the shared media source.
+  final VoidCallback? onChangeSource;
+  /// Host-only: launches the active streaming app so the host can pick music.
+  final VoidCallback? onOpenInSource;
 
   const QueueSheet({
     super.key,
     required this.lib,
     required this.currentIdx,
     required this.onPlay,
+    this.onChangeSource,
+    this.onOpenInSource,
   });
 
   @override
@@ -63,6 +69,15 @@ class QueueSheet extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onChangeSource != null)
+                    Semantics(
+                      button: true,
+                      label: 'Change source',
+                      child: GhostButton(
+                        icon: Icons.swap_horiz,
+                        onPressed: onChangeSource,
+                      ),
+                    ),
                   Semantics(
                     button: true,
                     label: 'Close queue',
@@ -150,14 +165,16 @@ class QueueSheet extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 10),
-              FreqButton(
-                icon: Icons.add,
-                label: 'Add from ${lib.name}',
-                block: true,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                onPressed: () {},
-              ),
+              if (onOpenInSource != null) ...[
+                const SizedBox(height: 10),
+                FreqButton(
+                  icon: Icons.open_in_new,
+                  label: 'Open ${lib.name}',
+                  block: true,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  onPressed: onOpenInSource,
+                ),
+              ],
             ],
           ),
         );
