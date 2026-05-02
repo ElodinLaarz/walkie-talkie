@@ -25,6 +25,11 @@ Limits enforced:
 Generates three 1080×1920 phone screenshots for the Play Store listing
 using Python + Pillow (no device required).
 
+**Platform note:** the script hard-codes Windows font paths
+(`C:/Windows/Fonts/segoeuib.ttf`). On macOS/Linux, install Segoe UI or
+edit the `FONT_BD` / `FONT_REG` constants at the top of the script to
+point at available system fonts before running.
+
 ```bash
 python3 scripts/gen_screenshots.py
 # Output: fastlane/metadata/android/en-US/images/phoneScreenshots/{1,2,3}.png
@@ -41,6 +46,9 @@ Generates four tablet screenshots for the Play Store listing:
 two at 1200×1920 (7-inch) and two at 1600×2560 (10-inch).
 All dimensions scale proportionally from the 1080 px phone baseline.
 
+**Platform note:** same Windows font dependency as `gen_screenshots.py`
+above — update `FONT_BD` / `FONT_REG` if running on macOS/Linux.
+
 ```bash
 python3 scripts/gen_tablet_screenshots.py
 # Output: fastlane/metadata/android/en-US/images/sevenInchScreenshots/{1,2}.png
@@ -49,17 +57,23 @@ python3 scripts/gen_tablet_screenshots.py
 
 ## measure_app_size.sh
 
-Downloads bundletool, signs the release AAB with the debug keystore,
-and measures per-device download size via `bundletool get-size total`.
-Used by the Flutter CI workflow to enforce the < 30 MB download budget.
+Downloads bundletool, generates device-specific APK splits from a signed AAB
+(signing the split APKs with the provided keystore for bundletool's alignment
+step), and reports per-device download size via `bundletool get-size total`.
+Used by the **release workflow** (`release.yml`) to enforce the < 30 MB
+download-size budget after a production build.
+
+Note: the Flutter CI workflow (`flutter.yml`) uses a separate inline AAB
+size check and does not call this script.
 
 ```bash
-# Normally run by CI; to run locally:
+# Normally run by the release workflow; to run locally against a
+# release AAB (already signed with the production keystore):
 AAB_PATH=build/app/outputs/bundle/release/app-release.aab \
-KEYSTORE_PATH=~/.android/debug.keystore \
-KEYSTORE_PASSWORD=android \
-KEY_ALIAS=androiddebugkey \
-KEY_PASSWORD=android \
+KEYSTORE_PATH=/path/to/release.jks \
+KEYSTORE_PASSWORD=<password> \
+KEY_ALIAS=<alias> \
+KEY_PASSWORD=<key-password> \
 bash scripts/measure_app_size.sh
 ```
 

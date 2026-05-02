@@ -6,9 +6,9 @@ permalink: /play-store-submission/
 
 # Play Store Submission Guide
 
-Step-by-step checklist for submitting Frequency to the Google Play Store.
-Items marked ✅ are complete (all code and assets are committed); items marked
-⏳ require action inside the Play Console.
+Step-by-step checklist for submitting the **Walkie Talkie** app to the Google
+Play Store. Items marked ✅ are complete (all code and assets are committed);
+items marked ⏳ require action inside the Play Console.
 
 ---
 
@@ -55,18 +55,22 @@ all screenshots in one shot.
 
 ## Step 2 — Build and upload the signed AAB
 
+**Auto-trigger (recommended):** push a `v*` tag — the "Release Build" workflow
+builds and signs the AAB, then the "Play Store — Deploy to Internal Track"
+workflow automatically picks it up and uploads it.
+
 ```bash
-# The release workflow runs automatically on v* tags.
-# To trigger manually:
 git tag v1.0.0
 git push origin v1.0.0
-
-# The "Play Store — Deploy to Internal Track" workflow picks up the built
-# AAB and uploads it to the internal testing track.
 ```
 
-Alternatively, trigger "Release Build" then "Play Store — Deploy to Internal
-Track" from GitHub → Actions → Run workflow.
+**Manual re-deploy:** if you need to re-upload an existing build:
+
+1. Find the run ID of the Release Build run to redeploy
+   (`GitHub → Actions → Release Build → <run>` — the run ID is in the URL).
+2. **GitHub → Actions → "Play Store — Deploy to Internal Track" → Run workflow**
+3. Enter the run ID in the `release_run_id` input field, then click
+   **Run workflow**.
 
 ---
 
@@ -106,7 +110,9 @@ Use the answers in [`docs/play-store-data-safety.md`](play-store-data-safety.md)
 Key declarations:
 - Audio/voice: collected, processed in real time, not stored, not shared
 - Bluetooth device IDs: collected for connectivity only, not shared, deleted on uninstall
-- Data is encrypted in transit (BLE link-layer AES)
+- Voice transport uses Bluetooth LE (L2CAP CoC); link-layer encryption
+  depends on device pairing state — see `docs/play-store-data-safety.md`
+  for the current declared security posture
 - No third-party data sharing (except opt-in Sentry crash reports)
 
 Data deletion URL: `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion`
@@ -179,24 +185,30 @@ After the 14-day closed testing window closes:
 5. Base64-encode and store in GitHub: `Settings → Secrets → PLAY_STORE_JSON_KEY_BASE64`
 
 ```bash
-base64 -w0 /path/to/key.json | pbcopy  # macOS — paste into GitHub secret
-base64 -w0 /path/to/key.json | xclip   # Linux
+# macOS (uses BSD base64 — no -w flag needed; tr removes wrapping newlines)
+base64 /path/to/key.json | tr -d '\n' | pbcopy
+
+# Linux (GNU base64 — -w0 disables line wrapping)
+base64 -w0 /path/to/key.json | xclip -selection clipboard
 ```
 
 ---
 
 ## Regenerating screenshots
 
-If the app UI changes, regenerate screenshots with:
+The committed screenshots were generated from code; they may be updated if the
+UI changes. The generator scripts require Python + Pillow and run on Windows
+(they hard-code Segoe UI from `C:/Windows/Fonts/`). On macOS/Linux, either
+install Segoe UI or edit the font paths at the top of each script.
 
 ```bash
-# Phone screenshots (1080×1920)
+# Phone screenshots (1080×1920) — Windows only as-is
 python3 scripts/gen_screenshots.py
 
-# Tablet screenshots (1200×1920 and 1600×2560)
+# Tablet screenshots (1200×1920 and 1600×2560) — Windows only as-is
 python3 scripts/gen_tablet_screenshots.py
 
-# Or capture real device screenshots via adb:
+# Or capture real device screenshots via adb (cross-platform):
 adb exec-out screencap -p > fastlane/metadata/android/en-US/images/phoneScreenshots/1.png
 ```
 
