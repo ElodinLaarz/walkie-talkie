@@ -67,9 +67,11 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   bool throwOnRecord = false;
   bool throwOnSetNickname = false;
   bool throwOnSetPinned = false;
+  bool throwOnDelete = false;
   int recordCalls = 0;
   int setNicknameCalls = 0;
   int setPinnedCalls = 0;
+  int deleteCalls = 0;
 
   _FakeRecentFrequenciesStore({
     List<String>? initial,
@@ -191,6 +193,8 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
 
   @override
   Future<void> delete(String freq) async {
+    deleteCalls++;
+    if (throwOnDelete) throw StateError('boom');
     final trimmed = freq.trim();
     _rows.removeWhere((r) => r.entry.freq == trimmed);
   }
@@ -1111,6 +1115,78 @@ void main() {
         await cubit.setRecentPinned('104.3', true);
 
         expect(recent.setPinnedCalls, 0);
+
+        await cubit.close();
+      },
+    );
+
+    // ── deleteRecentFrequency (#221) ───────────────────────────────────
+
+    test(
+      'deleteRecentFrequency removes the row and re-emits Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1', '92.4', '88.7'],
+        );
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await cubit.deleteRecentFrequency('92.4');
+
+        expect(recent.deleteCalls, 1);
+        final s = cubit.state as SessionDiscovery;
+        expect(
+          s.recentHostedFrequencies.map((e) => e.freq).toList(),
+          ['100.1', '88.7'],
+        );
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'deleteRecentFrequency is a no-op outside Discovery',
+      () async {
+        final recent = _FakeRecentFrequenciesStore();
+        final cubit = _makeCubit(recentFrequenciesStore: recent);
+        cubit.emit(const SessionRoom(
+          myName: 'Maya',
+          roomFreq: '104.3',
+          roomIsHost: true,
+        ));
+
+        await cubit.deleteRecentFrequency('104.3');
+
+        expect(recent.deleteCalls, 0);
+
+        await cubit.close();
+      },
+    );
+
+    test(
+      'deleteRecentFrequency swallows store failures and still completes',
+      () async {
+        final recent = _FakeRecentFrequenciesStore(
+          initial: const ['100.1'],
+        )..throwOnDelete = true;
+        final cubit = _makeCubit(
+          identityStore: _FakeStore(initial: 'Maya'),
+          recentFrequenciesStore: recent,
+        );
+        await cubit.bootstrap();
+
+        await expectLater(
+          cubit.deleteRecentFrequency('100.1'),
+          completes,
+        );
+
+        // Delete failed → row still exists; cubit reloads from store.
+        final after = cubit.state as SessionDiscovery;
+        expect(after.recentHostedFrequencies.single.freq, '100.1');
+        expect(recent.deleteCalls, 1);
 
         await cubit.close();
       },
