@@ -19,6 +19,10 @@ import 'frequency_privacy_policy_screen.dart';
 import 'frequency_settings_screen.dart';
 import 'security_faq_screen.dart';
 
+/// Key on the Bluetooth-state chip in the discovery chrome. Exposed so widget
+/// tests can locate the chip without coupling to its private class name.
+const Key discoveryBluetoothChipKey = ValueKey('bluetooth-chip');
+
 class DiscoveryResult {
   final String freq;
   final bool isHost;
@@ -161,10 +165,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             FreqChrome(
               left: const FrequencyWordmark(),
               right: [
-                FreqChip(
-                  leading: Icon(Icons.bluetooth, size: 12, color: c.ink2),
-                  label: l10n.discoveryBluetoothChip,
-                ),
+                _BluetoothChip(onToggle: _toggleScan),
                 _IdentityChip(
                   name: widget.myName,
                   onTap: _openRenameSheet,
@@ -555,6 +556,15 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     );
   }
 
+  void _toggleScan() {
+    final cubit = context.read<DiscoveryCubit>();
+    if (cubit.state is DiscoveryScanning) {
+      cubit.stopDiscovery();
+    } else {
+      cubit.startDiscovery();
+    }
+  }
+
   Future<void> _openSettings() async {
     final store = context.read<SettingsStore>();
     await Navigator.of(context).push(
@@ -591,6 +601,42 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
       context: context,
       applicationName: l10n.licensesPageTitle,
       applicationLegalese: l10n.licensesPageLegalese,
+    );
+  }
+}
+
+class _BluetoothChip extends StatelessWidget {
+  final VoidCallback onToggle;
+
+  const _BluetoothChip({required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
+    return BlocBuilder<DiscoveryCubit, DiscoveryState>(
+      builder: (context, state) {
+        final scanning = state is DiscoveryScanning;
+        final semanticsLabel = scanning
+            ? l10n.discoveryBluetoothChipSemanticsScanning
+            : l10n.discoveryBluetoothChipSemanticsIdle;
+        return Semantics(
+          button: true,
+          label: semanticsLabel,
+          excludeSemantics: true,
+          child: GestureDetector(
+            key: discoveryBluetoothChipKey,
+            onTap: onToggle,
+            child: FreqChip(
+              leading: scanning
+                  ? PulseDot(size: 8, color: c.accent)
+                  : Icon(Icons.bluetooth, size: 12, color: c.ink2),
+              label: l10n.discoveryBluetoothChip,
+              live: scanning,
+            ),
+          ),
+        );
+      },
     );
   }
 }
