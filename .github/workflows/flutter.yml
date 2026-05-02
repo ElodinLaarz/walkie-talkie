@@ -12,6 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Run before flutter-action so a metadata character-limit violation
+      # fails fast without paying the cost of downloading and caching the
+      # Flutter SDK. The script only needs the checked-out files and python3.
+      - name: Validate Play Store metadata character limits
+        run: bash scripts/validate_store_metadata.sh
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -21,9 +27,6 @@ jobs:
         run: |
           flutter --version
           dart --version
-
-      - name: Validate Play Store metadata character limits
-        run: bash scripts/validate_store_metadata.sh
 
       - name: Install native dependencies
         run: |
