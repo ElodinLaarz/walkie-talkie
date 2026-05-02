@@ -404,21 +404,26 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// queue via [_buildPlaceholderLib] so the protocol-level `trackIdx`
   /// rides through unchanged — outgoing `sendMediaCommand`s keep
   /// referencing the same index the host published.
+  static const int _kMaxPlaceholderTracks = 500;
+
+  int _clampTrackIdx(int idx) => idx.clamp(0, _kMaxPlaceholderTracks - 1);
+
   void _applyMediaSnapshot(MediaState snapshot) {
     if (_appliedSnapshot == snapshot) return;
     _appliedSnapshot = snapshot;
     final positionSec = (snapshot.positionMs / 1000).round();
+    final trackIdx = _clampTrackIdx(snapshot.trackIdx);
     final lib = _buildPlaceholderLib(
       source: snapshot.source,
-      trackIdx: snapshot.trackIdx,
+      trackIdx: trackIdx,
       positionSec: positionSec,
     );
     setState(() {
       _source = snapshot.source;
       _lib = lib;
-      _trackIdx = snapshot.trackIdx;
+      _trackIdx = trackIdx;
       _playing = snapshot.playing;
-      _progress = positionSec.clamp(0, lib.queue[_trackIdx].durationSeconds);
+      _progress = positionSec.clamp(0, lib.queue[trackIdx].durationSeconds);
     });
   }
 
@@ -518,10 +523,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         case MediaOp.queuePlay:
           if (cmd.trackIdx != null) {
             final nextSource = cmd.source;
-            // Clamp wire input to prevent negative indexing or huge placeholder
-            // allocations from a malformed or future peer.
-            const maxPlaceholderTracks = 500;
-            final nextIdx = cmd.trackIdx!.clamp(0, maxPlaceholderTracks - 1);
+            final nextIdx = _clampTrackIdx(cmd.trackIdx!);
             // When the host switches source, rebuild the placeholder lib for
             // the new source; otherwise grow the existing one if the incoming
             // trackIdx exceeds the current queue length (Copilot review #153).
