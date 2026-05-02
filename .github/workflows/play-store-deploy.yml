@@ -21,15 +21,19 @@ on:
 jobs:
   deploy:
     name: Upload AAB to Play Store internal track
-    # Only run when the upstream release build succeeded AND was triggered by a
-    # version tag (head_branch matches 'v*', e.g. v1.0.0). This prevents an
-    # accidental branch push or manual Release Build dispatch from deploying a
-    # non-release AAB to the internal track. The workflow_dispatch path always
-    # runs so operators can re-deploy a specific prior release run by ID.
+    # Only run when the upstream release build succeeded AND it was triggered
+    # by a push event — meaning a tag push, the only push trigger in the
+    # Release Build workflow (push.tags: v*). Checking `.event == 'push'` is
+    # more reliable than inspecting head_branch, which may not be set to the
+    # tag name in all workflow_run payloads.
+    #
+    # Release Build manual workflow_dispatch runs (e.g. for testing signing)
+    # will NOT auto-trigger a deploy — use the workflow_dispatch path below,
+    # supplying an explicit release_run_id, to redeploy those intentionally.
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       startsWith(github.event.workflow_run.head_branch, 'v'))
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: read

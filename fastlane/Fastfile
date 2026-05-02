@@ -63,6 +63,13 @@ platform :android do
       "AAB_PATH",
       "build/app/outputs/bundle/release/app-release.aab",
     )
+    unless File.exist?(aab_path)
+      UI.user_error!(
+        "AAB not found at '#{aab_path}'. " \
+        "Run `flutter build appbundle --release` first, or set AAB_PATH " \
+        "to the path of an already-built AAB.",
+      )
+    end
     supply(
       track:                   "internal",
       aab:                     aab_path,
