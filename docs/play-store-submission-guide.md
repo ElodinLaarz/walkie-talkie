@@ -120,7 +120,9 @@ After completing: click **Apply rating** to save.
 
 **Play Console → App content → Data safety**
 
-Use the answers in [`docs/play-store-data-safety.md`](play-store-data-safety.md).
+Use the answers in
+[`docs/play-store-data-safety.md`](https://github.com/ElodinLaarz/walkie-talkie/blob/main/docs/play-store-data-safety.md)
+(repository link — this file is excluded from the GitHub Pages build).
 Key declarations:
 - Audio/voice: collected, processed in real time, not stored, not shared
 - Bluetooth device IDs: collected for connectivity only, not shared, deleted on uninstall
@@ -137,7 +139,9 @@ Data deletion URL: `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#
 
 **Play Console → App content → Permissions** (shown during review if required)
 
-Use the justifications in [`docs/play-store-permissions-rationale.md`](play-store-permissions-rationale.md).
+Use the justifications in
+[`docs/play-store-permissions-rationale.md`](https://github.com/ElodinLaarz/walkie-talkie/blob/main/docs/play-store-permissions-rationale.md)
+(repository link — this file is excluded from the GitHub Pages build).
 
 ---
 

@@ -60,11 +60,14 @@ python3 scripts/gen_tablet_screenshots.py
 Downloads bundletool, generates device-specific APK splits from a signed AAB
 (signing the split APKs with the provided keystore for bundletool's alignment
 step), and reports per-device download size via `bundletool get-size total`.
-Used by the **release workflow** (`release.yml`) to enforce the < 30 MB
-download-size budget after a production build.
+Used by the **release workflow** (`release.yml`) after a production build.
 
-Note: the Flutter CI workflow (`flutter.yml`) uses a separate inline AAB
-size check and does not call this script.
+Thresholds (configurable via env vars in `release.yml`):
+- **Soft-warn target**: 30 MiB — logs a warning if exceeded, build continues
+- **Hard-fail ceiling**: 50 MiB — fails the build if exceeded
+
+Note: the Flutter CI workflow (`flutter.yml`) uses a separate inline raw-AAB
+size check (not per-device download size) and does not call this script.
 
 ```bash
 # Normally run by the release workflow; to run locally against a
