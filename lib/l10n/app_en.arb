@@ -518,6 +518,30 @@
     "@settingsCrashReportingDescription": {
         "description": "Subtitle under the crash-reporting toggle."
     },
+    "settingsCrashReportingDisabledSubtitle": "No crash reporting configured in this build.",
+    "@settingsCrashReportingDisabledSubtitle": {
+        "description": "Subtitle shown when crash reporting toggle is disabled because no Sentry DSN was compiled in."
+    },
+    "settingsCrashReportingEnabledSnackbar": "Crash reporting enabled. Restart the app to apply.",
+    "@settingsCrashReportingEnabledSnackbar": {
+        "description": "Snackbar shown when user enables crash reporting."
+    },
+    "settingsCrashReportingDisabledSnackbar": "Crash reporting disabled. Restart the app to apply.",
+    "@settingsCrashReportingDisabledSnackbar": {
+        "description": "Snackbar shown when user disables crash reporting."
+    },
+    "settingsCrashReportingStatusLabel": "Crash reporting status",
+    "@settingsCrashReportingStatusLabel": {
+        "description": "Label for the info row that shows the current Sentry configuration status."
+    },
+    "settingsCrashReportingStatusSentry": "Sentry",
+    "@settingsCrashReportingStatusSentry": {
+        "description": "Status row value when a Sentry DSN is configured in this build."
+    },
+    "settingsCrashReportingStatusNotConfigured": "Not configured",
+    "@settingsCrashReportingStatusNotConfigured": {
+        "description": "Status row value when no Sentry DSN is configured in this build."
+    },
     "settingsAboutSection": "About",
     "@settingsAboutSection": {
         "description": "Section header for the About section of settings."
