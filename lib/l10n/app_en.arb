@@ -174,7 +174,15 @@
 
     "discoveryBluetoothChip": "On",
     "@discoveryBluetoothChip": {
-        "description": "Trailing chip in the discovery chrome — shows that BT is on."
+        "description": "Bluetooth chip label — BT is on regardless of scan state."
+    },
+    "discoveryBluetoothChipSemanticsScanning": "Bluetooth scanning. Tap to pause.",
+    "@discoveryBluetoothChipSemanticsScanning": {
+        "description": "TalkBack announcement for the Bluetooth chip while scanning."
+    },
+    "discoveryBluetoothChipSemanticsIdle": "Bluetooth idle. Tap to scan.",
+    "@discoveryBluetoothChipSemanticsIdle": {
+        "description": "TalkBack announcement for the Bluetooth chip while idle."
     },
     "discoveryHeroEyebrowScanning": "TUNING THE DIAL",
     "@discoveryHeroEyebrowScanning": {

@@ -9,6 +9,7 @@ import 'package:walkie_talkie/screens/frequency_discovery_screen.dart';
 import 'package:walkie_talkie/screens/security_faq_screen.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
+import 'package:walkie_talkie/widgets/frequency_atoms.dart';
 
 class MockDiscoveryCubit extends Mock implements DiscoveryCubit {}
 
@@ -839,6 +840,95 @@ void main() {
         ),
         returnsNormally,
       );
+    });
+  });
+
+  group('Bluetooth chip', () {
+    testWidgets('renders chip in idle state when discovery is not scanning',
+        (tester) async {
+      await tester.pumpWidget(_wrap(FrequencyDiscoveryScreen(
+        onPick: (_) {},
+        myName: 'Mo Ali',
+        onRename: (_) {},
+      )));
+      await tester.pump();
+      // Chip is present and tappable.
+      expect(find.byKey(discoveryBluetoothChipKey), findsOneWidget);
+    });
+
+    testWidgets('chip renders with live styling when discovery is scanning',
+        (tester) async {
+      final mockCubit = MockDiscoveryCubit();
+      when(() => mockCubit.state).thenReturn(const DiscoveryScanning());
+      when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
+      when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.close()).thenAnswer((_) async {});
+
+      await tester.pumpWidget(_wrap(
+        FrequencyDiscoveryScreen(
+          onPick: (_) {},
+          myName: 'Mo Ali',
+          onRename: (_) {},
+        ),
+        cubit: mockCubit,
+      ));
+      await tester.pump();
+      expect(find.byKey(discoveryBluetoothChipKey), findsOneWidget);
+      // PulseDot is visible inside the chip (not relying on the nearby indicator).
+      expect(
+        find.descendant(
+          of: find.byKey(discoveryBluetoothChipKey),
+          matching: find.byType(PulseDot),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('tapping chip starts discovery when idle', (tester) async {
+      final mockCubit = MockDiscoveryCubit();
+      when(() => mockCubit.state).thenReturn(DiscoveryInitial());
+      when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
+      when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.close()).thenAnswer((_) async {});
+
+      await tester.pumpWidget(_wrap(
+        FrequencyDiscoveryScreen(
+          onPick: (_) {},
+          myName: 'Mo Ali',
+          onRename: (_) {},
+        ),
+        cubit: mockCubit,
+      ));
+      await tester.pump();
+      clearInteractions(mockCubit);
+      await tester.tap(find.byKey(discoveryBluetoothChipKey));
+      await tester.pump();
+      verify(() => mockCubit.startDiscovery()).called(1);
+    });
+
+    testWidgets('tapping chip stops discovery when scanning', (tester) async {
+      final mockCubit = MockDiscoveryCubit();
+      when(() => mockCubit.state).thenReturn(const DiscoveryScanning());
+      when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
+      when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.close()).thenAnswer((_) async {});
+
+      await tester.pumpWidget(_wrap(
+        FrequencyDiscoveryScreen(
+          onPick: (_) {},
+          myName: 'Mo Ali',
+          onRename: (_) {},
+        ),
+        cubit: mockCubit,
+      ));
+      await tester.pump();
+      clearInteractions(mockCubit);
+      await tester.tap(find.byKey(discoveryBluetoothChipKey));
+      await tester.pump();
+      verify(() => mockCubit.stopDiscovery()).called(1);
     });
   });
 }
