@@ -67,18 +67,32 @@ jobs:
         # default GITHUB_RUN_NUMBER + GITHUB_RUN_ATTEMPT env vars (auto-set on
         # every step) so each CI run and each rerun gets a unique code — Play
         # rejects duplicates.
+        #
+        # SENTRY_DSN is optional: when the secret is present the DSN is baked
+        # into the binary via --dart-define so crash reporting is available to
+        # users who opt in. When absent the define is empty and the crash-
+        # reporting toggle in Settings is rendered disabled (compile-time gate
+        # in lib/services/sentry_config.dart).
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/walkie-talkie.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: One or more signing secrets are not set"
             echo "Required: KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
             exit 1
           fi
-          flutter build appbundle --release --target-platform=android-arm64,android-arm,android-x64
+          SENTRY_DEFINE=""
+          if [ -n "$SENTRY_DSN" ]; then
+            echo "::notice title=Sentry::SENTRY_DSN secret present — crash reporting enabled in this build."
+            SENTRY_DEFINE="--dart-define=SENTRY_DSN=$SENTRY_DSN"
+          else
+            echo "::notice title=Sentry::SENTRY_DSN secret not set — crash reporting toggle will be disabled in this build."
+          fi
+          flutter build appbundle --release --target-platform=android-arm64,android-arm,android-x64 $SENTRY_DEFINE
 
       - name: Assert vcsInfo metadata is present in AAB
         # Guards against silent regressions of bundle.vcsInfo.include in

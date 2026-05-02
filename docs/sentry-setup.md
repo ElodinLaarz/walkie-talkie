@@ -19,22 +19,35 @@ Crash reporting is **disabled by default (opt-in)** to respect user privacy. The
 
 ### 2. Set the DSN for builds
 
-The Sentry DSN must be provided via an environment variable:
+The Sentry DSN is passed to the Flutter build via `--dart-define=SENTRY_DSN=...`
+and baked into the binary at compile time.
+
+**CI (release builds):** Add `SENTRY_DSN` as a [GitHub Actions
+secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets).
+The release workflow (`release.yml`) reads it automatically and appends the
+`--dart-define` flag when the secret is present. Builds without the secret get
+an empty define; the crash-reporting toggle in Settings is rendered disabled in
+those builds (see `lib/services/sentry_config.dart`).
+
+**Local development:**
+
+```bash
+flutter run --dart-define=SENTRY_DSN='https://your-dsn@sentry.io/project-id'
+```
+
+Or export it so any `flutter run`/`flutter build` in the shell picks it up:
 
 ```bash
 export SENTRY_DSN='https://your-dsn@sentry.io/project-id'
+flutter run --dart-define=SENTRY_DSN="$SENTRY_DSN"
 ```
-
-For local development, add this to your `~/.bashrc` or `~/.zshrc`.
-
-For CI/CD, add `SENTRY_DSN` as a secret environment variable.
 
 ### 3. Build the app
 
 ```bash
 # Build the release AAB (Android App Bundle)
-cd android
-./gradlew bundleRelease
+flutter build appbundle --release \
+  --dart-define=SENTRY_DSN='https://your-dsn@sentry.io/project-id'
 ```
 
 The Sentry Gradle plugin will automatically:
@@ -44,15 +57,13 @@ The Sentry Gradle plugin will automatically:
 
 ## User Opt-In Flow
 
-**Current state (this PR):**
-- Crash reporting is disabled by default
-- The opt-in preference is stored in `SettingsStore.crashReportingEnabled`
-- To enable for testing, manually set the flag in SQLite or wait for the Settings screen (issue #121)
-
-**Future (depends on #121):**
-- Users will see a toggle in Settings: "Help improve the app — share anonymous crash reports"
-- The toggle will be **off by default** (opt-out)
-- When enabled, crash reports are queued on-device and sent only on Wi-Fi
+- Crash reporting is **disabled by default** (opt-in).
+- The preference is stored in `SettingsStore.crashReportingEnabled`.
+- Users toggle it under **Settings → Privacy → Crash reporting**.
+- The toggle is rendered **disabled** (greyed out, non-interactive) when the
+  build was compiled without a DSN (`kSentryConfigured == false`). A status
+  row directly below the toggle shows "Not configured" in that case, so users
+  are never left with a control that silently does nothing.
 
 ## Privacy
 

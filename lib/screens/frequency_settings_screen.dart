@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../services/sentry_config.dart';
 import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
@@ -125,26 +126,41 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
         ),
         // Privacy
         _SectionHeader(label: l10n.settingsPrivacySection, c: c),
-        _SettingsToggle(
-          title: l10n.settingsCrashReporting,
-          subtitle: l10n.settingsCrashReportingDescription,
-          value: _crashReporting,
-          c: c,
-          onChanged: (v) {
-            setState(() => _crashReporting = v);
-            unawaited(widget.settingsStore.setCrashReportingEnabled(v));
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  v
-                      ? 'Crash reporting enabled. Restart the app to apply.'
-                      : 'Crash reporting disabled. Restart the app to apply.',
+        if (kSentryConfigured)
+          _SettingsToggle(
+            title: l10n.settingsCrashReporting,
+            subtitle: l10n.settingsCrashReportingDescription,
+            value: _crashReporting,
+            c: c,
+            onChanged: (v) {
+              setState(() => _crashReporting = v);
+              unawaited(widget.settingsStore.setCrashReportingEnabled(v));
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    v
+                        ? 'Crash reporting enabled. Restart the app to apply.'
+                        : 'Crash reporting disabled. Restart the app to apply.',
+                  ),
+                  duration: const Duration(seconds: 4),
                 ),
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          },
+              );
+            },
+          )
+        else
+          _SettingsToggle(
+            title: l10n.settingsCrashReporting,
+            subtitle: 'No crash reporting configured in this build.',
+            value: false,
+            c: c,
+            enabled: false,
+            onChanged: (_) {},
+          ),
+        _SettingsInfoRow(
+          title: 'Crash reporting status',
+          value: kSentryConfigured ? 'Sentry' : 'Not configured',
+          c: c,
         ),
         _SettingsLink(
           title: l10n.settingsSecurityFaq,
@@ -215,6 +231,7 @@ class _SettingsToggle extends StatelessWidget {
   final bool value;
   final FrequencyColors c;
   final ValueChanged<bool> onChanged;
+  final bool enabled;
 
   const _SettingsToggle({
     required this.title,
@@ -222,6 +239,7 @@ class _SettingsToggle extends StatelessWidget {
     required this.value,
     required this.c,
     required this.onChanged,
+    this.enabled = true,
   });
 
   @override
@@ -236,7 +254,7 @@ class _SettingsToggle extends StatelessWidget {
             fontFamily: 'Inter',
             fontSize: 15,
             fontWeight: FontWeight.w500,
-            color: c.ink,
+            color: enabled ? c.ink : c.ink3,
           ),
         ),
         subtitle: Text(
@@ -251,7 +269,7 @@ class _SettingsToggle extends StatelessWidget {
           value: value,
           semanticLabel: title,
           semanticHint: subtitle,
-          onChanged: onChanged,
+          onChanged: enabled ? onChanged : null,
         ),
       ),
     );

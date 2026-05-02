@@ -411,7 +411,10 @@ class SignalBars extends StatelessWidget {
 /// Compact pill toggle — same shape as the design's `.switch`.
 class FreqSwitch extends StatelessWidget {
   final bool value;
-  final ValueChanged<bool> onChanged;
+
+  /// Null disables the switch (no interaction, visually dimmed), matching the
+  /// behaviour of Flutter's built-in [Switch.onChanged].
+  final ValueChanged<bool>? onChanged;
 
   /// Required for screen-reader announcement (e.g. "Mute peer", "Push to
   /// talk lock"). Without it TalkBack reads only "switch, on/off" and
@@ -429,23 +432,26 @@ class FreqSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final enabled = onChanged != null;
     return Semantics(
       label: semanticLabel,
       hint: semanticHint,
       toggled: value,
-      enabled: true,
-      onTap: () => onChanged(!value),
+      enabled: enabled,
+      onTap: enabled ? () => onChanged!(!value) : null,
       excludeSemantics: true,
       child: GestureDetector(
-        onTap: () => onChanged(!value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 36,
-          height: 20,
-          decoration: BoxDecoration(
-            color: value ? c.accent : c.line2,
-            borderRadius: BorderRadius.circular(999),
-          ),
+        onTap: enabled ? () => onChanged!(!value) : null,
+        child: Opacity(
+          opacity: enabled ? 1.0 : 0.4,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 36,
+            height: 20,
+            decoration: BoxDecoration(
+              color: value ? c.accent : c.line2,
+              borderRadius: BorderRadius.circular(999),
+            ),
           child: AnimatedAlign(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
@@ -471,7 +477,8 @@ class FreqSwitch extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
