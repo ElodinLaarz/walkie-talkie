@@ -21,6 +21,7 @@ import '../widgets/output_sheet.dart';
 import '../widgets/peer_drawer.dart';
 import '../widgets/peer_row.dart';
 import '../widgets/push_to_talk_button.dart';
+import '../widgets/media_source_sheet.dart';
 import '../widgets/queue_sheet.dart';
 
 /// Main "On air" room — voice + now playing.
@@ -1104,6 +1105,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           _playAt(i);
           Navigator.pop(ctx);
         },
+        onChangeSource: widget.isHost
+            ? () {
+                Navigator.pop(ctx);
+                _showSourceSheet();
+              }
+            : null,
       ),
     );
   }
@@ -1155,6 +1162,39 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         }
       }
     }
+  }
+
+  Future<void> _showSourceSheet() async {
+    final c = FrequencyTheme.of(context).colors;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: c.bg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => MediaSourceSheet(current: _source),
+    );
+    if (picked != null && mounted && picked != _source) {
+      _switchSource(picked);
+    }
+  }
+
+  void _switchSource(String newSource) {
+    final lib = _buildPlaceholderLib(source: newSource, trackIdx: 0);
+    setState(() {
+      _source = newSource;
+      _lib = lib;
+      _trackIdx = 0;
+      _progress = 0;
+      _playing = false;
+    });
+    // Broadcast the source switch to peers via a queuePlay at track 0.
+    context.read<FrequencySessionCubit>().sendMediaCommand(
+      op: MediaOp.queuePlay,
+      source: newSource,
+      trackIdx: 0,
+    );
   }
 
   String _outputName() {

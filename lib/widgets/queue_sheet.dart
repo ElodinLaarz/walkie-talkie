@@ -8,12 +8,14 @@ class QueueSheet extends StatelessWidget {
   final MediaSourceLib lib;
   final int currentIdx;
   final ValueChanged<int> onPlay;
+  final VoidCallback? onChangeSource;
 
   const QueueSheet({
     super.key,
     required this.lib,
     required this.currentIdx,
     required this.onPlay,
+    this.onChangeSource,
   });
 
   @override
@@ -156,7 +158,7 @@ class QueueSheet extends StatelessWidget {
                 label: 'Add from ${lib.name}',
                 block: true,
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                onPressed: () {},
+                onPressed: onChangeSource,
               ),
             ],
           ),
