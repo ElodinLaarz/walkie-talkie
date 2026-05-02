@@ -16,6 +16,7 @@ import '../widgets/frequency_atoms.dart';
 import 'frequency_explainer_screen.dart';
 import 'frequency_privacy_policy_screen.dart';
 import 'frequency_settings_screen.dart';
+import 'security_faq_screen.dart';
 
 class DiscoveryResult {
   final String freq;
@@ -197,6 +198,20 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                       ),
                       // Visual separator only — TalkBack would otherwise
                       // announce "dot" between the two footer buttons.
+                      ExcludeSemantics(
+                        child: Text(
+                          '·',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: c.ink3,
+                          ),
+                        ),
+                      ),
+                      _FooterLink(
+                        label: l10n.discoveryFooterSecurity,
+                        onPressed: _openSecurityFaq,
+                      ),
                       ExcludeSemantics(
                         child: Text(
                           '·',
@@ -487,6 +502,14 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => const FrequencyPrivacyPolicyScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openSecurityFaq() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SecurityFaqScreen(),
       ),
     );
   }

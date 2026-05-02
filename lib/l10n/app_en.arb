@@ -339,6 +339,11 @@
         "description": "Footer link below the discovery list — opens the in-app privacy policy screen."
     },
 
+    "discoveryFooterSecurity": "Security FAQ",
+    "@discoveryFooterSecurity": {
+        "description": "Footer link below the discovery list — opens the in-app Privacy & Security FAQ screen."
+    },
+
     "discoveryFooterLicenses": "Licenses",
     "@discoveryFooterLicenses": {
         "description": "Footer link below the discovery list — opens the in-app open-source license page."

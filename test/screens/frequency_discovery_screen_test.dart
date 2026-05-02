@@ -6,6 +6,7 @@ import 'package:walkie_talkie/bloc/discovery_cubit.dart';
 import 'package:walkie_talkie/bloc/discovery_state.dart';
 import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/screens/frequency_discovery_screen.dart';
+import 'package:walkie_talkie/screens/security_faq_screen.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 
@@ -551,6 +552,42 @@ void main() {
         // header title — anchoring on the localized string proves we
         // reached LicensePage rather than just any new route.
         expect(find.text('Open source licenses'), findsWidgets);
+      },
+    );
+
+    testWidgets(
+      'tapping the footer Security FAQ link pushes SecurityFaqScreen, '
+      'and the close button pops back to Discovery',
+      (tester) async {
+        await tester.pumpWidget(_wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) {},
+          ),
+        ));
+        await tester.pump();
+
+        final list = find.byType(ListView);
+        final securityButton = find.widgetWithText(TextButton, 'Security FAQ');
+        await tester.dragUntilVisible(
+          securityButton,
+          list,
+          const Offset(0, -120),
+        );
+        await tester.pump();
+        await tester.tap(securityButton);
+        await tester.pump();
+        await tester.pump(_settleWindow);
+
+        expect(find.byType(SecurityFaqScreen), findsOneWidget);
+
+        await tester.tap(find.bySemanticsLabel('Close Privacy & Security FAQ'));
+        await tester.pump();
+        await tester.pump(_settleWindow);
+
+        expect(find.byType(SecurityFaqScreen), findsNothing);
+        expect(securityButton, findsOneWidget);
       },
     );
   });
