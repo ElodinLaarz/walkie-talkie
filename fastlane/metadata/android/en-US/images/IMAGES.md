@@ -3,6 +3,19 @@
 Place the following assets in this directory, then upload them via Play Console
 or `fastlane supply`.
 
+## Hi-res app icon
+
+File name: `icon.png`
+Required size: **512 × 512 px**
+Format: PNG or JPEG, no alpha channel (Play Console enforces this)
+
+**Status: committed** — `icon.png` is present (resized from `assets/icon/icon.png`).
+Upload with:
+
+```
+bundle exec fastlane android upload_images
+```
+
 ## Feature graphic
 
 File name: `featureGraphic.png`
