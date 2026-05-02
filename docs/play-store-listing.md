@@ -7,7 +7,7 @@ All character limits are Play Store maxima; counts shown after each field.
 
 ## App name
 
-```
+```text
 Walkie Talkie
 ```
 
@@ -17,7 +17,7 @@ Walkie Talkie
 
 ## Short description
 
-```
+```text
 Offline voice rooms over Bluetooth LE — no internet or accounts needed.
 ```
 
@@ -27,14 +27,14 @@ Offline voice rooms over Bluetooth LE — no internet or accounts needed.
 
 ## Long description
 
-```
+```text
 Talk to anyone nearby — no internet, no accounts, no servers.
 
 Walkie Talkie turns your Android phone into a classic push-to-talk radio using Bluetooth Low Energy. Press the big button, speak, release. Everyone in the same "Frequency" hears you instantly, even when there's no Wi-Fi signal in sight.
 
 ── How it works ──
 
-One person hosts a Frequency room. Others nearby discover it automatically and join with a single tap. Voice is compressed with Opus and sent directly over encrypted Bluetooth LE — it never touches any server or the internet.
+One person hosts a Frequency room. Others nearby discover it automatically and join with a single tap. Voice is compressed with Opus and sent directly over Bluetooth LE — it never touches any server or the internet.
 
 ── Built for real life ──
 
@@ -42,11 +42,10 @@ One person hosts a Frequency room. Others nearby discover it automatically and j
 • Background mode: pocket your phone and keep talking. A persistent notification keeps the mic and connection alive.
 • Multiple rooms: Frequencies are labelled so friends know which channel to join.
 • Roster: see who's in the room and mute anyone who's causing noise.
-• Host transfer: if the host leaves, another peer automatically takes over so the room stays up.
 
 ── Privacy first ──
 
-• Zero internet permission — verified by Android: the app's manifest declares no INTERNET permission.
+• No server-side infrastructure — voice stays between devices and never travels over the internet.
 • No accounts, no sign-up, no cloud.
 • Voice audio is processed in real time and discarded — nothing is recorded or stored.
 • A random peer ID is generated locally on first launch; it lives only on your device.
@@ -63,7 +62,7 @@ One person hosts a Frequency room. Others nearby discover it automatically and j
 Android 9.0 (API 28) or higher. Bluetooth LE support required (present on virtually all phones made since 2014). Works best within 30–100 m of the host; range depends on environment and device hardware.
 ```
 
-1 474 characters (max 4 000).
+1 897 characters (max 4 000).
 
 ---
 

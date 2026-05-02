@@ -17,7 +17,9 @@ Select: **User to user communication (voice, video, or text chat)**.
 
 ### Does the app include user-generated content?
 
-**No** — voice audio is transmitted in real time and never stored or viewable by other users after the call.
+**Yes** — users transmit real-time voice audio that other users in the same room can hear during the call.
+Play Store UGC policy obligations apply: the app must provide a mechanism to report or block abusive content.
+The in-app "Block & Report" feature (peer drawer) satisfies this requirement; ensure it remains present in every shipped build.
 
 ### Does the app contain violent content?
 
@@ -55,7 +57,7 @@ Select: **User to user communication (voice, video, or text chat)**.
 
 ## Expected IARC rating
 
-Based on the answers above, the questionnaire should produce a rating of **Everyone 13+** (ESRB) / **PEGI 12** or equivalent in other regions, driven solely by the user-to-user voice communication category.
+Based on the answers above, the questionnaire should produce a rating around **Teen (13+)** (ESRB) / **PEGI 12** (or equivalent by region), driven by the user-to-user voice communication category.
 
 ---
 
@@ -65,7 +67,7 @@ Fill in at: **Play Console → App content → Target audience and content**.
 
 - **Target age group**: 13 and above.
 - **Does your app appeal to children?**: No.
-- **Reason**: The app records and transmits microphone audio; content moderation is not feasible for real-time BLE voice, so the app is inappropriate for users under 13.
+- **Reason**: The app captures and transmits microphone audio in real time; content moderation is not feasible for real-time BLE voice, so the app is inappropriate for users under 13.
 
 ---
 
