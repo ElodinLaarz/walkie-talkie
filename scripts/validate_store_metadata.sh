@@ -66,8 +66,22 @@ echo "=== Play Store metadata length check ==="
 echo "Root: $METADATA_ROOT"
 echo ""
 
+# shopt -s nullglob makes globs that match nothing expand to an empty list
+# instead of a literal string. Without it, a glob with no matches would be
+# treated as a non-directory path and produce a confusing error rather than
+# a clean "no locale directories found" message.
+shopt -s nullglob
+
+# Collect locale directories first so we can detect an empty result.
+locale_dirs=("$METADATA_ROOT"/*/)
+if [ "${#locale_dirs[@]}" -eq 0 ]; then
+  echo "ERROR: no locale directories found under $METADATA_ROOT" >&2
+  echo "       Verify that METADATA_ROOT points to fastlane/metadata/android" >&2
+  exit 1
+fi
+
 # Walk every locale directory.
-for locale_dir in "$METADATA_ROOT"/*/; do
+for locale_dir in "${locale_dirs[@]}"; do
   locale=$(basename "$locale_dir")
   echo "--- Locale: $locale ---"
   check_file "${locale_dir}title.txt"             30   "title"
