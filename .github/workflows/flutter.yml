@@ -36,6 +36,9 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Validate Play Store metadata character limits
+        run: bash scripts/validate_store_metadata.sh
+
       - name: Build & run native C++ tests
         run: |
           mkdir -p build/cpp_test
