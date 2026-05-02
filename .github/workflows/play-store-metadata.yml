@@ -19,12 +19,12 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Validate metadata character limits
         run: bash scripts/validate_store_metadata.sh
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@f02c009132dc7b50a5e286d2ec2394ab5d78172a # v1.306.0
         with:
           ruby-version: '3.3'
           bundler-cache: true
