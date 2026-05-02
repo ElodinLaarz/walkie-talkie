@@ -5,7 +5,8 @@ theme: minima
 minima:
   date_format: "%B %-d, %Y"
   social_links:
-    - { platform: github, user_url: "https://github.com/ElodinLaarz/walkie-talkie" }
+    - platform: github
+      user_url: "https://github.com/ElodinLaarz/walkie-talkie"
 
 header_pages:
   - index.md

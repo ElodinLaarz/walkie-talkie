@@ -67,9 +67,7 @@ Or simply uninstall the app.
 
 For the **"Account and data deletion" URL** Play Console requires, use:
 
-```
-https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion
-```
+<https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion>
 
 This anchors directly to the Data Retention and Deletion section of the public
 privacy policy, which explains that uninstalling the app removes all local data
