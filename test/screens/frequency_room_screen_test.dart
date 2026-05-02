@@ -266,6 +266,43 @@ void main() {
       expect(find.text('Mute'), findsOneWidget);
     });
 
+    testWidgets(
+      'mute toggle uses consistent FreqButton in both states — no PrimaryButton swap (#224)',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Unmuted: the mute control is FreqButton, not PrimaryButton.
+        expect(find.byType(PrimaryButton), findsNothing);
+
+        // toggled=true means "microphone is active/on"; unmuted → toggled=true.
+        final semanticsUnmuted = tester
+            .widgetList<Semantics>(
+              find.ancestor(of: find.text('Mute'), matching: find.byType(Semantics)),
+            )
+            .firstWhere((s) => s.properties.toggled != null);
+        expect(semanticsUnmuted.properties.toggled, isTrue);
+        // onTap must be present so screen readers can activate the control
+        // even though excludeSemantics drops the FreqButton child tree.
+        expect(semanticsUnmuted.properties.onTap, isNotNull);
+
+        await tester.tap(find.text('Mute'));
+        await tester.pump();
+
+        // Muted: still FreqButton, no PrimaryButton.
+        expect(find.byType(PrimaryButton), findsNothing);
+
+        // Muted → mic off → toggled=false; tap action still present.
+        final semanticsMuted = tester
+            .widgetList<Semantics>(
+              find.ancestor(of: find.text('Unmute'), matching: find.byType(Semantics)),
+            )
+            .firstWhere((s) => s.properties.toggled != null);
+        expect(semanticsMuted.properties.toggled, isFalse);
+        expect(semanticsMuted.properties.onTap, isNotNull);
+      },
+    );
+
     testWidgets('PTT mode swaps the mute button for Hold to talk',
         (tester) async {
       await tester.pumpWidget(_wrap(_room(pttMode: true)));
