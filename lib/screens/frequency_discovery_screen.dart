@@ -99,13 +99,12 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   DiscoveryCubit? _cubit;
 
   late final String _newFreq;
-  static const _freqRng = 20;
 
   @override
   void initState() {
     super.initState();
     final rnd = Random();
-    _newFreq = (88 + rnd.nextInt(_freqRng) + 0.1).toStringAsFixed(1);
+    _newFreq = ((880 + rnd.nextInt(200)) / 10.0).toStringAsFixed(1);
     
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {

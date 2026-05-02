@@ -184,6 +184,37 @@ void main() {
     });
 
     testWidgets(
+      'preview freq is in the full FM range [88.0, 107.9] and has .1 precision',
+      (tester) async {
+        // Run several widget instances to sample the RNG and confirm every
+        // value falls in the 200-bucket range that matches mhzDisplay.
+        for (var i = 0; i < 20; i++) {
+          DiscoveryResult? picked;
+          await tester.pumpWidget(_wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (r) => picked = r,
+              onRename: (_) {},
+            ),
+          ));
+          await tester.pump();
+          await tester.tap(find.text('Start a new Frequency'));
+          await tester.pump();
+
+          expect(picked, isNotNull);
+          final freq = double.parse(picked!.freq);
+          expect(freq, greaterThanOrEqualTo(88.0),
+              reason: 'freq $freq below 88.0');
+          expect(freq, lessThanOrEqualTo(107.9),
+              reason: 'freq $freq above 107.9');
+          // All values must end in exactly one decimal digit (0.1 MHz precision).
+          expect(picked!.freq, matches(r'^\d+\.\d$'),
+              reason: 'freq ${picked!.freq} lacks single-decimal precision');
+        }
+      },
+    );
+
+    testWidgets(
       'omits the Recent section when there are no persisted frequencies',
       (tester) async {
         await tester.pumpWidget(_wrap(
