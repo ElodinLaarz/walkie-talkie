@@ -25,14 +25,20 @@ All other data type rows should be answered **No**.
 ### Audio
 
 - **Why collected:** To transmit the user's voice to nearby peers in the same Frequency room.
-- **Is it encrypted in transit?** Yes — BLE link-layer encryption (LE pairing).
+- **Is it encrypted in transit?** No — v1 uses unencrypted Bluetooth LE L2CAP CoC channels
+  (`createInsecureL2capChannel` / `listenUsingInsecureL2capChannel`). Link-layer encryption
+  is not enforced; a nearby attacker with a BLE sniffer could theoretically intercept voice
+  packets. This is disclosed in the in-app Privacy & Security FAQ. Future versions plan to
+  add enforced pairing or application-layer encryption.
 - **Can the user request deletion?** Not applicable — audio is never stored. It is processed in real time and discarded.
 - **Is collection required or optional?** Required to use the core walkie-talkie feature.
 
 ### Device or other IDs (peerId)
 
 - **Why collected:** To identify the local peer in the room roster displayed to others.
-- **Is it encrypted in transit?** Yes — BLE link-layer encryption.
+- **Is it encrypted in transit?** No — same unencrypted BLE L2CAP channel as audio (see above).
+  The peerId is low-sensitivity (a random UUID not tied to identity) and is only shared within
+  the local Bluetooth range of an active room.
 - **Can the user request deletion?** Yes — uninstalling the app deletes all local data including the `peerId`. There is no server-side record to delete. See the Data Deletion section below.
 - **Is collection required or optional?** Required.
 
@@ -50,7 +56,8 @@ Exception: if the user explicitly opts in to crash reporting (Settings → Crash
 
 ## Security practices
 
-- **Data is encrypted in transit:** Yes (BLE link-layer encryption for all peer-to-peer traffic; TLS for the optional opt-in crash reporting channel).
+- **Data is encrypted in transit:** No for peer-to-peer voice/control traffic (unencrypted BLE
+  L2CAP CoC in v1). Yes for the optional opt-in crash reporting channel (TLS to Sentry).
 - **You follow the Families Policy:** N/A — the app is rated 13+ (audio capture).
 - **Independent security review:** No formal third-party review at v1 launch.
 
