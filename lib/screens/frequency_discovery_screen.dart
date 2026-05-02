@@ -63,12 +63,17 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   /// Empty (the default) hides the section entirely.
   final List<String> recentHostedFrequencies;
 
+  /// Called when the user taps the lock icon in the chrome to open the
+  /// in-app Privacy & Security FAQ.
+  final VoidCallback? onShowSecurityFaq;
+
   const FrequencyDiscoveryScreen({
     super.key,
     required this.onPick,
     required this.myName,
     required this.onRename,
     this.recentHostedFrequencies = const [],
+    this.onShowSecurityFaq,
   });
 
   @override
@@ -120,6 +125,19 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             FreqChrome(
               left: const FrequencyWordmark(),
               right: [
+                if (widget.onShowSecurityFaq != null)
+                  Semantics(
+                    label: l10n.securityFaqTitle,
+                    button: true,
+                    child: GestureDetector(
+                      onTap: widget.onShowSecurityFaq,
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(Icons.lock_outline, size: 18, color: c.ink2),
+                      ),
+                    ),
+                  ),
                 FreqChip(
                   leading: Icon(Icons.bluetooth, size: 12, color: c.ink2),
                   label: l10n.discoveryBluetoothChip,

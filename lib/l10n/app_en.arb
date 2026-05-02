@@ -289,5 +289,64 @@
     "renameSheetSave": "Save",
     "@renameSheetSave": {
         "description": "Save button inside the rename bottom sheet."
+    },
+
+    "securityFaqTitle": "Privacy & Security",
+    "@securityFaqTitle": {
+        "description": "Title of the in-app security FAQ screen."
+    },
+    "securityFaqIntro": "Frequency connects phones over Bluetooth without any internet. Here's what that means for your privacy.",
+    "@securityFaqIntro": {
+        "description": "Introductory paragraph on the security FAQ screen."
+    },
+
+    "securityFaqQ1": "Is my voice encrypted?",
+    "@securityFaqQ1": {
+        "description": "Security FAQ question 1."
+    },
+    "securityFaqA1": "Bluetooth LE pairing provides link-layer encryption between each pair of connected phones. This means the radio signal on the air is scrambled for unpaired devices nearby.\n\nHowever, Frequency does not add a second layer of app-level end-to-end encryption (E2EE). The host device decrypts each guest's audio to mix it and rebroadcast — that's unavoidable in the star-topology design for v1.",
+    "@securityFaqA1": {
+        "description": "Security FAQ answer 1."
+    },
+
+    "securityFaqQ2": "Can someone eavesdrop on my conversation?",
+    "@securityFaqQ2": {
+        "description": "Security FAQ question 2."
+    },
+    "securityFaqA2": "A passive attacker nearby would see only encrypted BLE packets. Without the paired session keys they cannot decode your audio.\n\nThe host device does see all unmixed audio streams. Treat the host phone's owner the same way you'd treat a room host — only start a Frequency with people you trust.",
+    "@securityFaqA2": {
+        "description": "Security FAQ answer 2."
+    },
+
+    "securityFaqQ3": "Does the app record or store my voice?",
+    "@securityFaqQ3": {
+        "description": "Security FAQ question 3."
+    },
+    "securityFaqA3": "No. Frequency does not record, upload, or persist audio. There is no server and no internet connection for voice; audio exists only in memory while the session is live and is discarded the moment a peer disconnects.",
+    "@securityFaqA3": {
+        "description": "Security FAQ answer 3."
+    },
+
+    "securityFaqQ4": "What data leaves my device?",
+    "@securityFaqQ4": {
+        "description": "Security FAQ question 4."
+    },
+    "securityFaqA4": "Voice and control traffic travel only over Bluetooth to nearby phones — nothing goes to the internet. Your display name and a random per-install ID (no personal info) are broadcast over Bluetooth LE advertisements so nearby devices can discover your session.",
+    "@securityFaqA4": {
+        "description": "Security FAQ answer 4."
+    },
+
+    "securityFaqQ5": "What about future versions?",
+    "@securityFaqQ5": {
+        "description": "Security FAQ question 5."
+    },
+    "securityFaqA5": "App-level E2EE and host-handover are planned for v2. Until then, use Frequency in groups where you trust every participant's device.",
+    "@securityFaqA5": {
+        "description": "Security FAQ answer 5."
+    },
+
+    "securityFaqClose": "Got it",
+    "@securityFaqClose": {
+        "description": "Close button on the security FAQ screen."
     }
 }

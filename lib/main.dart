@@ -10,6 +10,7 @@ import 'data/frequency_models.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'screens/frequency_discovery_screen.dart';
 import 'screens/frequency_onboarding_screen.dart';
+import 'screens/security_faq_screen.dart';
 import 'screens/frequency_permission_denied_screen.dart';
 import 'screens/frequency_room_screen.dart';
 import 'services/audio_service.dart';
@@ -233,6 +234,15 @@ class FrequencyApp extends StatelessWidget {
                 freq: result.isHost ? null : result.freq,
                 macAddress: result.macAddress,
                 sessionUuidLow8: result.sessionUuidLow8,
+              ),
+            );
+          },
+          onShowSecurityFaq: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SecurityFaqScreen(
+                  onClose: () => Navigator.of(context).pop(),
+                ),
               ),
             );
           },
