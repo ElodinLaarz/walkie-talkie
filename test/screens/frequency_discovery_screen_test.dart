@@ -875,8 +875,14 @@ void main() {
       ));
       await tester.pump();
       expect(find.byKey(discoveryBluetoothChipKey), findsOneWidget);
-      // PulseDot is visible when scanning.
-      expect(find.byType(PulseDot), findsWidgets);
+      // PulseDot is visible inside the chip (not relying on the nearby indicator).
+      expect(
+        find.descendant(
+          of: find.byKey(discoveryBluetoothChipKey),
+          matching: find.byType(PulseDot),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('tapping chip starts discovery when idle', (tester) async {

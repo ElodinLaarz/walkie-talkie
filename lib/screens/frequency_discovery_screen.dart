@@ -559,9 +559,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   void _toggleScan() {
     final cubit = context.read<DiscoveryCubit>();
     if (cubit.state is DiscoveryScanning) {
-      cubit.stopDiscovery();
+      unawaited(cubit.stopDiscovery());
     } else {
-      cubit.startDiscovery();
+      unawaited(cubit.startDiscovery());
     }
   }
 
@@ -623,6 +623,7 @@ class _BluetoothChip extends StatelessWidget {
         return Semantics(
           button: true,
           label: semanticsLabel,
+          onTap: onToggle,
           excludeSemantics: true,
           child: GestureDetector(
             key: discoveryBluetoothChipKey,
