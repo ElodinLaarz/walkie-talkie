@@ -189,15 +189,18 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  // Wrap instead of Row: three links + two separators may
+                  // overflow narrow viewports in a single row.
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       _FooterLink(
                         label: l10n.discoveryFooterPrivacy,
                         onPressed: _openPrivacyPolicy,
                       ),
                       // Visual separator only — TalkBack would otherwise
-                      // announce "dot" between the two footer buttons.
+                      // announce "dot" between the footer buttons.
                       ExcludeSemantics(
                         child: Text(
                           '·',
