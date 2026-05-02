@@ -979,6 +979,17 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   }
 
   Future<void> _reportPeer(BuildContext drawerCtx, Person person) async {
+    // Defensive guard: if _myPeerId failed to resolve, the local peer can leak
+    // into the visible roster (the filter at the cubit-state branch skips
+    // null), letting the user open their own drawer and self-block. Bail
+    // without mutating mute or block state.
+    if (person.id == _me.id || person.id == _myPeerId) {
+      Navigator.pop(drawerCtx);
+      return;
+    }
+    // Sanitize the display name once for every UI surface so a malicious peer
+    // cannot inject newlines or zero-width chars into toasts / dialog titles.
+    final safeName = _sanitizeField(person.name);
     // Capture prior mute state so we can revert accurately on failure without
     // accidentally unmuting a peer that was already muted before the report.
     final wasMuted = _peerMuted.contains(person.id);
@@ -1004,20 +1015,20 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     if (blocked) {
       FrequencyToastHost.of(context).push(FrequencyToastSpec(
         tone: ToastTone.warn,
-        title: '${person.name} blocked',
+        title: '$safeName blocked',
       ));
       final report = _buildSanitizedReport(person);
       showDialog<void>(
         context: context,
         builder: (ctx) => _ReportSentDialog(
-          peerName: person.name,
+          peerName: safeName,
           reportText: report,
         ),
       );
     } else {
       FrequencyToastHost.of(context).push(FrequencyToastSpec(
         tone: ToastTone.warn,
-        title: 'Could not block ${person.name} — try again',
+        title: 'Could not block $safeName — try again',
       ));
     }
   }
@@ -1124,10 +1135,21 @@ class _ReportSentDialog extends StatefulWidget {
 
 class _ReportSentDialogState extends State<_ReportSentDialog> {
   bool _copied = false;
+  Timer? _copiedResetTimer;
+
+  @override
+  void dispose() {
+    _copiedResetTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    // scrollable: true wraps the content in a SingleChildScrollView so a long
+    // peer / device name or large accessibility text scale doesn't overflow
+    // on small screens.
     return AlertDialog(
+      scrollable: true,
       title: Text('${widget.peerName} blocked'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1163,7 +1185,14 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
             final messenger = ScaffoldMessenger.of(context);
             try {
               await Clipboard.setData(ClipboardData(text: widget.reportText));
-              if (mounted) setState(() => _copied = true);
+              if (!mounted) return;
+              setState(() => _copied = true);
+              // Revert the label so the user can copy again — the "Copied"
+              // state is feedback, not a permanent disable.
+              _copiedResetTimer?.cancel();
+              _copiedResetTimer = Timer(const Duration(seconds: 2), () {
+                if (mounted) setState(() => _copied = false);
+              });
             } catch (_) {
               if (mounted) {
                 messenger.showSnackBar(
