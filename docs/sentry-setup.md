@@ -24,10 +24,13 @@ and baked into the binary at compile time.
 
 **CI (release builds):** Add `SENTRY_DSN` as a [GitHub Actions
 secret](https://docs.github.com/en/actions/security-guides/encrypted-secrets).
-The release workflow (`release.yml`) reads it automatically and appends the
-`--dart-define` flag when the secret is present. Builds without the secret get
-an empty define; the crash-reporting toggle in Settings is rendered disabled in
-those builds (see `lib/services/sentry_config.dart`).
+The release workflow (`release.yml`) reads it automatically and appends
+`--dart-define=SENTRY_DSN=…` when the secret is present. When the secret is
+absent the `--dart-define` flag is omitted entirely, so
+`String.fromEnvironment('SENTRY_DSN')` resolves to its `defaultValue: ''` at
+compile time and `kSentryConfigured` is false. The crash-reporting toggle in
+Settings is rendered disabled in those builds (see
+`lib/services/sentry_config.dart`).
 
 **Local development:**
 

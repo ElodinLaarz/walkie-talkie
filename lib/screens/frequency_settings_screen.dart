@@ -140,8 +140,8 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
                 SnackBar(
                   content: Text(
                     v
-                        ? 'Crash reporting enabled. Restart the app to apply.'
-                        : 'Crash reporting disabled. Restart the app to apply.',
+                        ? l10n.settingsCrashReportingEnabledSnackbar
+                        : l10n.settingsCrashReportingDisabledSnackbar,
                   ),
                   duration: const Duration(seconds: 4),
                 ),
@@ -151,15 +151,17 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
         else
           _SettingsToggle(
             title: l10n.settingsCrashReporting,
-            subtitle: 'No crash reporting configured in this build.',
-            value: false,
+            subtitle: l10n.settingsCrashReportingDisabledSubtitle,
+            value: _crashReporting,
             c: c,
             enabled: false,
             onChanged: (_) {},
           ),
         _SettingsInfoRow(
-          title: 'Crash reporting status',
-          value: kSentryConfigured ? 'Sentry' : 'Not configured',
+          title: l10n.settingsCrashReportingStatusLabel,
+          value: kSentryConfigured
+              ? l10n.settingsCrashReportingStatusSentry
+              : l10n.settingsCrashReportingStatusNotConfigured,
           c: c,
         ),
         _SettingsLink(
