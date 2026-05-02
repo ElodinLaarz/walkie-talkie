@@ -375,8 +375,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         positionSec * 2 < 60 ? 60 : positionSec * 2;
     // Use the human-readable display label for MediaSourceLib.name so UI
     // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
-    // showing raw wire keys like "spotify" or "pocket_casts".
-    final displayName = MediaSourceExtension.fromWireKey(source).label;
+    // showing raw wire keys like "spotify" or "pocket_casts". Unknown future
+    // keys fall back to the raw wireKey string rather than defaulting to
+    // "YouTube Music" (which fromWireKey does for backward compat).
+    final displayName = _sourceDisplayName(source);
     return MediaSourceLib(
       name: displayName,
       kind: emptyMediaLib.kind,
@@ -1098,6 +1100,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]'), ' ')
       .replaceAll(RegExp(r' +'), ' ')
       .trim();
+
+  /// Returns the display label for a wire key, or the raw key itself for
+  /// unknown/future sources (avoids the YouTube Music fallback in fromWireKey).
+  static String _sourceDisplayName(String wireKey) {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == wireKey) return s.label;
+    }
+    return wireKey;
+  }
 
   /// Returns the [MediaSource] for [_source]'s wire key, or null for
   /// unknown/future keys, so launch decisions never misroute to the
