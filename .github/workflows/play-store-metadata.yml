@@ -1,4 +1,4 @@
-name: Play Store — Upload Metadata
+name: Play Store — Upload Metadata & Images
 
 on:
   push:
@@ -6,12 +6,12 @@ on:
     paths:
       - 'fastlane/metadata/android/**'
 
-  # Allow manual trigger (e.g. after adding screenshots).
+  # Allow manual trigger (e.g. to force a re-upload after key rotation).
   workflow_dispatch:
 
 jobs:
   upload-metadata:
-    name: Upload listing text to Play Console
+    name: Upload listing text + images to Play Console
     runs-on: ubuntu-latest
     # Minimum permissions: read checkout only.
     # The Play Store credential is a service-account key, not a GitHub token.
@@ -37,9 +37,13 @@ jobs:
           echo "$PLAY_STORE_JSON_KEY_BASE64" | base64 -d > "${{ runner.temp }}/play-store-key.json"
           echo "PLAY_STORE_JSON_KEY_PATH=${{ runner.temp }}/play-store-key.json" >> "$GITHUB_ENV"
 
-      - name: Upload metadata via fastlane supply
+      - name: Upload listing text + changelogs via fastlane supply
         if: env.PLAY_STORE_JSON_KEY_PATH != ''
         run: bundle exec fastlane android upload_metadata
+
+      - name: Upload screenshots + feature graphic via fastlane supply
+        if: env.PLAY_STORE_JSON_KEY_PATH != ''
+        run: bundle exec fastlane android upload_images
 
       - name: Clean up key
         if: always()

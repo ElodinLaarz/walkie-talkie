@@ -40,4 +40,16 @@ platform :android do
       metadata_path:           "fastlane/metadata/android",
     )
   end
+
+  # Upload everything — listing text, changelogs, feature graphic, and
+  # screenshots — in one shot. Useful for initial Play Console population
+  # or after large batches of changes.
+  #
+  # Run locally:
+  #   bundle exec fastlane android upload_all
+  desc "Upload metadata + images to the Play Store internal track (full listing refresh)"
+  lane :upload_all do
+    upload_metadata
+    upload_images
+  end
 end
