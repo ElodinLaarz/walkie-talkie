@@ -22,6 +22,8 @@ import '../widgets/peer_drawer.dart';
 import '../widgets/peer_row.dart';
 import '../widgets/push_to_talk_button.dart';
 import '../widgets/media_source_sheet.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../widgets/queue_sheet.dart';
 
 /// Main "On air" room — voice + now playing.
@@ -1376,7 +1378,7 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'They have been muted and blocked. To report this incident to support, copy the report below and email it to support@elodin.app.',
+            'They have been muted and blocked. To report this incident to support, email the report below to support@formalizedchaos.com or copy it manually.',
           ),
           const SizedBox(height: 12),
           Container(
@@ -1397,6 +1399,21 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Dismiss'),
+        ),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.email_outlined),
+          label: const Text('Email report'),
+          onPressed: () async {
+            final uri = Uri(
+              scheme: 'mailto',
+              path: 'support@formalizedchaos.com',
+              queryParameters: {
+                'subject': 'Walkie Talkie abuse report',
+                'body': widget.reportText,
+              },
+            );
+            await launchUrl(uri);
+          },
         ),
         FilledButton.icon(
           icon: Icon(_copied ? Icons.check : Icons.copy),

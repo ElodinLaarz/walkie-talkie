@@ -116,6 +116,8 @@ in the project's GitHub repository.
 ## Contact
 
 Questions, concerns, or reports about Frequency's privacy practices can
-be filed as an issue on the project's GitHub repository:
+be filed as an issue on the project's GitHub repository or emailed to
+the maintainers:
 
 - <https://github.com/ElodinLaarz/walkie-talkie/issues>
+- <info@formalizedchaos.com>
