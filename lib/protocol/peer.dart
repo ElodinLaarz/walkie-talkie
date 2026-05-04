@@ -1,3 +1,7 @@
+// Sentinel used by [ProtocolPeer.copyWith] to distinguish "omitted" from
+// explicit null so callers can clear nullable fields (e.g. btDevice: null).
+const Object _noChange = Object();
+
 /// Protocol-layer view of a peer in a frequency.
 ///
 /// Distinct from the UI's `Person` (in `lib/data/frequency_models.dart`),
@@ -35,13 +39,13 @@ class ProtocolPeer {
 
   ProtocolPeer copyWith({
     String? displayName,
-    String? btDevice,
+    Object? btDevice = _noChange,
     bool? muted,
     bool? talking,
   }) => ProtocolPeer(
     peerId: peerId,
     displayName: displayName ?? this.displayName,
-    btDevice: btDevice ?? this.btDevice,
+    btDevice: btDevice == _noChange ? this.btDevice : btDevice as String?,
     muted: muted ?? this.muted,
     talking: talking ?? this.talking,
   );

@@ -216,6 +216,7 @@ class MainActivity : FlutterActivity() {
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
                     audioRoutingManager?.stopAutoDetect()
+                    peerAudioManager?.stopMixerThread()
                     peerAudioManager?.clear()
                     peerAudioManager = null
                     WalkieTalkieService.getRunning()?.stopAudioEngine()

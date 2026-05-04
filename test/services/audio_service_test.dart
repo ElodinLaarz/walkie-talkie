@@ -304,6 +304,15 @@ void main() {
                 ];
               },
             );
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                const MethodChannel('com.elodin.walkie_talkie/audio'),
+                null,
+              ),
+        );
 
         final result = await audioService.getCurrentRssi();
         expect(result, hasLength(2));
@@ -311,12 +320,6 @@ void main() {
         expect(result[0].rssi, -65);
         expect(result[1].peerId, '11:22:33:44:55:66');
         expect(result[1].rssi, -85);
-
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('com.elodin.walkie_talkie/audio'),
-              null,
-            );
       });
 
       test('returns empty list when native returns null', () async {
@@ -328,14 +331,17 @@ void main() {
                 return null;
               },
             );
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                const MethodChannel('com.elodin.walkie_talkie/audio'),
+                null,
+              ),
+        );
 
         expect(await audioService.getCurrentRssi(), isEmpty);
-
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('com.elodin.walkie_talkie/audio'),
-              null,
-            );
       });
 
       test('returns empty list when native throws', () async {
@@ -347,14 +353,17 @@ void main() {
                 throw PlatformException(code: 'ERR');
               },
             );
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                const MethodChannel('com.elodin.walkie_talkie/audio'),
+                null,
+              ),
+        );
 
         expect(await audioService.getCurrentRssi(), isEmpty);
-
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('com.elodin.walkie_talkie/audio'),
-              null,
-            );
       });
 
       test(
@@ -378,17 +387,20 @@ void main() {
                   ];
                 },
               );
+          addTearDown(
+            () => TestDefaultBinaryMessengerBinding
+                .instance
+                .defaultBinaryMessenger
+                .setMockMethodCallHandler(
+                  const MethodChannel('com.elodin.walkie_talkie/audio'),
+                  null,
+                ),
+          );
 
           final result = await audioService.getCurrentRssi();
           expect(result, hasLength(1));
           expect(result.first.peerId, 'good');
           expect(result.first.rssi, -70);
-
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-              .setMockMethodCallHandler(
-                const MethodChannel('com.elodin.walkie_talkie/audio'),
-                null,
-              );
         },
       );
 
@@ -410,16 +422,19 @@ void main() {
                 ];
               },
             );
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                const MethodChannel('com.elodin.walkie_talkie/audio'),
+                null,
+              ),
+        );
 
         final result = await audioService.getCurrentRssi();
         expect(result, hasLength(2));
         expect(result.map((r) => r.peerId), ['good', 'also-good']);
-
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-              const MethodChannel('com.elodin.walkie_talkie/audio'),
-              null,
-            );
       });
     });
 
