@@ -1131,6 +1131,138 @@ void main() {
 
       expect(find.text('muted'), findsOneWidget);
     });
+
+    // --- Connection-phase pill chrome (smoke-test steps 8 & 9) ---
+
+    testWidgets(
+      'chrome shows Reconnecting… pill when connectionPhase is reconnecting '
+      '(smoke-test step 9)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Verify baseline: "On air" pill is present.
+        expect(find.text('On air'), findsOneWidget);
+        expect(find.text('Reconnecting…'), findsNothing);
+
+        // Drive the cubit directly to reconnecting phase.
+        cubit.emit(
+          (cubit.state as SessionRoom).copyWith(
+            connectionPhase: ConnectionPhase.reconnecting,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Reconnecting…'), findsOneWidget);
+        expect(find.text('On air'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'chrome shows Lost connection pill when connectionPhase is lost '
+      '(smoke-test step 8)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        expect(find.text('On air'), findsOneWidget);
+        expect(find.text('Lost connection'), findsNothing);
+
+        cubit.emit(
+          (cubit.state as SessionRoom).copyWith(
+            connectionPhase: ConnectionPhase.lost,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Lost connection'), findsOneWidget);
+        expect(find.text('On air'), findsNothing);
+      },
+    );
+
+    // --- Media control buttons (smoke-test step 6) ---
+
+    testWidgets('skip button advances to the next track (smoke-test step 6)', (
+      tester,
+    ) async {
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
+
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+      await tester.pump();
+
+      // Seed a 3-track playlist starting at Track 3 so skip wraps to Track 1.
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [],
+          mediaState: const MediaState(
+            source: 'Spotify',
+            trackIdx: 2,
+            playing: true,
+            positionMs: 0,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Track 3'), findsOneWidget);
+
+      // Tap skip — command loops through the real cubit's mediaCommands stream
+      // and _onMediaCommand wraps _trackIdx from 2 to 0.
+      await tester.tap(find.byIcon(Icons.skip_next));
+      await tester.pump();
+
+      expect(find.text('Track 1'), findsOneWidget);
+      expect(find.text('Track 3'), findsNothing);
+    });
+
+    testWidgets(
+      'prev button goes back to the previous track (smoke-test step 6)',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Seed a 3-track playlist starting at Track 3 so prev goes to Track 2.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'Spotify',
+              trackIdx: 2,
+              playing: true,
+              positionMs: 0,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Track 3'), findsOneWidget);
+
+        // Tap prev — _trackIdx goes from 2 to (2-1+3)%3 == 1 (Track 2).
+        await tester.tap(find.byIcon(Icons.skip_previous));
+        await tester.pump();
+
+        expect(find.text('Track 2'), findsOneWidget);
+        expect(find.text('Track 3'), findsNothing);
+      },
+    );
   });
 }
 
