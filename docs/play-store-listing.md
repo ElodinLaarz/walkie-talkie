@@ -8,10 +8,10 @@ All character limits are Play Store maxima; counts shown after each field.
 ## App name
 
 ```text
-Walkie Talkie
+Frequency: Walkie-Talkie
 ```
 
-13 characters (max 30).
+24 characters (max 30).
 
 ---
 

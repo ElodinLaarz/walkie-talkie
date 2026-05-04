@@ -8,12 +8,12 @@ them when responding to a policy review query.
 
 ## BLUETOOTH_SCAN
 
-> *"To discover other Walkie Talkie rooms broadcasting nearby over Bluetooth LE.
+> *"To discover other Frequency rooms broadcasting nearby over Bluetooth LE.
 > The `neverForLocation` flag is set — this scan cannot be used to derive the
 > user's location."*
 
 **Why needed:** The discovery screen lists nearby hosts that are advertising the
-Walkie Talkie service UUID. Without scan permission the list stays empty.
+Frequency service UUID. Without scan permission the list stays empty.
 
 **Privacy note:** `android:usesPermissionFlags="neverForLocation"` is set in the
 manifest, so Android does not require the user to grant location permission and
@@ -23,7 +23,7 @@ the OS enforces that scan results cannot be used to derive location.
 
 ## BLUETOOTH_CONNECT
 
-> *"To connect to a nearby Walkie Talkie host and exchange voice and control
+> *"To connect to a nearby Frequency host and exchange voice and control
 > messages over GATT and L2CAP CoC (Bluetooth LE connection-oriented channels)."*
 
 **Why needed:** Joining a room requires a GATT connection to the host for the
@@ -81,7 +81,7 @@ maintain the BLE connection while backgrounded.
 
 ## POST_NOTIFICATIONS
 
-> *"To display the persistent 'Walkie Talkie Active' foreground notification.
+> *"To display the persistent 'Frequency Active' foreground notification.
 > Android 13+ requires notification permission before a foreground service
 > notification can appear; this notification is the mandatory indicator that
 > the microphone foreground service is running."*
