@@ -41,6 +41,9 @@ class GattClientManager(
          * GattConstants.AUTHORIZATION_ERRORS and are never retried.
          */
         private val TRANSIENT_GATT_ERRORS = setOf(133, 147, 19)
+
+        // Poll RSSI at 5 s so the cache is fresh when SignalReport fires at 10 s.
+        private const val RSSI_POLL_MS = 5_000L
     }
 
     private var gatt: BluetoothGatt? = null
@@ -57,6 +60,11 @@ class GattClientManager(
     // engage MTU-aware fragmentation.
     private val negotiatedMtus: MutableMap<String, Int> = mutableMapOf()
 
+    // Latest RSSI sample per host MAC, populated by [onReadRemoteRssi].
+    // Keyed by MAC address; the Dart layer treats the key as an opaque peerId
+    // (see audio_service.dart § getCurrentRssi note on peerId).
+    private val latestRssi: MutableMap<String, Int> = mutableMapOf()
+
     // Retries are scheduled via a Handler.postDelayed so the GATT callback
     // thread isn't blocked. The Runnable is cached so [disconnect] (and a
     // successful reconnect) can cancel any pending retry — otherwise a
@@ -64,6 +72,11 @@ class GattClientManager(
     // reconnect attempt, leaking GATT state and confusing the Dart layer.
     private val retryHandler = Handler(Looper.getMainLooper())
     private var pendingRetry: Runnable? = null
+
+    // Periodic RSSI sampler — calls readRemoteRssi every RSSI_POLL_MS while
+    // the link is up so the cache stays fresh for getCurrentRssi().
+    private val rssiHandler = Handler(Looper.getMainLooper())
+    private var rssiRunnable: Runnable? = null
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(
@@ -76,10 +89,12 @@ class GattClientManager(
                 Log.e(TAG, "GATT authorization failure: status=$status")
                 onError?.invoke("GATT_AUTHORIZATION_DENIED")
                 negotiatedMtus.remove(gatt.device.address)
+                latestRssi.remove(gatt.device.address)
                 if (this@GattClientManager.gatt === gatt) {
                     this@GattClientManager.gatt = null
                 }
                 cancelPendingRetry()
+                stopRssiPolling()
                 connectRetryCount = 0
                 pendingMacAddress = null
                 gatt.close()
@@ -101,6 +116,9 @@ class GattClientManager(
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     val address = gatt.device.address
                     Log.i(TAG, "Disconnected from GATT server: $address, status=$status")
+
+                    stopRssiPolling()
+                    latestRssi.remove(address)
 
                     // Close the GATT connection here instead of in disconnect()
                     // to avoid closing before the callback completes, which
@@ -205,6 +223,9 @@ class GattClientManager(
             } else {
                 Log.i(TAG, "GATT client setup complete, notifications enabled")
             }
+
+            // Link is fully set up — start periodic RSSI sampling.
+            startRssiPolling(gatt.device.address)
         }
 
         // API 33+ onCharacteristicChanged with explicit value parameter — the
@@ -267,6 +288,37 @@ class GattClientManager(
                 }
             }
         }
+
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                latestRssi[gatt.device.address] = rssi
+                Log.d(TAG, "RSSI for ${gatt.device.address}: $rssi dBm")
+            } else {
+                Log.w(TAG, "readRemoteRssi failed: status=$status")
+            }
+        }
+    }
+
+    private fun startRssiPolling(address: String) {
+        stopRssiPolling()
+        val runnable = object : Runnable {
+            override fun run() {
+                val currentGatt = gatt ?: return
+                try {
+                    currentGatt.readRemoteRssi()
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Missing permission for readRemoteRssi", e)
+                }
+                rssiHandler.postDelayed(this, RSSI_POLL_MS)
+            }
+        }
+        rssiRunnable = runnable
+        rssiHandler.postDelayed(runnable, RSSI_POLL_MS)
+    }
+
+    private fun stopRssiPolling() {
+        rssiRunnable?.let(rssiHandler::removeCallbacks)
+        rssiRunnable = null
     }
 
     private fun scheduleRetry(macAddress: String, delayMs: Long) {
@@ -385,6 +437,7 @@ class GattClientManager(
     fun disconnect() {
         try {
             cancelPendingRetry()
+            stopRssiPolling()
             connectRetryCount = 0
             pendingMacAddress = null
             gatt?.disconnect()
@@ -401,6 +454,14 @@ class GattClientManager(
      * depending on which device is the GATT client/server for this link.
      */
     fun getMtu(endpointId: String): Int? = negotiatedMtus[endpointId]
+
+    /**
+     * Returns the latest RSSI samples as a list of maps for the Dart layer.
+     * Each map contains "peerId" (host MAC address) and "rssi" (dBm, negative).
+     * Returns an empty list if no samples have been collected yet.
+     */
+    fun getLatestRssiSamples(): List<Map<String, Any>> =
+        latestRssi.map { (mac, rssi) -> mapOf("peerId" to mac, "rssi" to rssi) }
 
     /**
      * Check if currently connected to a host.
