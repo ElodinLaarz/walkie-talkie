@@ -12,7 +12,7 @@ Fill these in at: **Play Console → App content → Data safety**.
 | Data type | Collected? | Shared? | Notes |
 |---|---|---|---|
 | Crash logs | Yes (opt-in only) | Yes — Sentry | Off by default; user toggles on via Settings → Crash reporting. TLS to Sentry. No audio, no display names, no peer IDs, no location. |
-| Diagnostics (perf metrics) | Yes (opt-in only) | Yes — Sentry | Same envelope as crash logs. |
+| Diagnostics (session data) | Yes (opt-in only) | Yes — Sentry | Same envelope as crash logs. Session health events (start/end/crash-rate) sent by Sentry's auto session tracking. |
 
 All other data type rows answered **No**, including Audio (voice) and Device or other IDs (peerId). See "Why audio and peerId are not declared" below.
 
@@ -24,7 +24,7 @@ All other data type rows answered **No**, including Audio (voice) and Device or 
 
 ### Crash logs and Diagnostics (Sentry, opt-in only)
 
-- **Why collected:** App functionality — improving crash-free experience and identifying performance regressions.
+- **Why collected:** App functionality — improving crash-free experience and tracking session health (crash rate, session counts).
 - **Is it encrypted in transit?** Yes — TLS to Sentry's ingestion endpoint.
 - **Can the user request deletion?** Yes — toggling crash reporting off stops new uploads, and uninstalling the app or clearing app data removes the local queue. Sentry's data retention is governed by Sentry's own policy, linked from the privacy page.
 - **Is collection required or optional?** Optional. The toggle defaults to off; users must explicitly enable it.
@@ -32,7 +32,7 @@ All other data type rows answered **No**, including Audio (voice) and Device or 
 
 ## Why audio and peerId are not declared
 
-Voice audio and the local `peerId` UUID are transmitted over Bluetooth LE to other peers in the same Frequency room — peers the user explicitly chose to communicate with by joining a shared frequency. The developer never receives, processes, or stores either of these data types; they exist only on the user's device and on the devices of co-present peers within ~10 m of BLE radio range.
+Voice audio and the local `peerId` UUID are transmitted over Bluetooth LE to other peers in the same Frequency room — peers the user explicitly chose to communicate with by joining a shared frequency. The developer never receives, processes, or stores either of these data types; they exist only on the user's device and on the devices of co-present peers within roughly 10–30 metres of BLE radio range.
 
 Per Google Play's Data Safety guidance:
 
@@ -46,11 +46,11 @@ The unencrypted BLE link is still disclosed in the in-app Privacy & Security FAQ
 
 ## Does your app share data with third parties?
 
-**No** — with one narrow, opt-in exception.
+**Yes** — but only one narrow, opt-in category (Sentry crash logs and diagnostics).
 
-All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server. No data is shared with any third party by default.
+All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server.
 
-Exception: if the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from contexts, tags, and breadcrumbs (including nested values) before transmission, so only Sentry's own SDK-generated session identifiers are used for crash correlation. Users who keep crash reporting disabled send no outbound crash telemetry.
+If the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces and session health data are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from contexts, tags, and breadcrumbs (including nested values) before transmission, so only Sentry's own SDK-generated session identifiers are used for crash correlation. Users who keep crash reporting disabled send no outbound crash telemetry or session data.
 
 ---
 

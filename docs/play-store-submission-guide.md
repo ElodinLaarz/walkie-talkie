@@ -129,7 +129,7 @@ Key declarations:
 - Audio/voice and peerId: **not declared as collected** — user-to-user only, no developer-side collection (Play's user-to-user carve-out applies)
 - Crash logs and diagnostics: **opt-in only** (off by default), sent over TLS to Sentry — the only declared collection
 - All declared data is encrypted in transit (TLS to Sentry)
-- No third-party data sharing (except opt-in Sentry crash reports)
+- No third-party data sharing (except opt-in Sentry crash logs and diagnostics)
 
 Data deletion URL: `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion`
 
