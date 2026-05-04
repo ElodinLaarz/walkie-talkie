@@ -275,6 +275,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         } else {
           _setOpenMicMuted(!_meMuted);
         }
+      } else if (type == 'audioError' || type == 'error') {
+        // Native stream failure — either an Oboe recording error (e.g.
+        // RECORD_AUDIO revoked, 'audioError') or an L2CAP transport error
+        // (e.g. BLUETOOTH_CONNECT revoked, 'error'). Trigger an immediate
+        // permission re-check so the cubit transitions to
+        // SessionPermissionDenied without waiting for the 5-second poll
+        // cycle in DefaultPermissionWatcher.
+        unawaited(cubit.recheckPermissions());
       }
     });
 
