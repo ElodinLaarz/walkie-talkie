@@ -611,13 +611,14 @@ void main() {
           final emitted = <FrequencyMessage>[];
           final sub = transport.incoming.listen(emitted.add);
 
-          // Feed a fragment that does NOT complete a message — leaves state in
-          // the reassembler for 'ep-1'.
-          final partialFragments = encodeFragments(_joinRequest().encode());
-          // Only inject the first fragment so reassembler has pending state.
+          // Inject a complete JoinRequest from 'ep-1' to establish the
+          // 'ep-1' → 'peer-a' endpoint mapping inside the transport.
+          // (_joinRequest() fits in one fragment, so the reassembler
+          // processes it fully and the mapping is registered synchronously.)
+          final fragments = encodeFragments(_joinRequest().encode());
           controlBytesController.add((
             endpointId: 'ep-1',
-            bytes: partialFragments.first,
+            bytes: fragments.first,
           ));
           await Future<void>.delayed(Duration.zero);
 

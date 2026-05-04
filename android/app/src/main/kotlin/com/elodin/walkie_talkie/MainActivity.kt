@@ -222,6 +222,11 @@ class MainActivity : FlutterActivity() {
                     WalkieTalkieService.getRunning()?.stopAudioEngine()
                     audioMixerManager?.clear()
                     audioMixerManager = null
+                    // Stop and release the L2CAP transport so stale sockets
+                    // don't bleed into the next session (Dart has no separate
+                    // stopVoiceTransport call-site in the room exit path).
+                    voiceTransport?.stop()
+                    voiceTransport = null
                     isVoiceHost = false
                     result.success(true)
                 }
