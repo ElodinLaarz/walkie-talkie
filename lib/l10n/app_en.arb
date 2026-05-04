@@ -393,7 +393,7 @@
     "@privacyPolicyHeadline": {
         "description": "Headline of the privacy policy screen."
     },
-    "privacyPolicyLastUpdated": "Last updated 2026-04-30",
+    "privacyPolicyLastUpdated": "Last updated 2026-05-04",
     "@privacyPolicyLastUpdated": {
         "description": "Subhead under the privacy policy headline showing when the policy was last revised. Update this date when docs/privacy-policy.md is revised."
     },
@@ -469,7 +469,7 @@
     "@privacyPolicySectionContactTitle": {
         "description": "Privacy policy section title — how to contact the maintainers."
     },
-    "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at https://github.com/ElodinLaarz/walkie-talkie/issues.",
+    "privacyPolicySectionContactBody": "Questions, concerns, or reports about Frequency's privacy practices can be filed as an issue on the project's GitHub repository at https://github.com/ElodinLaarz/walkie-talkie/issues or emailed to info@formalizedchaos.com.",
     "@privacyPolicySectionContactBody": {
         "description": "Privacy policy body — contact."
     },

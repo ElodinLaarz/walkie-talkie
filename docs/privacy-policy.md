@@ -6,7 +6,7 @@ permalink: /privacy-policy/
 
 # Frequency — Privacy Policy
 
-_Last updated: 2026-04-30_
+_Last updated: 2026-05-04_
 
 Frequency is an offline, peer-to-peer walkie-talkie app for Android. It runs
 entirely on the phones in the conversation — there is no Frequency server, no
@@ -116,6 +116,8 @@ in the project's GitHub repository.
 ## Contact
 
 Questions, concerns, or reports about Frequency's privacy practices can
-be filed as an issue on the project's GitHub repository:
+be filed as an issue on the project's GitHub repository or emailed to
+the maintainers:
 
 - <https://github.com/ElodinLaarz/walkie-talkie/issues>
+- <info@formalizedchaos.com>
