@@ -385,14 +385,44 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
             ),
           );
         }
-      // These message types are handled by future issues
-      // (voice-activity detection, join request flow). Silently drop.
-      case TalkingState():
-      case MuteState():
+      case TalkingState m:
+        _applyPeerStateUpdate(m.peerId, talking: m.talking);
+      case MuteState m:
+        _applyPeerStateUpdate(m.peerId, muted: m.muted);
+      // JoinRequest is host-only ingress (see future host-side issue).
+      // JoinDenied is reserved for the host-rejects-guest path.
       case JoinRequest():
       case JoinDenied():
         break;
     }
+  }
+
+  /// Applies a single-peer flag mutation (mute or talking) from an inbound
+  /// [TalkingState] / [MuteState] to the live roster, then emits the updated
+  /// [SessionRoom]. No-op when the cubit is closed (a late transport
+  /// callback racing shutdown), outside `SessionRoom`, when the named peer
+  /// isn't in the roster, or when the new flag value matches the current
+  /// value (which avoids redundant emits under flapping VAD).
+  ///
+  /// Called from [_onTransportMessage]; the protocol contract is that a
+  /// peer may broadcast its own talking/mute state and other peers reflect
+  /// it. Cross-guest visibility additionally requires the host to fan out
+  /// these messages to other guests; that fan-out is tracked separately.
+  void _applyPeerStateUpdate(
+    String peerId, {
+    bool? muted,
+    bool? talking,
+  }) {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return;
+    final idx = current.roster.indexWhere((p) => p.peerId == peerId);
+    if (idx < 0) return;
+    final existing = current.roster[idx];
+    final updated = existing.copyWith(muted: muted, talking: talking);
+    if (existing == updated) return;
+    final newRoster = [...current.roster];
+    newRoster[idx] = updated;
+    emit(current.copyWith(roster: newRoster));
   }
 
   /// Host-only ingress for `SignalReport`. Guests currently send

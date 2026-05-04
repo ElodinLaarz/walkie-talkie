@@ -2169,6 +2169,248 @@ void main() {
     });
 
     test(
+      'inbound TalkingState flips the matching roster peer\'s talking flag',
+      () async {
+        // Host receives a guest's `TalkingState` after VAD fires on the
+        // guest. The dispatch handler must mutate the matching roster
+        // entry so the talking-ring lights up on the host's UI.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+            ],
+          ),
+        );
+
+        final talking = const TalkingState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(talking)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        var room = cubit.state as SessionRoom;
+        final guest = room.roster.firstWhere((p) => p.peerId == 'p-guest');
+        expect(guest.talking, isTrue);
+        // Host's own flag is untouched — the message named p-guest, not p-host.
+        final host = room.roster.firstWhere((p) => p.peerId == 'p-host');
+        expect(host.talking, isFalse);
+
+        // Flipping back to false must clear the flag.
+        final stopped = const TalkingState(
+          peerId: 'p-guest',
+          seq: 2,
+          atMs: 2000,
+          talking: false,
+        ).encode();
+        for (final frag in encodeFragments(stopped)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        room = cubit.state as SessionRoom;
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-guest').talking,
+          isFalse,
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('inbound MuteState flips the matching roster peer\'s muted flag', () async {
+      // Same shape as the TalkingState test, for the mute path: a peer
+      // self-muting must surface on every other peer's roster so the
+      // mute icon renders correctly.
+      final t = makeTestTransport();
+      final cubit = _makeCubit(transport: t.transport);
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+          ],
+        ),
+      );
+
+      final mute = const MuteState(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 1000,
+        muted: true,
+      ).encode();
+      for (final frag in encodeFragments(mute)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      var room = cubit.state as SessionRoom;
+      expect(
+        room.roster.firstWhere((p) => p.peerId == 'p-guest').muted,
+        isTrue,
+      );
+
+      final unmute = const MuteState(
+        peerId: 'p-guest',
+        seq: 2,
+        atMs: 2000,
+        muted: false,
+      ).encode();
+      for (final frag in encodeFragments(unmute)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      room = cubit.state as SessionRoom;
+      expect(
+        room.roster.firstWhere((p) => p.peerId == 'p-guest').muted,
+        isFalse,
+      );
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test(
+      'inbound TalkingState/MuteState about an unknown peer is silently ignored',
+      () async {
+        // Defensive: a stale message arriving after a peer has been
+        // dropped from the roster (Leave / RemovePeer / lost-peer prune)
+        // must not crash and must not resurrect the peer.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ],
+          ),
+        );
+        final initial = cubit.state as SessionRoom;
+
+        // Unknown peer in TalkingState — must be a no-op.
+        final talking = const TalkingState(
+          peerId: 'p-ghost',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(talking)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // Same for MuteState.
+        final mute = const MuteState(
+          peerId: 'p-ghost',
+          seq: 2,
+          atMs: 2000,
+          muted: true,
+        ).encode();
+        for (final frag in encodeFragments(mute)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final after = cubit.state as SessionRoom;
+        expect(after.roster, equals(initial.roster));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'inbound TalkingState/MuteState arriving after close() is ignored without throwing',
+      () async {
+        // Race: a transport callback can fire after `close()` returns but
+        // before the inbox subscription is cancelled. The handler must not
+        // call `emit` on a closed cubit (would throw StateError) and must
+        // not mutate the roster post-close.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+            ],
+          ),
+        );
+        final preCloseRoster = (cubit.state as SessionRoom).roster;
+
+        await cubit.close();
+
+        final talking = const TalkingState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(talking)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        final mute = const MuteState(
+          peerId: 'p-guest',
+          seq: 2,
+          atMs: 2000,
+          muted: true,
+        ).encode();
+        for (final frag in encodeFragments(mute)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // No emit should have run; the roster snapshot is what it was
+        // before close, and the cubit is still cleanly closed.
+        expect(cubit.isClosed, isTrue);
+        expect((cubit.state as SessionRoom).roster, equals(preCloseRoster));
+
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
       'host: peer-lost drops the peer from the roster and broadcasts RosterUpdate',
       () async {
         final t = makeTestTransport();
