@@ -194,7 +194,12 @@ class MainActivity : FlutterActivity() {
                     audioMixerManager?.addDevice(0)
                     val engineStarted = WalkieTalkieService.getRunning()?.startAudioEngine() ?: false
                     if (!engineStarted) {
-                        Log.e(TAG, "Audio engine failed to start")
+                        Log.e(TAG, "Audio engine failed to start — rolling back partial init")
+                        audioRoutingManager?.stopAutoDetect()
+                        audioMixerManager?.clear()
+                        audioMixerManager = null
+                        result.success(false)
+                        return@setMethodCallHandler
                     }
                     // Init the per-peer manager and wire its outbound callback to L2CAP.
                     val pm = PeerAudioManager()
@@ -211,7 +216,7 @@ class MainActivity : FlutterActivity() {
                     })
                     pm.startMixerThread()
                     peerAudioManager = pm
-                    result.success(engineStarted)
+                    result.success(true)
                 }
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
