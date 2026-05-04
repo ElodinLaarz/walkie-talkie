@@ -126,11 +126,9 @@ Use the answers in
 [`docs/play-store-data-safety.md`](https://github.com/ElodinLaarz/walkie-talkie/blob/main/docs/play-store-data-safety.md)
 (repository link — this file is excluded from the GitHub Pages build).
 Key declarations:
-- Audio/voice: collected, processed in real time, not stored, not shared
-- Bluetooth device IDs: collected for connectivity only, not shared, deleted on uninstall
-- Voice transport uses Bluetooth LE (L2CAP CoC); link-layer encryption
-  depends on device pairing state — see `docs/play-store-data-safety.md`
-  for the current declared security posture
+- Audio/voice and peerId: **not declared as collected** — user-to-user only, no developer-side collection (Play's user-to-user carve-out applies)
+- Crash logs and diagnostics: **opt-in only** (off by default), sent over TLS to Sentry — the only declared collection
+- All declared data is encrypted in transit (TLS to Sentry)
 - No third-party data sharing (except opt-in Sentry crash reports)
 
 Data deletion URL: `https://elodinlaarz.github.io/walkie-talkie/privacy-policy/#data-retention-and-deletion`
