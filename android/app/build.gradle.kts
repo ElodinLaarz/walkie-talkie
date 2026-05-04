@@ -215,8 +215,9 @@ android {
     }
 }
 
-// Sentry configuration for crash reporting
-// Only enabled when user opts in via Settings (defaults to disabled)
+// Sentry Gradle plugin — build-time symbol/mapping upload pipeline.
+// Runtime SDK init is gated separately by the user's Settings → Privacy toggle
+// (handled by sentry_flutter; see autoInstallation block below).
 sentry {
     // Build-time uploads for crash deobfuscation:
     //   - native sources + symbols → C++ stacks (Oboe / Opus)
