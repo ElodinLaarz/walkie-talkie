@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Run before flutter-action so a metadata character-limit violation
       # fails fast without paying the cost of downloading and caching the
