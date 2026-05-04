@@ -1148,6 +1148,15 @@ void main() {
         expect(find.text('On air'), findsOneWidget);
         expect(find.text('Reconnecting…'), findsNothing);
 
+        // Guard: _seededCubit() reaches SessionRoom synchronously via the guest
+        // path (no await before emit), so the cast is safe — but asserting here
+        // gives a clear failure message if the implementation changes.
+        expect(
+          cubit.state,
+          isA<SessionRoom>(),
+          reason: '_seededCubit must be in SessionRoom before phase mutation',
+        );
+
         // Drive the cubit directly to reconnecting phase.
         cubit.emit(
           (cubit.state as SessionRoom).copyWith(
@@ -1158,6 +1167,8 @@ void main() {
 
         expect(find.text('Reconnecting…'), findsOneWidget);
         expect(find.text('On air'), findsNothing);
+        // Reconnecting pill must include the spinner (CircularProgressIndicator).
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
       },
     );
 
@@ -1173,6 +1184,12 @@ void main() {
 
         expect(find.text('On air'), findsOneWidget);
         expect(find.text('Lost connection'), findsNothing);
+
+        expect(
+          cubit.state,
+          isA<SessionRoom>(),
+          reason: '_seededCubit must be in SessionRoom before phase mutation',
+        );
 
         cubit.emit(
           (cubit.state as SessionRoom).copyWith(
