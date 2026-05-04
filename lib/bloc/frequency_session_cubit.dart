@@ -399,9 +399,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   /// Applies a single-peer flag mutation (mute or talking) from an inbound
   /// [TalkingState] / [MuteState] to the live roster, then emits the updated
-  /// [SessionRoom]. No-op outside `SessionRoom`, when the named peer isn't
-  /// in the roster, or when the new flag value matches the current value
-  /// (which avoids redundant emits under flapping VAD).
+  /// [SessionRoom]. No-op when the cubit is closed (a late transport
+  /// callback racing shutdown), outside `SessionRoom`, when the named peer
+  /// isn't in the roster, or when the new flag value matches the current
+  /// value (which avoids redundant emits under flapping VAD).
   ///
   /// Called from [_onTransportMessage]; the protocol contract is that a
   /// peer may broadcast its own talking/mute state and other peers reflect
@@ -413,7 +414,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     bool? talking,
   }) {
     final current = state;
-    if (current is! SessionRoom) return;
+    if (isClosed || current is! SessionRoom) return;
     final idx = current.roster.indexWhere((p) => p.peerId == peerId);
     if (idx < 0) return;
     final existing = current.roster[idx];

@@ -2353,6 +2353,64 @@ void main() {
     );
 
     test(
+      'inbound TalkingState/MuteState arriving after close() is ignored without throwing',
+      () async {
+        // Race: a transport callback can fire after `close()` returns but
+        // before the inbox subscription is cancelled. The handler must not
+        // call `emit` on a closed cubit (would throw StateError) and must
+        // not mutate the roster post-close.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+            ],
+          ),
+        );
+        final preCloseRoster = (cubit.state as SessionRoom).roster;
+
+        await cubit.close();
+
+        final talking = const TalkingState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(talking)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        final mute = const MuteState(
+          peerId: 'p-guest',
+          seq: 2,
+          atMs: 2000,
+          muted: true,
+        ).encode();
+        for (final frag in encodeFragments(mute)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // No emit should have run; the roster snapshot is what it was
+        // before close, and the cubit is still cleanly closed.
+        expect(cubit.isClosed, isTrue);
+        expect((cubit.state as SessionRoom).roster, equals(preCloseRoster));
+
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
       'host: peer-lost drops the peer from the roster and broadcasts RosterUpdate',
       () async {
         final t = makeTestTransport();
