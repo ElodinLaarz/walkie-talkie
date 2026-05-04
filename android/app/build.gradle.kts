@@ -119,7 +119,7 @@ android {
 
             when {
                 hasEnvConfig -> {
-                    storeFile = file(envKeystorePath)
+                    storeFile = rootProject.file(envKeystorePath)
                     storePassword = envKeystorePassword
                     keyAlias = envKeyAlias
                     keyPassword = envKeyPassword
