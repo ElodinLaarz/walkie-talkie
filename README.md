@@ -277,7 +277,7 @@ real radios.
 
 Code and assets are ready; remaining steps are Play Console actions.
 
-* [#111](https://github.com/ElodinLaarz/walkie-talkie/issues/111) ✅ Privacy policy: written, hosted on GitHub Pages, linked from in-app About screen.
+* [#111](https://github.com/ElodinLaarz/walkie-talkie/issues/111) ✅ Privacy policy: written (`docs/privacy-policy.md`), linked from in-app About screen. Requires GitHub Pages to be enabled in repo settings before the URL goes live.
 * [#112](https://github.com/ElodinLaarz/walkie-talkie/issues/112) ✅ Adaptive launcher icon + monochrome icon for Android 13 themed icons.
 * [#120](https://github.com/ElodinLaarz/walkie-talkie/issues/120) ✅ Crash + error reporting (Sentry, opt-in, no PII, on-device queue).
 * [#126](https://github.com/ElodinLaarz/walkie-talkie/issues/126) ⏳ Play Store listing prep: store metadata, screenshots, content rating, closed testing. See [`docs/play-store-submission-guide.md`](docs/play-store-submission-guide.md) for the step-by-step checklist.
