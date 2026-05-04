@@ -67,7 +67,7 @@ Exception: if the user explicitly opts in to crash reporting (Settings → Crash
 
 The app stores no user data on any server. To delete all local data:
 
-1. Open **Settings → Apps → Walkie Talkie → Storage**.
+1. Open **Settings → Apps → Frequency → Storage**.
 2. Tap **Clear Data**.
 
 Or simply uninstall the app.

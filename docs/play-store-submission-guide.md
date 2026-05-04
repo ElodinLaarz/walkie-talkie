@@ -6,7 +6,7 @@ permalink: /play-store-submission/
 
 # Play Store Submission Guide
 
-Step-by-step checklist for submitting the **Walkie Talkie** app to the Google
+Step-by-step checklist for submitting the **Frequency** app to the Google
 Play Store. Items marked ✅ are complete (all code and assets are committed);
 items marked ⏳ require action inside the Play Console.
 

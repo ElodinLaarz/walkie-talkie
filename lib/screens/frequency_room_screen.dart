@@ -1160,7 +1160,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   String _buildSanitizedReport(Person person) {
     final timestamp = DateTime.now().toUtc().toIso8601String();
-    return 'Walkie Talkie abuse report\n'
+    return 'Frequency abuse report\n'
         'Time (UTC): $timestamp\n'
         'Frequency: ${_sanitizeField(widget.freq)}\n'
         'Peer display name: ${_sanitizeField(person.name)}\n'
@@ -1409,7 +1409,7 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
               scheme: 'mailto',
               path: 'support@formalizedchaos.com',
               queryParameters: {
-                'subject': 'Walkie Talkie abuse report',
+                'subject': 'Frequency abuse report',
                 'body': widget.reportText,
               },
             );
