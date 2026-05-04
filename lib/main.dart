@@ -24,6 +24,7 @@ import 'services/onboarding_permission_gateway.dart';
 import 'services/permission_watcher.dart';
 import 'services/recent_frequencies_store.dart';
 import 'services/sentry_config.dart';
+import 'services/sentry_event_sanitizer.dart';
 import 'services/settings_store.dart';
 import 'services/storage_migration.dart';
 import 'theme/app_theme.dart';
@@ -67,7 +68,7 @@ void main() async {
           options.attachStacktrace = true;
           // Redact PII before sending
           options.beforeSend = (event, hint) {
-            return _sanitizeEvent(event);
+            return sanitizeSentryEvent(event);
           };
         },
         appRunner: () => runApp(WalkieTalkieApp(settingsStore: settingsStore)),
@@ -78,48 +79,6 @@ void main() async {
 
   // Opt-out path or missing DSN: run without Sentry
   runApp(WalkieTalkieApp(settingsStore: settingsStore));
-}
-
-// Matches any key/field containing a display-name identifier, regardless of
-// separator (camelCase, snake_case, or space-separated).
-final _piiKeyRegex = RegExp(r'display[_ ]?name', caseSensitive: false);
-// Matches "display_?name: <value>" in free-form text, capturing through the
-// next comma or semicolon so multi-word values are fully redacted.
-final _piiMessageRegex = RegExp(
-  r'display[_ ]?name[:\s]*[^,;]+',
-  caseSensitive: false,
-);
-
-/// Sanitizes Sentry events to remove PII.
-/// Redacts display names from contexts and breadcrumbs.
-/// Keeps peerId as it's documented as an anonymous identifier.
-SentryEvent? _sanitizeEvent(SentryEvent event) {
-  // Direct mutation — SentryContexts is mutable in sentry 9.x.
-  event.contexts.removeWhere((key, _) => _piiKeyRegex.hasMatch(key));
-
-  // Mutate breadcrumbs in-place — SentryBreadcrumb is mutable in sentry 9.x.
-  for (final crumb in event.breadcrumbs ?? const []) {
-    final msg = crumb.message;
-    if (msg != null && _piiMessageRegex.hasMatch(msg)) {
-      crumb.message = msg.replaceAll(
-        _piiMessageRegex,
-        'displayName: [REDACTED]',
-      );
-    }
-
-    final data = crumb.data;
-    if (data != null && data.keys.any(_piiKeyRegex.hasMatch)) {
-      crumb.data = Map.fromEntries(
-        data.entries.map((e) {
-          return _piiKeyRegex.hasMatch(e.key)
-              ? MapEntry(e.key, '[REDACTED]')
-              : e;
-        }),
-      );
-    }
-  }
-
-  return event;
 }
 
 class WalkieTalkieApp extends StatefulWidget {

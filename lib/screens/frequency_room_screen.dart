@@ -1416,13 +1416,21 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
             try {
               if (!await launchUrl(uri) && mounted) {
                 messenger.showSnackBar(
-                  SnackBar(content: Text('No email app available — use "Copy report" instead')),
+                  SnackBar(
+                    content: Text(
+                      'No email app available — use "Copy report" instead',
+                    ),
+                  ),
                 );
               }
             } on PlatformException catch (_) {
               if (mounted) {
                 messenger.showSnackBar(
-                  SnackBar(content: Text('Could not open email app — use "Copy report" instead')),
+                  SnackBar(
+                    content: Text(
+                      'Could not open email app — use "Copy report" instead',
+                    ),
+                  ),
                 );
               }
             }
