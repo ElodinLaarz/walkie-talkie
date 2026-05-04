@@ -215,30 +215,29 @@ android {
     }
 }
 
-// Sentry configuration for crash reporting
-// Only enabled when user opts in via Settings (defaults to disabled)
+// Sentry Gradle plugin — build-time symbol/mapping upload pipeline.
+// Runtime SDK init is gated separately by the user's Settings → Privacy toggle
+// (handled by sentry_flutter; see autoInstallation block below).
 sentry {
-    // Upload debug symbols for native crashes (C++ Oboe/Opus code)
+    // Build-time uploads for crash deobfuscation:
+    //   - native sources + symbols → C++ stacks (Oboe / Opus)
+    //   - ProGuard/R8 mapping → Java/Kotlin stacks
+    //   - source context → resolves to source line in the Sentry UI
     includeNativeSources = true
-
-    // Auto-upload ProGuard/R8 mapping files for deobfuscated Java/Kotlin stacks
-    autoUploadProguardMapping = true
-
-    // Controlled by SENTRY_DSN environment variable
-    // If not set, Sentry is disabled (respects opt-out default)
     autoUploadNativeSymbols = true
-
-    // Include source context in stack traces
+    autoUploadProguardMapping = true
     includeSourceContext = true
 
-    // Prevent duplicate initialization (sentry_flutter handles SDK init)
+    // Runtime SDK init is handled by sentry_flutter (driven by the
+    // SENTRY_DSN dart-define + the user's Settings → Privacy toggle).
+    // Disable the plugin's auto-install so we don't double-init.
     autoInstallation {
         enabled = false
     }
 
-    // Trace instrumentation for performance monitoring (opt-in only)
+    // Off by default — privacy posture, not a Sentry-side concern.
     tracingInstrumentation {
-        enabled = false // Disabled by default for privacy
+        enabled = false
     }
 }
 
