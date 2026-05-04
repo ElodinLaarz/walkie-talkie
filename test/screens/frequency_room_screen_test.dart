@@ -1032,6 +1032,45 @@ void main() {
 
       expect(find.text('Block & Report'), findsOneWidget);
     });
+    testWidgets('Block & Report dialog shows Email report button (#272)', (
+      tester,
+    ) async {
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
+      final store = _FakeBlockedPeersStore();
+
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit, store: store));
+      await tester.pump();
+      await tester.pump();
+
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [ProtocolPeer(peerId: 'p-guest', displayName: 'Devon')],
+        ),
+      );
+      await tester.pump();
+
+      // Open Devon's drawer.
+      await tester.tap(find.text('Devon'));
+      await tester.pump(_settle);
+
+      // Drag the bottom sheet up so the off-screen Block & Report button is within
+      // the pointer-event bounds before tapping.
+      await tester.drag(find.byType(BottomSheet), const Offset(0, -600));
+      await tester.pump(_settle);
+
+      await tester.tap(find.text('Block & Report'));
+      // Let Navigator.pop + async block complete, then render dialog.
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Email report'), findsOneWidget);
+      expect(find.textContaining('support@formalizedchaos.com'), findsWidgets);
+    });
 
     testWidgets(
       'pttToggle in open-mic mode mutes (notification PTT button in open-mic)',

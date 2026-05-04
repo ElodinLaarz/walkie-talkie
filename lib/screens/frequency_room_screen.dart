@@ -1404,6 +1404,7 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
           icon: const Icon(Icons.email_outlined),
           label: const Text('Email report'),
           onPressed: () async {
+            final messenger = ScaffoldMessenger.of(context);
             final uri = Uri(
               scheme: 'mailto',
               path: 'support@formalizedchaos.com',
@@ -1412,7 +1413,19 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
                 'body': widget.reportText,
               },
             );
-            await launchUrl(uri);
+            try {
+              if (!await launchUrl(uri) && mounted) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('No email app available — use "Copy report" instead')),
+                );
+              }
+            } on PlatformException catch (_) {
+              if (mounted) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Could not open email app — use "Copy report" instead')),
+                );
+              }
+            }
           },
         ),
         FilledButton.icon(

@@ -6,7 +6,7 @@ permalink: /privacy-policy/
 
 # Frequency — Privacy Policy
 
-_Last updated: 2026-04-30_
+_Last updated: 2026-05-04_
 
 Frequency is an offline, peer-to-peer walkie-talkie app for Android. It runs
 entirely on the phones in the conversation — there is no Frequency server, no

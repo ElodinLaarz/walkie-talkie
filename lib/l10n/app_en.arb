@@ -393,7 +393,7 @@
     "@privacyPolicyHeadline": {
         "description": "Headline of the privacy policy screen."
     },
-    "privacyPolicyLastUpdated": "Last updated 2026-04-30",
+    "privacyPolicyLastUpdated": "Last updated 2026-05-04",
     "@privacyPolicyLastUpdated": {
         "description": "Subhead under the privacy policy headline showing when the policy was last revised. Update this date when docs/privacy-policy.md is revised."
     },
