@@ -20,15 +20,10 @@ Widget _wrap(Widget child) {
 class _FakeSettingsStore implements SettingsStore {
   bool pttMode;
   bool keepScreenOn;
-  bool crashReporting;
 
   final List<(String, bool)> calls = [];
 
-  _FakeSettingsStore({
-    this.pttMode = false,
-    this.keepScreenOn = false,
-    this.crashReporting = false,
-  });
+  _FakeSettingsStore({this.pttMode = false, this.keepScreenOn = false});
 
   @override
   Future<bool> getPttModeEnabled() async => pttMode;
@@ -44,7 +39,7 @@ class _FakeSettingsStore implements SettingsStore {
       calls.add(('setKeepScreenOn', v));
 
   @override
-  Future<bool> getCrashReportingEnabled() async => crashReporting;
+  Future<bool> getCrashReportingEnabled() async => false;
 
   @override
   Future<void> setCrashReportingEnabled(bool v) async =>
