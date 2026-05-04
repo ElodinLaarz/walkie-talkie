@@ -43,7 +43,7 @@ jobs:
       - name: Validate rollout fraction
         run: |
           ROLLOUT="${{ github.event.inputs.rollout_fraction }}"
-          if ! echo "$ROLLOUT" | grep -qE '^(0(\.[0-9]+)?|1(\.0?)?)$'; then
+          if ! echo "$ROLLOUT" | grep -qE '^(0(\.[0-9]+)?|1(\.0+)?)$'; then
             echo "::error::rollout_fraction must be a decimal between 0 and 1 (got: $ROLLOUT)"
             exit 1
           fi

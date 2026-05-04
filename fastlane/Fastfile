@@ -113,14 +113,14 @@ platform :android do
   #   PLAY_STORE_JSON_KEY_PATH — service-account JSON key file path
   desc "Promote internal-track build to production with staged rollout (no AAB re-upload)"
   lane :promote_production do |options|
-    rollout = (options[:rollout] || ENV.fetch("ROLLOUT", "0.1")).to_s
-    unless rollout.match?(/\A0(\.\d+)?|1(\.0)?\z/)
-      UI.user_error!("rollout must be a decimal between 0 and 1 (e.g. 0.1 for 10%); got: #{rollout}")
+    rollout_str = (options[:rollout] || ENV.fetch("ROLLOUT", "0.1")).to_s
+    unless rollout_str.match?(/\A(?:0(?:\.\d+)?|1(?:\.0+)?)\z/)
+      UI.user_error!("rollout must be a decimal between 0 and 1 (e.g. 0.1 for 10%); got: #{rollout_str}")
     end
     supply(
       track:                   "internal",
       track_promote_to:        "production",
-      rollout:                 rollout,
+      rollout:                 rollout_str.to_f,
       skip_upload_apk:         true,
       skip_upload_aab:         true,
       skip_upload_metadata:    true,
