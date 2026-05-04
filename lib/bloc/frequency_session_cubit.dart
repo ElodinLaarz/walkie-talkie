@@ -35,9 +35,8 @@ import 'frequency_session_state.dart';
 /// the divergence on next launch when the previous value loads back.
 ///
 /// **Protocol surface.** Three methods bridge the BLE wire protocol into
-/// session state. They're the hooks the BLE transport will call once it
-/// lands; until then, the in-memory loopback in [sendMediaCommand]
-/// exercises the same code paths so widget tests stay realistic:
+/// session state. The BLE transport is wired; the same in-memory loopback
+/// path in [sendMediaCommand] is also exercised by widget tests:
 ///
 ///   * [applyJoinAccepted] — caller hands in a `JoinAccepted` from the
 ///     host (or a self-issued one when the local user is the host).
@@ -47,16 +46,15 @@ import 'frequency_session_state.dart';
 ///   * [sendMediaCommand] — originator path. Builds a `MediaCommand`
 ///     with the local peerId, applies it **optimistically** to the
 ///     local UI by emitting on [mediaCommands] so the tap feels
-///     responsive, AND would write it to the host's GATT REQUEST
-///     characteristic when the BLE transport is wired.
-///   * [applyHostMediaEcho] — host echo path. The host (or the loopback
-///     in v1) calls this to forward the host-approved command onto
-///     [mediaCommands] so listeners can react to the canonical wire
-///     event. This currently does **not** mutate
-///     `SessionRoom.mediaState`; the cubit's room snapshot only
-///     changes when room state is replaced (e.g. via
-///     [applyJoinAccepted]). The room screen owns queue-aware
-///     advancement against the echo — see the per-method doc on
+///     responsive, and writes it to the host's GATT REQUEST
+///     characteristic via the BLE transport.
+///   * [applyHostMediaEcho] — host echo path. Forwards the host-approved
+///     command onto [mediaCommands] so local listeners can react.
+///     Host fan-out (re-broadcasting to all peers) is pending #273.
+///     This currently does **not** mutate `SessionRoom.mediaState`;
+///     the cubit's room snapshot only changes when room state is
+///     replaced (e.g. via [applyJoinAccepted]). The room screen owns
+///     queue-aware advancement — see the per-method doc on
 ///     [applyHostMediaEcho] for why mediaState advancement isn't in
 ///     the cubit.
 class FrequencySessionCubit extends Cubit<FrequencySessionState> {
@@ -1669,14 +1667,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///   1. Build the command with the local peerId and a fresh seq.
   ///   2. Apply it **optimistically** by emitting on [mediaCommands] so
   ///      the UI updates instantly.
-  ///   3. (Once the BLE transport lands) write it to the host's REQUEST
-  ///      characteristic. The host validates, applies, and echoes a
-  ///      canonical version to all peers via [applyHostMediaEcho].
+  ///   3. Write it to the host's REQUEST characteristic via
+  ///      `_transport?.send(cmd)`. The host validates and applies it;
+  ///      [applyHostMediaEcho] delivers the canonical echo locally.
+  ///      Host fan-out to all peers (so others see the change) is
+  ///      still pending — tracked in issue #273.
   ///
-  /// In v1 the BLE transport isn't wired yet, so step 3 is a no-op and
-  /// the originator's optimistic apply is the only apply that fires.
-  /// When the transport lands, the originator's [applyHostMediaEcho]
-  /// callback will reconcile any disagreement (host wins).
+  /// The BLE transport is wired — step 3 runs alongside the optimistic
+  /// apply. Cross-peer reconciliation depends on host fan-out (#273).
   Future<void> sendMediaCommand({
     required MediaOp op,
     required String source,
@@ -1729,10 +1727,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// queue (`MediaSourceLib.queue.length`), so it can't correctly
   /// resolve the trackIdx for `skip` / `prev`. The room screen owns
   /// queue-aware advancement; the cubit's `mediaState` is the
-  /// `JoinAccepted` bootstrap snapshot only. Once the BLE host
-  /// implementation lands, the host side will track canonical
-  /// mediaState (with queue access) and snapshot it into every
-  /// outgoing `JoinAccepted` for guests to seed from.
+  /// `JoinAccepted` bootstrap snapshot only. Host fan-out (so the host
+  /// tracks canonical mediaState and snapshots it into `JoinAccepted`
+  /// for guests) is still pending — tracked in issue #273.
   ///
   /// No-op outside `SessionRoom`, or after the cubit is closed.
   void applyHostMediaEcho(MediaCommand cmd) {
