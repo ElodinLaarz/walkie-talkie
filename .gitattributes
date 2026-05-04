@@ -1,0 +1,20 @@
+# Enforce LF line endings for all text files regardless of platform.
+# Without this, Windows checkouts with core.autocrlf=true produce CRLF files
+# that cause `dart format --set-exit-if-changed` to fail in WSL/Linux CI.
+* text=auto eol=lf
+
+# Explicit binary patterns so git never attempts line-ending translation
+# on non-text assets.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.aab  binary
+*.apk  binary
+*.so   binary
+*.a    binary
+*.jar  binary
+*.key  binary
+*.keystore binary
