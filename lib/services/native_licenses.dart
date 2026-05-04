@@ -52,15 +52,13 @@ void registerNativeLicenses({AssetBundle? bundle}) {
   // an exception on the first `await` would short-circuit the second
   // `yield` — splitting them isolates the failure modes.
   LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(
-      const ['Oboe'],
-      await assets.loadString(oboeLicenseAsset),
-    );
+    yield LicenseEntryWithLineBreaks(const [
+      'Oboe',
+    ], await assets.loadString(oboeLicenseAsset));
   });
   LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(
-      const ['Opus'],
-      await assets.loadString(opusLicenseAsset),
-    );
+    yield LicenseEntryWithLineBreaks(const [
+      'Opus',
+    ], await assets.loadString(opusLicenseAsset));
   });
 }

@@ -69,8 +69,11 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         alignment: Alignment.center,
-                        child:
-                            Icon(Icons.lock_outline, size: 26, color: c.danger),
+                        child: Icon(
+                          Icons.lock_outline,
+                          size: 26,
+                          color: c.danger,
+                        ),
                       ),
                       const SizedBox(height: 18),
                       Text(
@@ -80,10 +83,9 @@ class FrequencyPermissionDeniedScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         _explainerCopy(l10n, missing),
-                        style:
-                            Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: c.ink2,
-                                ),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: c.ink2),
                       ),
                       const SizedBox(height: 22),
                       for (final perm in missing) ...[
@@ -187,9 +189,9 @@ class _DeniedRow extends StatelessWidget {
   }
 
   static IconData _icon(AppPermission perm) => switch (perm) {
-        AppPermission.microphone => Icons.mic_off,
-        AppPermission.bluetooth => Icons.bluetooth_disabled,
-      };
+    AppPermission.microphone => Icons.mic_off,
+    AppPermission.bluetooth => Icons.bluetooth_disabled,
+  };
 
   static String _title(AppLocalizations l10n, AppPermission perm) =>
       switch (perm) {

@@ -47,7 +47,7 @@ class WeakSignalDetector {
   final Map<String, DateTime> _lastToastAt = {};
 
   WeakSignalDetector({DateTime Function()? clock})
-      : _now = clock ?? DateTime.now;
+    : _now = clock ?? DateTime.now;
 
   /// Process [report] from a guest. Returns the neighbor `peerId`s that
   /// should fire a toast on this report (after threshold + rate-limit

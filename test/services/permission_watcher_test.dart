@@ -63,17 +63,17 @@ const _kGranted = 1;
 void _setHandler(_FakePermissions perms) {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-    const MethodChannel('flutter.baseflow.com/permissions/methods'),
-    perms.handle,
-  );
+        const MethodChannel('flutter.baseflow.com/permissions/methods'),
+        perms.handle,
+      );
 }
 
 void _clearHandler() {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-    const MethodChannel('flutter.baseflow.com/permissions/methods'),
-    null,
-  );
+        const MethodChannel('flutter.baseflow.com/permissions/methods'),
+        null,
+      );
 }
 
 void main() {
@@ -99,12 +99,14 @@ void main() {
     });
 
     test('emits microphone when microphone is denied', () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kDenied,
-        _kBluetoothScan: _kGranted,
-        _kBluetoothConnect: _kGranted,
-        _kBluetoothAdvertise: _kGranted,
-      }));
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kDenied,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kGranted,
+          _kBluetoothAdvertise: _kGranted,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       addTearDown(watcher.dispose);
@@ -113,14 +115,15 @@ void main() {
       expect(event, [AppPermission.microphone]);
     });
 
-    test('emits bluetooth when any of the three BT perms is denied',
-        () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kGranted,
-        _kBluetoothScan: _kGranted,
-        _kBluetoothConnect: _kDenied, // only one denied
-        _kBluetoothAdvertise: _kGranted,
-      }));
+    test('emits bluetooth when any of the three BT perms is denied', () async {
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kGranted,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kDenied, // only one denied
+          _kBluetoothAdvertise: _kGranted,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       addTearDown(watcher.dispose);
@@ -130,12 +133,14 @@ void main() {
     });
 
     test('emits both in order when both are denied', () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kDenied,
-        _kBluetoothScan: _kDenied,
-        _kBluetoothConnect: _kDenied,
-        _kBluetoothAdvertise: _kDenied,
-      }));
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kDenied,
+          _kBluetoothScan: _kDenied,
+          _kBluetoothConnect: _kDenied,
+          _kBluetoothAdvertise: _kDenied,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       addTearDown(watcher.dispose);
@@ -266,17 +271,17 @@ void main() {
         var consumedGate = false;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(
-          const MethodChannel('flutter.baseflow.com/permissions/methods'),
-          (MethodCall call) async {
-            if (call.method != 'checkPermissionStatus') return null;
-            final code = call.arguments as int;
-            if (!consumedGate) {
-              consumedGate = true;
-              await firstCallGate.future;
-            }
-            return perms.statusByPermission[code] ?? 0;
-          },
-        );
+              const MethodChannel('flutter.baseflow.com/permissions/methods'),
+              (MethodCall call) async {
+                if (call.method != 'checkPermissionStatus') return null;
+                final code = call.arguments as int;
+                if (!consumedGate) {
+                  consumedGate = true;
+                  await firstCallGate.future;
+                }
+                return perms.statusByPermission[code] ?? 0;
+              },
+            );
 
         final watcher = DefaultPermissionWatcher();
         addTearDown(watcher.dispose);
@@ -316,44 +321,44 @@ void main() {
     );
 
     test('watch() throws after dispose', () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kGranted,
-        _kBluetoothScan: _kGranted,
-        _kBluetoothConnect: _kGranted,
-        _kBluetoothAdvertise: _kGranted,
-      }));
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kGranted,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kGranted,
+          _kBluetoothAdvertise: _kGranted,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       await watcher.dispose();
-      expect(
-        () => watcher.watch(),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => watcher.watch(), throwsA(isA<StateError>()));
     });
 
     test('checkNow throws after dispose', () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kGranted,
-        _kBluetoothScan: _kGranted,
-        _kBluetoothConnect: _kGranted,
-        _kBluetoothAdvertise: _kGranted,
-      }));
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kGranted,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kGranted,
+          _kBluetoothAdvertise: _kGranted,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       await watcher.dispose();
-      expect(
-        () => watcher.checkNow(),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => watcher.checkNow(), throwsA(isA<StateError>()));
     });
 
     test('dispose is idempotent', () async {
-      _setHandler(_FakePermissions({
-        _kMicrophone: _kGranted,
-        _kBluetoothScan: _kGranted,
-        _kBluetoothConnect: _kGranted,
-        _kBluetoothAdvertise: _kGranted,
-      }));
+      _setHandler(
+        _FakePermissions({
+          _kMicrophone: _kGranted,
+          _kBluetoothScan: _kGranted,
+          _kBluetoothConnect: _kGranted,
+          _kBluetoothAdvertise: _kGranted,
+        }),
+      );
 
       final watcher = DefaultPermissionWatcher();
       await watcher.dispose();
@@ -364,11 +369,11 @@ void main() {
       // Handler that throws — simulate a malformed platform response.
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('flutter.baseflow.com/permissions/methods'),
-        (MethodCall call) async {
-          throw PlatformException(code: 'boom');
-        },
-      );
+            const MethodChannel('flutter.baseflow.com/permissions/methods'),
+            (MethodCall call) async {
+              throw PlatformException(code: 'boom');
+            },
+          );
 
       final watcher = DefaultPermissionWatcher();
       addTearDown(watcher.dispose);
@@ -377,9 +382,12 @@ void main() {
       // the watcher logs and stays subscribed.
       final stream = watcher.watch();
       bool sawError = false;
-      final sub = stream.listen((_) {}, onError: (_) {
-        sawError = true;
-      });
+      final sub = stream.listen(
+        (_) {},
+        onError: (_) {
+          sawError = true;
+        },
+      );
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
       expect(sawError, isFalse);

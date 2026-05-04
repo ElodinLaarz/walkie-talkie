@@ -3,7 +3,10 @@
 // Release CI injects SENTRY_DSN from the repository secret; dev/debug builds
 // that omit the flag get an empty string and `kSentryConfigured == false`.
 
-const String _kSentryDsn = String.fromEnvironment('SENTRY_DSN', defaultValue: '');
+const String _kSentryDsn = String.fromEnvironment(
+  'SENTRY_DSN',
+  defaultValue: '',
+);
 
 /// True when a Sentry DSN was provided at build time.
 ///

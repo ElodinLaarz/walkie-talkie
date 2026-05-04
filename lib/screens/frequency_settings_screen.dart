@@ -168,9 +168,7 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           title: l10n.settingsSecurityFaq,
           c: c,
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const SecurityFaqScreen(),
-            ),
+            MaterialPageRoute<void>(builder: (_) => const SecurityFaqScreen()),
           ),
         ),
         // About
@@ -261,11 +259,7 @@ class _SettingsToggle extends StatelessWidget {
         ),
         subtitle: Text(
           subtitle,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            color: c.ink3,
-          ),
+          style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: c.ink3),
         ),
         trailing: FreqSwitch(
           value: value,
@@ -339,11 +333,7 @@ class _SettingsInfoRow extends StatelessWidget {
         ),
         trailing: Text(
           value,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: c.ink3,
-          ),
+          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: c.ink3),
         ),
       ),
     );

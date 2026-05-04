@@ -81,10 +81,7 @@ void main() {
     });
 
     test('all denied results in denied', () {
-      final statuses = [
-        ph.PermissionStatus.denied,
-        ph.PermissionStatus.denied,
-      ];
+      final statuses = [ph.PermissionStatus.denied, ph.PermissionStatus.denied];
 
       final result = DefaultOnboardingPermissionGateway.reduce(statuses);
       expect(result, OnboardingPermissionStatus.denied);
@@ -102,15 +99,18 @@ void main() {
       expect(result, OnboardingPermissionStatus.denied);
     });
 
-    test('mix of denied and restricted results in denied (no permanent denial)', () {
-      final statuses = [
-        ph.PermissionStatus.denied,
-        ph.PermissionStatus.restricted,
-      ];
+    test(
+      'mix of denied and restricted results in denied (no permanent denial)',
+      () {
+        final statuses = [
+          ph.PermissionStatus.denied,
+          ph.PermissionStatus.restricted,
+        ];
 
-      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
-      expect(result, OnboardingPermissionStatus.denied);
-    });
+        final result = DefaultOnboardingPermissionGateway.reduce(statuses);
+        expect(result, OnboardingPermissionStatus.denied);
+      },
+    );
 
     test('permanentlyDenied takes precedence over denied', () {
       final statuses = [
@@ -148,12 +148,15 @@ void main() {
       expect(result, OnboardingPermissionStatus.denied);
     });
 
-    test('single permanentlyDenied permission results in permanentlyDenied', () {
-      final statuses = [ph.PermissionStatus.permanentlyDenied];
+    test(
+      'single permanentlyDenied permission results in permanentlyDenied',
+      () {
+        final statuses = [ph.PermissionStatus.permanentlyDenied];
 
-      final result = DefaultOnboardingPermissionGateway.reduce(statuses);
-      expect(result, OnboardingPermissionStatus.permanentlyDenied);
-    });
+        final result = DefaultOnboardingPermissionGateway.reduce(statuses);
+        expect(result, OnboardingPermissionStatus.permanentlyDenied);
+      },
+    );
 
     test('empty list results in granted (edge case - vacuous truth)', () {
       final statuses = <ph.PermissionStatus>[];

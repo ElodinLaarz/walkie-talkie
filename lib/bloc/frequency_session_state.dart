@@ -85,10 +85,8 @@ final class SessionPermissionDenied extends FrequencySessionState {
   /// the field is nullable as a defensive measure).
   final String? myName;
 
-  SessionPermissionDenied({
-    required List<AppPermission> missing,
-    this.myName,
-  }) : missing = List<AppPermission>.unmodifiable(missing);
+  SessionPermissionDenied({required List<AppPermission> missing, this.myName})
+    : missing = List<AppPermission>.unmodifiable(missing);
 
   @override
   List<Object?> get props => [missing, myName];
@@ -191,39 +189,38 @@ final class SessionRoom extends FrequencySessionState {
     Object? macAddress = _unset,
     Object? sessionUuidLow8 = _unset,
     ConnectionPhase? connectionPhase,
-  }) =>
-      SessionRoom(
-        myName: myName ?? this.myName,
-        roomFreq: roomFreq ?? this.roomFreq,
-        roomIsHost: roomIsHost ?? this.roomIsHost,
-        hostPeerId: identical(hostPeerId, _unset)
-            ? this.hostPeerId
-            : hostPeerId as String?,
-        roster: roster == null
-            ? this.roster
-            : List<ProtocolPeer>.unmodifiable(roster),
-        mediaState: identical(mediaState, _unset)
-            ? this.mediaState
-            : mediaState as MediaState?,
-        macAddress: identical(macAddress, _unset)
-            ? this.macAddress
-            : macAddress as String?,
-        sessionUuidLow8: identical(sessionUuidLow8, _unset)
-            ? this.sessionUuidLow8
-            : sessionUuidLow8 as String?,
-        connectionPhase: connectionPhase ?? this.connectionPhase,
-      );
+  }) => SessionRoom(
+    myName: myName ?? this.myName,
+    roomFreq: roomFreq ?? this.roomFreq,
+    roomIsHost: roomIsHost ?? this.roomIsHost,
+    hostPeerId: identical(hostPeerId, _unset)
+        ? this.hostPeerId
+        : hostPeerId as String?,
+    roster: roster == null
+        ? this.roster
+        : List<ProtocolPeer>.unmodifiable(roster),
+    mediaState: identical(mediaState, _unset)
+        ? this.mediaState
+        : mediaState as MediaState?,
+    macAddress: identical(macAddress, _unset)
+        ? this.macAddress
+        : macAddress as String?,
+    sessionUuidLow8: identical(sessionUuidLow8, _unset)
+        ? this.sessionUuidLow8
+        : sessionUuidLow8 as String?,
+    connectionPhase: connectionPhase ?? this.connectionPhase,
+  );
 
   @override
   List<Object?> get props => [
-        myName,
-        roomFreq,
-        roomIsHost,
-        hostPeerId,
-        roster,
-        mediaState,
-        macAddress,
-        sessionUuidLow8,
-        connectionPhase,
-      ];
+    myName,
+    roomFreq,
+    roomIsHost,
+    hostPeerId,
+    roster,
+    mediaState,
+    macAddress,
+    sessionUuidLow8,
+    connectionPhase,
+  ];
 }

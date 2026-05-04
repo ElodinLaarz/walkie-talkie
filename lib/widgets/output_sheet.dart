@@ -7,35 +7,32 @@ enum AudioOutput { bluetooth, earpiece, speaker }
 
 extension AudioOutputExtension on AudioOutput {
   String get label => switch (this) {
-        AudioOutput.bluetooth => 'Bluetooth headphones',
-        AudioOutput.earpiece => 'Phone earpiece',
-        AudioOutput.speaker => 'Phone speaker',
-      };
+    AudioOutput.bluetooth => 'Bluetooth headphones',
+    AudioOutput.earpiece => 'Phone earpiece',
+    AudioOutput.speaker => 'Phone speaker',
+  };
 
   IconData get icon => switch (this) {
-        AudioOutput.bluetooth => Icons.bluetooth,
-        AudioOutput.earpiece => Icons.mic_none,
-        AudioOutput.speaker => Icons.volume_up,
-      };
+    AudioOutput.bluetooth => Icons.bluetooth,
+    AudioOutput.earpiece => Icons.mic_none,
+    AudioOutput.speaker => Icons.volume_up,
+  };
 
   String subFor(String bt) => switch (this) {
-        AudioOutput.bluetooth => bt.isEmpty
-            ? 'No headphones connected — pair in system Bluetooth settings'
-            : bt,
-        AudioOutput.earpiece => 'Private, held to ear',
-        AudioOutput.speaker => 'Loud · everyone nearby hears',
-      };
+    AudioOutput.bluetooth =>
+      bt.isEmpty
+          ? 'No headphones connected — pair in system Bluetooth settings'
+          : bt,
+    AudioOutput.earpiece => 'Private, held to ear',
+    AudioOutput.speaker => 'Loud · everyone nearby hears',
+  };
 }
 
 class OutputSheet extends StatelessWidget {
   final AudioOutput current;
   final String btName;
 
-  const OutputSheet({
-    super.key,
-    required this.current,
-    required this.btName,
-  });
+  const OutputSheet({super.key, required this.current, required this.btName});
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +71,11 @@ class OutputSheet extends StatelessWidget {
                     ),
                     Text(
                       'Where voice and media come out',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: c.ink3,
+                      ),
                     ),
                   ],
                 ),
@@ -108,7 +109,11 @@ class OutputSheet extends StatelessWidget {
           Center(
             child: Text(
               "Pair new headphones in your phone's Bluetooth settings.",
-              style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                color: c.ink3,
+              ),
             ),
           ),
         ],
@@ -144,58 +149,65 @@ class _OutputRow extends StatelessWidget {
       child: Opacity(
         opacity: btUnavailable ? 0.45 : 1.0,
         child: Material(
-        color: selected && !btUnavailable ? c.surface2 : c.surface,
-        child: InkWell(
-          onTap: btUnavailable ? null : () => Navigator.pop(context, output),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              border: Border(
-                top: first ? BorderSide.none : BorderSide(color: c.line),
+          color: selected && !btUnavailable ? c.surface2 : c.surface,
+          child: InkWell(
+            onTap: btUnavailable ? null : () => Navigator.pop(context, output),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: first ? BorderSide.none : BorderSide(color: c.line),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: selected && !btUnavailable
+                          ? c.accentSoft
+                          : c.surface2,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      output.icon,
+                      size: 16,
+                      color: selected && !btUnavailable ? c.accentInk : c.ink2,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          output.label,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: c.ink,
+                          ),
+                        ),
+                        Text(
+                          output.subFor(btName),
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: c.ink3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (selected && !btUnavailable)
+                    Icon(Icons.check, size: 16, color: c.accent),
+                ],
               ),
             ),
-            child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: selected && !btUnavailable ? c.accentSoft : c.surface2,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  output.icon,
-                  size: 16,
-                  color: selected && !btUnavailable ? c.accentInk : c.ink2,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      output.label,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: c.ink,
-                      ),
-                    ),
-                    Text(
-                      output.subFor(btName),
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
-                    ),
-                  ],
-                ),
-              ),
-              if (selected && !btUnavailable) Icon(Icons.check, size: 16, color: c.accent),
-            ],
           ),
-          ),
-        ),
         ),
       ),
     );

@@ -145,6 +145,15 @@ class WalkieTalkieService : Service() {
         mediaSession = null
     }
 
+    /** Start the Oboe audio engine. Called from [MainActivity]'s `startVoice` handler. */
+    fun startAudioEngine(): Boolean = audioEngineManager.start()
+
+    /** Stop the Oboe audio engine. Called from [MainActivity]'s `stopVoice` handler. */
+    fun stopAudioEngine() = audioEngineManager.stop()
+
+    /** Gate the mic path in the native engine. Called from [MainActivity]'s `setMuted` handler. */
+    fun setEngineMuted(muted: Boolean): Boolean = audioEngineManager.setMuted(muted)
+
     /**
      * Relay a mute change from the Dart side so the notification button
      * label is in sync with the engine. Called from

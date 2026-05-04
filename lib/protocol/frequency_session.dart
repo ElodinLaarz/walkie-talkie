@@ -58,9 +58,9 @@ class FrequencySession {
   }
 
   Map<String, dynamic> toJson() => {
-        'sessionUuid': sessionUuid,
-        'hostPeerId': hostPeerId,
-      };
+    'sessionUuid': sessionUuid,
+    'hostPeerId': hostPeerId,
+  };
 
   factory FrequencySession.fromJson(Map<String, dynamic> json) =>
       FrequencySession(

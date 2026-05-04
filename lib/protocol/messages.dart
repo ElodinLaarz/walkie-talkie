@@ -10,17 +10,17 @@ enum JoinDenyReason { hostDeclined, roomFull, versionMismatch }
 
 extension JoinDenyReasonWire on JoinDenyReason {
   String get wire => switch (this) {
-        JoinDenyReason.hostDeclined => 'host_declined',
-        JoinDenyReason.roomFull => 'room_full',
-        JoinDenyReason.versionMismatch => 'version_mismatch',
-      };
+    JoinDenyReason.hostDeclined => 'host_declined',
+    JoinDenyReason.roomFull => 'room_full',
+    JoinDenyReason.versionMismatch => 'version_mismatch',
+  };
 
   static JoinDenyReason fromWire(String s) => switch (s) {
-        'host_declined' => JoinDenyReason.hostDeclined,
-        'room_full' => JoinDenyReason.roomFull,
-        'version_mismatch' => JoinDenyReason.versionMismatch,
-        _ => throw FormatException('Unknown deny reason: $s'),
-      };
+    'host_declined' => JoinDenyReason.hostDeclined,
+    'room_full' => JoinDenyReason.roomFull,
+    'version_mismatch' => JoinDenyReason.versionMismatch,
+    _ => throw FormatException('Unknown deny reason: $s'),
+  };
 }
 
 /// Operations carried by a `MediaCommand`.
@@ -28,23 +28,23 @@ enum MediaOp { play, pause, skip, prev, seek, queuePlay }
 
 extension MediaOpWire on MediaOp {
   String get wire => switch (this) {
-        MediaOp.play => 'play',
-        MediaOp.pause => 'pause',
-        MediaOp.skip => 'skip',
-        MediaOp.prev => 'prev',
-        MediaOp.seek => 'seek',
-        MediaOp.queuePlay => 'queue_play',
-      };
+    MediaOp.play => 'play',
+    MediaOp.pause => 'pause',
+    MediaOp.skip => 'skip',
+    MediaOp.prev => 'prev',
+    MediaOp.seek => 'seek',
+    MediaOp.queuePlay => 'queue_play',
+  };
 
   static MediaOp fromWire(String s) => switch (s) {
-        'play' => MediaOp.play,
-        'pause' => MediaOp.pause,
-        'skip' => MediaOp.skip,
-        'prev' => MediaOp.prev,
-        'seek' => MediaOp.seek,
-        'queue_play' => MediaOp.queuePlay,
-        _ => throw FormatException('Unknown media op: $s'),
-      };
+    'play' => MediaOp.play,
+    'pause' => MediaOp.pause,
+    'skip' => MediaOp.skip,
+    'prev' => MediaOp.prev,
+    'seek' => MediaOp.seek,
+    'queue_play' => MediaOp.queuePlay,
+    _ => throw FormatException('Unknown media op: $s'),
+  };
 }
 
 /// Snapshot of what's playing on the host, sent inside `JoinAccepted` so a
@@ -64,18 +64,18 @@ class MediaState {
   });
 
   Map<String, dynamic> toJson() => {
-        'source': source,
-        'trackIdx': trackIdx,
-        'playing': playing,
-        'positionMs': positionMs,
-      };
+    'source': source,
+    'trackIdx': trackIdx,
+    'playing': playing,
+    'positionMs': positionMs,
+  };
 
   factory MediaState.fromJson(Map<String, dynamic> json) => MediaState(
-        source: json['source'] as String,
-        trackIdx: json['trackIdx'] as int,
-        playing: json['playing'] as bool,
-        positionMs: json['positionMs'] as int,
-      );
+    source: json['source'] as String,
+    trackIdx: json['trackIdx'] as int,
+    playing: json['playing'] as bool,
+    positionMs: json['positionMs'] as int,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -166,12 +166,12 @@ sealed class FrequencyMessage {
   }
 
   Map<String, dynamic> _envelope() => {
-        'kind': kind,
-        'peerId': peerId,
-        'seq': seq,
-        'atMs': atMs,
-        'v': kProtocolVersion,
-      };
+    'kind': kind,
+    'peerId': peerId,
+    'seq': seq,
+    'atMs': atMs,
+    'v': kProtocolVersion,
+  };
 }
 
 /// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
@@ -225,18 +225,18 @@ final class JoinRequest extends FrequencyMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'displayName': displayName,
-        if (btDevice != null) 'btDevice': btDevice,
-      };
+    ..._envelope(),
+    'displayName': displayName,
+    if (btDevice != null) 'btDevice': btDevice,
+  };
 
   factory JoinRequest._fromJson(Map<String, dynamic> j) => JoinRequest(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        displayName: j['displayName'] as String,
-        btDevice: j['btDevice'] as String?,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    displayName: j['displayName'] as String,
+    btDevice: j['btDevice'] as String?,
+  );
 }
 
 final class JoinAccepted extends FrequencyMessage {
@@ -260,21 +260,22 @@ final class JoinAccepted extends FrequencyMessage {
     this.mediaState,
     this.voicePsm,
   }) : assert(
-          voicePsm == null || (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
-          'voicePsm must be odd and in range 0x0080-0x00FF',
-        );
+         voicePsm == null ||
+             (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
+         'voicePsm must be odd and in range 0x0080-0x00FF',
+       );
 
   @override
   String get kind => 'join_accepted';
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'hostPeerId': hostPeerId,
-        'roster': roster.map((p) => p.toJson()).toList(),
-        if (mediaState != null) 'mediaState': mediaState!.toJson(),
-        if (voicePsm != null) 'voicePsm': voicePsm,
-      };
+    ..._envelope(),
+    'hostPeerId': hostPeerId,
+    'roster': roster.map((p) => p.toJson()).toList(),
+    if (mediaState != null) 'mediaState': mediaState!.toJson(),
+    if (voicePsm != null) 'voicePsm': voicePsm,
+  };
 
   factory JoinAccepted._fromJson(Map<String, dynamic> j) {
     final rawVoicePsm = j['voicePsm'];
@@ -321,25 +322,18 @@ final class JoinDenied extends FrequencyMessage {
   String get kind => 'join_denied';
 
   @override
-  Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'reason': reason.wire,
-      };
+  Map<String, dynamic> toJson() => {..._envelope(), 'reason': reason.wire};
 
   factory JoinDenied._fromJson(Map<String, dynamic> j) => JoinDenied(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        reason: JoinDenyReasonWire.fromWire(j['reason'] as String),
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    reason: JoinDenyReasonWire.fromWire(j['reason'] as String),
+  );
 }
 
 final class Leave extends FrequencyMessage {
-  const Leave({
-    required super.peerId,
-    required super.seq,
-    required super.atMs,
-  });
+  const Leave({required super.peerId, required super.seq, required super.atMs});
 
   @override
   String get kind => 'leave';
@@ -348,10 +342,10 @@ final class Leave extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Leave._fromJson(Map<String, dynamic> j) => Leave(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+  );
 }
 
 final class RemovePeer extends FrequencyMessage {
@@ -368,17 +362,14 @@ final class RemovePeer extends FrequencyMessage {
   String get kind => 'remove_peer';
 
   @override
-  Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'target': target,
-      };
+  Map<String, dynamic> toJson() => {..._envelope(), 'target': target};
 
   factory RemovePeer._fromJson(Map<String, dynamic> j) => RemovePeer(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        target: j['target'] as String,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    target: j['target'] as String,
+  );
 }
 
 final class RosterUpdate extends FrequencyMessage {
@@ -396,16 +387,16 @@ final class RosterUpdate extends FrequencyMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'roster': roster.map((p) => p.toJson()).toList(),
-      };
+    ..._envelope(),
+    'roster': roster.map((p) => p.toJson()).toList(),
+  };
 
   factory RosterUpdate._fromJson(Map<String, dynamic> j) => RosterUpdate(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        roster: _parseRoster(j['roster']),
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    roster: _parseRoster(j['roster']),
+  );
 }
 
 // ── Voice control ───────────────────────────────────────────────────────────
@@ -424,17 +415,14 @@ final class TalkingState extends FrequencyMessage {
   String get kind => 'talking';
 
   @override
-  Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'talking': talking,
-      };
+  Map<String, dynamic> toJson() => {..._envelope(), 'talking': talking};
 
   factory TalkingState._fromJson(Map<String, dynamic> j) => TalkingState(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        talking: j['talking'] as bool,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    talking: j['talking'] as bool,
+  );
 }
 
 final class MuteState extends FrequencyMessage {
@@ -451,17 +439,14 @@ final class MuteState extends FrequencyMessage {
   String get kind => 'mute';
 
   @override
-  Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'muted': muted,
-      };
+  Map<String, dynamic> toJson() => {..._envelope(), 'muted': muted};
 
   factory MuteState._fromJson(Map<String, dynamic> j) => MuteState(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        muted: j['muted'] as bool,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    muted: j['muted'] as bool,
+  );
 }
 
 // ── Shared media ────────────────────────────────────────────────────────────
@@ -480,35 +465,33 @@ final class MediaCommand extends FrequencyMessage {
     required this.source,
     this.trackIdx,
     this.positionMs,
-  })  : assert(
-          op != MediaOp.queuePlay || trackIdx != null,
-          'MediaCommand(queue_play) requires trackIdx',
-        ),
-        assert(
-          op != MediaOp.seek || positionMs != null,
-          'MediaCommand(seek) requires positionMs',
-        );
+  }) : assert(
+         op != MediaOp.queuePlay || trackIdx != null,
+         'MediaCommand(queue_play) requires trackIdx',
+       ),
+       assert(
+         op != MediaOp.seek || positionMs != null,
+         'MediaCommand(seek) requires positionMs',
+       );
 
   @override
   String get kind => 'media';
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'op': op.wire,
-        'source': source,
-        if (trackIdx != null) 'trackIdx': trackIdx,
-        if (positionMs != null) 'positionMs': positionMs,
-      };
+    ..._envelope(),
+    'op': op.wire,
+    'source': source,
+    if (trackIdx != null) 'trackIdx': trackIdx,
+    if (positionMs != null) 'positionMs': positionMs,
+  };
 
   factory MediaCommand._fromJson(Map<String, dynamic> j) {
     final op = MediaOpWire.fromWire(j['op'] as String);
     final trackIdx = j['trackIdx'] as int?;
     final positionMs = j['positionMs'] as int?;
     if (op == MediaOp.queuePlay && trackIdx == null) {
-      throw const FormatException(
-        'MediaCommand(queue_play) requires trackIdx',
-      );
+      throw const FormatException('MediaCommand(queue_play) requires trackIdx');
     }
     if (op == MediaOp.seek && positionMs == null) {
       throw const FormatException('MediaCommand(seek) requires positionMs');
@@ -533,10 +516,8 @@ class NeighborSignal {
   const NeighborSignal({required this.peerId, required this.rssi});
 
   Map<String, dynamic> toJson() => {'peerId': peerId, 'rssi': rssi};
-  factory NeighborSignal.fromJson(Map<String, dynamic> j) => NeighborSignal(
-        peerId: j['peerId'] as String,
-        rssi: j['rssi'] as int,
-      );
+  factory NeighborSignal.fromJson(Map<String, dynamic> j) =>
+      NeighborSignal(peerId: j['peerId'] as String, rssi: j['rssi'] as int);
 
   @override
   bool operator ==(Object other) =>
@@ -562,16 +543,16 @@ final class SignalReport extends FrequencyMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'neighbors': neighbors.map((n) => n.toJson()).toList(),
-      };
+    ..._envelope(),
+    'neighbors': neighbors.map((n) => n.toJson()).toList(),
+  };
 
   factory SignalReport._fromJson(Map<String, dynamic> j) => SignalReport(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        neighbors: _parseNeighbors(j['neighbors']),
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    neighbors: _parseNeighbors(j['neighbors']),
+  );
 }
 
 final class Heartbeat extends FrequencyMessage {
@@ -588,10 +569,10 @@ final class Heartbeat extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Heartbeat._fromJson(Map<String, dynamic> j) => Heartbeat(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+  );
 }
 
 // ── Adaptive bitrate ────────────────────────────────────────────────────────
@@ -625,21 +606,23 @@ final class LinkQuality extends FrequencyMessage {
     required this.lossPct,
     required this.jitterMs,
     required this.underrunsPerSec,
-  })  : assert(lossPct >= 0 && lossPct <= 100,
-            'lossPct must be a percentage in [0, 100]'),
-        assert(jitterMs >= 0, 'jitterMs must be non-negative'),
-        assert(underrunsPerSec >= 0, 'underrunsPerSec must be non-negative');
+  }) : assert(
+         lossPct >= 0 && lossPct <= 100,
+         'lossPct must be a percentage in [0, 100]',
+       ),
+       assert(jitterMs >= 0, 'jitterMs must be non-negative'),
+       assert(underrunsPerSec >= 0, 'underrunsPerSec must be non-negative');
 
   @override
   String get kind => 'link_quality';
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'lossPct': lossPct,
-        'jitterMs': jitterMs,
-        'underrunsPerSec': underrunsPerSec,
-      };
+    ..._envelope(),
+    'lossPct': lossPct,
+    'jitterMs': jitterMs,
+    'underrunsPerSec': underrunsPerSec,
+  };
 
   factory LinkQuality._fromJson(Map<String, dynamic> j) {
     final lossPctRaw = j['lossPct'];
@@ -710,10 +693,10 @@ final class BitrateHint extends FrequencyMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'target': target,
-        'bps': bps,
-      };
+    ..._envelope(),
+    'target': target,
+    'bps': bps,
+  };
 
   factory BitrateHint._fromJson(Map<String, dynamic> j) {
     final bpsRaw = j['bps'];
@@ -764,16 +747,16 @@ final class HostTransfer extends FrequencyMessage {
 
   @override
   Map<String, dynamic> toJson() => {
-        ..._envelope(),
-        'newHostPeerId': newHostPeerId,
-        'sessionUuid': sessionUuid,
-      };
+    ..._envelope(),
+    'newHostPeerId': newHostPeerId,
+    'sessionUuid': sessionUuid,
+  };
 
   factory HostTransfer._fromJson(Map<String, dynamic> j) => HostTransfer(
-        peerId: j['peerId'] as String,
-        seq: j['seq'] as int,
-        atMs: j['atMs'] as int,
-        newHostPeerId: j['newHostPeerId'] as String,
-        sessionUuid: j['sessionUuid'] as String,
-      );
+    peerId: j['peerId'] as String,
+    seq: j['seq'] as int,
+    atMs: j['atMs'] as int,
+    newHostPeerId: j['newHostPeerId'] as String,
+    sessionUuid: j['sessionUuid'] as String,
+  );
 }

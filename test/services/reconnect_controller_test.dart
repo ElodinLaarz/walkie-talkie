@@ -28,31 +28,30 @@ void main() {
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('com.elodin.walkie_talkie/audio'),
-      (MethodCall call) async {
-        if (call.method == 'connectDevice') {
-          connectCallCount++;
-          if (connectResults.isEmpty) return false;
-          return connectResults.removeAt(0);
-        }
-        return null;
-      },
-    );
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          (MethodCall call) async {
+            if (call.method == 'connectDevice') {
+              connectCallCount++;
+              if (connectResults.isEmpty) return false;
+              return connectResults.removeAt(0);
+            }
+            return null;
+          },
+        );
   });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('com.elodin.walkie_talkie/audio'),
-      null,
-    );
+          const MethodChannel('com.elodin.walkie_talkie/audio'),
+          null,
+        );
   });
 
   group('ReconnectController', () {
     test('returns true immediately when first attempt succeeds', () async {
       connectResults.addAll([true]);
-      final controller =
-          ReconnectController(audio: audio, delays: _testDelays);
+      final controller = ReconnectController(audio: audio, delays: _testDelays);
 
       final result = await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
 
@@ -62,8 +61,7 @@ void main() {
 
     test('retries until a later attempt succeeds', () async {
       connectResults.addAll([false, false, true]);
-      final controller =
-          ReconnectController(audio: audio, delays: _testDelays);
+      final controller = ReconnectController(audio: audio, delays: _testDelays);
 
       final result = await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
 
@@ -72,8 +70,7 @@ void main() {
     });
 
     test('returns false when all retries are exhausted', () async {
-      final controller =
-          ReconnectController(audio: audio, delays: _testDelays);
+      final controller = ReconnectController(audio: audio, delays: _testDelays);
 
       final result = await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
 
@@ -98,8 +95,7 @@ void main() {
         controller.cancel();
       });
 
-      final result =
-          await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
+      final result = await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
 
       expect(cancelled, isTrue);
       expect(result, isFalse);
@@ -109,16 +105,17 @@ void main() {
 
     test('cancel after completion is a no-op', () async {
       connectResults.addAll([true]);
-      final controller =
-          ReconnectController(audio: audio, delays: _testDelays);
+      final controller = ReconnectController(audio: audio, delays: _testDelays);
 
       await controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
       controller.cancel(); // must not throw
     });
 
     test('delays list has six entries covering ~19s total budget', () {
-      final total = ReconnectController.delays
-          .fold(Duration.zero, (acc, d) => acc + d);
+      final total = ReconnectController.delays.fold(
+        Duration.zero,
+        (acc, d) => acc + d,
+      );
       // 250ms + 500ms + 1s + 2s + 5s + 10s = 18750ms
       expect(total.inMilliseconds, 18750);
       expect(ReconnectController.delays, hasLength(6));

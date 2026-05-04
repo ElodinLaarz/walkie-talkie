@@ -35,10 +35,22 @@ void main() {
       // to thread it through to DiscoveredSession unchanged so the guest's
       // GATT-connect call can dial the right host.
       final data = Uint8List.fromList([
-        0x01, 0x01,
-        0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
-        0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+        0x01,
+        0x01,
+        0xDE,
+        0xAD,
+        0xBE,
+        0xEF,
+        0xCA,
+        0xFE,
+        0xBA,
+        0xBE,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
       ]);
       const mac = '11:22:33:44:55:66';
 
@@ -56,7 +68,21 @@ void main() {
     test('rejects advertisement with wrong version', () {
       final data = Uint8List.fromList([
         0x02, // Version 2 (unsupported)
-        0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01,
+        0x00,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
       ]);
       final session = DiscoveredSession.fromManufacturerData(
         data,
@@ -68,7 +94,21 @@ void main() {
     });
 
     test('rejects truncated advertisement', () {
-      final data = Uint8List.fromList([0x01, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00, 0x00, 0x00]);
+      final data = Uint8List.fromList([
+        0x01,
+        0x01,
+        0x00,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x00,
+        0x00,
+        0x00,
+      ]);
       final session = DiscoveredSession.fromManufacturerData(
         data,
         hostName: 'X',
@@ -81,8 +121,8 @@ void main() {
     test('derives mhzDisplay from sessionUuidLow8 correctly', () {
       // tenths = 880 + (low_12_bits % 200)
       // mhz    = tenths / 10.0
-      
-      // Case 1: low 12 bits are 0. 
+
+      // Case 1: low 12 bits are 0.
       // bytes ending in ... 0x00, 0x00
       final s1 = DiscoveredSession(
         protocolVersion: 1,
@@ -96,7 +136,7 @@ void main() {
       // low12 = 0, tenths = 880 + 0 = 880, mhz = 88.0
       expect(s1.mhzDisplay, '88.0');
 
-      // Case 2: low 12 bits are 1043. 
+      // Case 2: low 12 bits are 1043.
       // 104.3 MHz means tenths = 1043.
       // 1043 = 880 + 163.
       // So we need low12 % 200 = 163.

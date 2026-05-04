@@ -304,10 +304,7 @@ class _ToastCardState extends State<_ToastCard>
     );
   }
 
-  List<Widget> _buildActions(
-    BuildContext context,
-    List<ToastAction> actions,
-  ) {
+  List<Widget> _buildActions(BuildContext context, List<ToastAction> actions) {
     final widgets = <Widget>[];
     for (var i = 0; i < actions.length; i++) {
       if (i > 0) widgets.add(const SizedBox(width: 6));
@@ -343,7 +340,11 @@ _ToneStyle _toneStyle(ToastTone tone, FrequencyColors c) {
     case ToastTone.leave:
       return _ToneStyle(bg: c.surface2, fg: c.ink2, icon: Icons.logout);
     case ToastTone.warn:
-      return _ToneStyle(bg: c.warnSoft, fg: c.warn, icon: Icons.signal_cellular_alt);
+      return _ToneStyle(
+        bg: c.warnSoft,
+        fg: c.warn,
+        icon: Icons.signal_cellular_alt,
+      );
     case ToastTone.request:
       return _ToneStyle(bg: c.surface, fg: c.ink, icon: Icons.people_outline);
     case ToastTone.info:

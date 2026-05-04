@@ -62,17 +62,12 @@ class SqfliteIdentityStore implements IdentityStore {
     final db = await WalkieTalkieDatabase.open();
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
-      await db.delete(
-        'kv',
-        where: 'key = ?',
-        whereArgs: [_displayNameKey],
-      );
+      await db.delete('kv', where: 'key = ?', whereArgs: [_displayNameKey]);
     } else {
-      await db.insert(
-        'kv',
-        {'key': _displayNameKey, 'value': trimmed},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('kv', {
+        'key': _displayNameKey,
+        'value': trimmed,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 
@@ -93,11 +88,10 @@ class SqfliteIdentityStore implements IdentityStore {
       if (raw is String && raw.isNotEmpty) return raw;
     }
     final fresh = generateUuidV4();
-    await db.insert(
-      'kv',
-      {'key': _peerIdKey, 'value': fresh},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('kv', {
+      'key': _peerIdKey,
+      'value': fresh,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     return fresh;
   }
 }

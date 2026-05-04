@@ -52,11 +52,10 @@ class SqfliteSettingsStore implements SettingsStore {
 
   Future<void> _writeBool(String key, bool value) async {
     final db = await WalkieTalkieDatabase.open();
-    await db.insert(
-      'kv',
-      {'key': key, 'value': value ? '1' : '0'},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('kv', {
+      'key': key,
+      'value': value ? '1' : '0',
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override

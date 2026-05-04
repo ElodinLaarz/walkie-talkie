@@ -59,13 +59,18 @@ import 'audio_service.dart';
   // Clamp to zero to swallow a counter reset (e.g. native side cleared and
   // reseeded between snapshots) without poisoning the adapter with a
   // negative rate.
-  final lateDelta =
-      (current.lateFrameCount - previous.lateFrameCount).clamp(0, 1 << 31);
-  final underrunDelta =
-      (current.underrunCount - previous.underrunCount).clamp(0, 1 << 31);
+  final lateDelta = (current.lateFrameCount - previous.lateFrameCount).clamp(
+    0,
+    1 << 31,
+  );
+  final underrunDelta = (current.underrunCount - previous.underrunCount).clamp(
+    0,
+    1 << 31,
+  );
 
-  final lossPctRaw =
-      expectedFrames <= 0 ? 0.0 : (lateDelta / expectedFrames) * 100.0;
+  final lossPctRaw = expectedFrames <= 0
+      ? 0.0
+      : (lateDelta / expectedFrames) * 100.0;
   // `num.clamp` returns `num`, not `double`; the record's `lossPct` field is
   // typed `double`, so spell the conversion explicitly to keep the analyzer
   // (and a strict-mode reader) happy.

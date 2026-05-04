@@ -20,7 +20,8 @@ abstract class OnboardingPermissionGateway {
 ///
 /// Bluetooth on Android 13+ requires three runtime permissions; we ask for
 /// all of them together and only report `granted` when every one is granted.
-class DefaultOnboardingPermissionGateway implements OnboardingPermissionGateway {
+class DefaultOnboardingPermissionGateway
+    implements OnboardingPermissionGateway {
   const DefaultOnboardingPermissionGateway();
 
   static const _bluetoothPermissions = <ph.Permission>[
@@ -47,7 +48,9 @@ class DefaultOnboardingPermissionGateway implements OnboardingPermissionGateway 
   }
 
   @visibleForTesting
-  static OnboardingPermissionStatus reduce(Iterable<ph.PermissionStatus> values) {
+  static OnboardingPermissionStatus reduce(
+    Iterable<ph.PermissionStatus> values,
+  ) {
     if (values.any((s) => s.isPermanentlyDenied)) {
       return OnboardingPermissionStatus.permanentlyDenied;
     }

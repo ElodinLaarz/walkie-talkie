@@ -22,53 +22,62 @@ final _person = Person(
 
 void main() {
   group('PeerDrawer', () {
-    testWidgets('Block & Report button visible when onReport provided (#133)',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        PeerDrawer(
-          person: _person,
-          isHost: false,
-          initialVolume: 0.7,
-          initialMuted: false,
-          onChanged: (_, _) {},
-          onRemove: () {},
-          onReport: () {},
+    testWidgets('Block & Report button visible when onReport provided (#133)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PeerDrawer(
+            person: _person,
+            isHost: false,
+            initialVolume: 0.7,
+            initialMuted: false,
+            onChanged: (_, _) {},
+            onRemove: () {},
+            onReport: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Block & Report'), findsOneWidget);
     });
 
-    testWidgets('Block & Report button hidden when onReport is null (#133)',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        PeerDrawer(
-          person: _person,
-          isHost: false,
-          initialVolume: 0.7,
-          initialMuted: false,
-          onChanged: (_, _) {},
-          onRemove: () {},
+    testWidgets('Block & Report button hidden when onReport is null (#133)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PeerDrawer(
+            person: _person,
+            isHost: false,
+            initialVolume: 0.7,
+            initialMuted: false,
+            onChanged: (_, _) {},
+            onRemove: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Block & Report'), findsNothing);
     });
 
-    testWidgets('tapping Block & Report calls onReport callback (#133)',
-        (tester) async {
+    testWidgets('tapping Block & Report calls onReport callback (#133)', (
+      tester,
+    ) async {
       var reported = false;
-      await tester.pumpWidget(_wrap(
-        PeerDrawer(
-          person: _person,
-          isHost: false,
-          initialVolume: 0.7,
-          initialMuted: false,
-          onChanged: (_, _) {},
-          onRemove: () {},
-          onReport: () => reported = true,
+      await tester.pumpWidget(
+        _wrap(
+          PeerDrawer(
+            person: _person,
+            isHost: false,
+            initialVolume: 0.7,
+            initialMuted: false,
+            onChanged: (_, _) {},
+            onRemove: () {},
+            onReport: () => reported = true,
+          ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Block & Report'));
       await tester.pump();
@@ -76,38 +85,44 @@ void main() {
       expect(reported, isTrue);
     });
 
-    testWidgets('Block & Report does not show Remove section (#133)',
-        (tester) async {
+    testWidgets('Block & Report does not show Remove section (#133)', (
+      tester,
+    ) async {
       // Non-host: no Remove button, but Block & Report IS shown.
-      await tester.pumpWidget(_wrap(
-        PeerDrawer(
-          person: _person,
-          isHost: false,
-          initialVolume: 0.7,
-          initialMuted: false,
-          onChanged: (_, _) {},
-          onRemove: () {},
-          onReport: () {},
+      await tester.pumpWidget(
+        _wrap(
+          PeerDrawer(
+            person: _person,
+            isHost: false,
+            initialVolume: 0.7,
+            initialMuted: false,
+            onChanged: (_, _) {},
+            onRemove: () {},
+            onReport: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Remove from frequency'), findsNothing);
       expect(find.text('Block & Report'), findsOneWidget);
     });
 
-    testWidgets('host sees both Remove and Block & Report (#133)',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        PeerDrawer(
-          person: _person,
-          isHost: true,
-          initialVolume: 0.7,
-          initialMuted: false,
-          onChanged: (_, _) {},
-          onRemove: () {},
-          onReport: () {},
+    testWidgets('host sees both Remove and Block & Report (#133)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          PeerDrawer(
+            person: _person,
+            isHost: true,
+            initialVolume: 0.7,
+            initialMuted: false,
+            onChanged: (_, _) {},
+            onRemove: () {},
+            onReport: () {},
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Remove from frequency'), findsOneWidget);
       expect(find.text('Block & Report'), findsOneWidget);

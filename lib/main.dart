@@ -48,7 +48,9 @@ void main() async {
   final crashReportingEnabled = await settingsStore.getCrashReportingEnabled();
 
   if (!kSentryConfigured) {
-    developer.log('Sentry DSN not configured in this build — crash reporting unavailable.');
+    developer.log(
+      'Sentry DSN not configured in this build — crash reporting unavailable.',
+    );
   }
 
   if (crashReportingEnabled && kSentryConfigured) {
@@ -83,7 +85,10 @@ void main() async {
 final _piiKeyRegex = RegExp(r'display[_ ]?name', caseSensitive: false);
 // Matches "display_?name: <value>" in free-form text, capturing through the
 // next comma or semicolon so multi-word values are fully redacted.
-final _piiMessageRegex = RegExp(r'display[_ ]?name[:\s]*[^,;]+', caseSensitive: false);
+final _piiMessageRegex = RegExp(
+  r'display[_ ]?name[:\s]*[^,;]+',
+  caseSensitive: false,
+);
 
 /// Sanitizes Sentry events to remove PII.
 /// Redacts display names from contexts and breadcrumbs.
@@ -96,14 +101,21 @@ SentryEvent? _sanitizeEvent(SentryEvent event) {
   for (final crumb in event.breadcrumbs ?? const []) {
     final msg = crumb.message;
     if (msg != null && _piiMessageRegex.hasMatch(msg)) {
-      crumb.message = msg.replaceAll(_piiMessageRegex, 'displayName: [REDACTED]');
+      crumb.message = msg.replaceAll(
+        _piiMessageRegex,
+        'displayName: [REDACTED]',
+      );
     }
 
     final data = crumb.data;
     if (data != null && data.keys.any(_piiKeyRegex.hasMatch)) {
-      crumb.data = Map.fromEntries(data.entries.map((e) {
-        return _piiKeyRegex.hasMatch(e.key) ? MapEntry(e.key, '[REDACTED]') : e;
-      }));
+      crumb.data = Map.fromEntries(
+        data.entries.map((e) {
+          return _piiKeyRegex.hasMatch(e.key)
+              ? MapEntry(e.key, '[REDACTED]')
+              : e;
+        }),
+      );
     }
   }
 
@@ -211,8 +223,7 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
               widget.recentFrequenciesStore ?? SqfliteRecentFrequenciesStore(),
         ),
         RepositoryProvider<BlockedPeersStore>(
-          create: (_) =>
-              widget.blockedPeersStore ?? SqfliteBlockedPeersStore(),
+          create: (_) => widget.blockedPeersStore ?? SqfliteBlockedPeersStore(),
         ),
         RepositoryProvider<SettingsStore>(
           create: (_) => widget.settingsStore ?? SqfliteSettingsStore(),
@@ -234,17 +245,15 @@ class _WalkieTalkieAppState extends State<WalkieTalkieApp> {
           BlocProvider(
             create: (context) => FrequencySessionCubit(
               identityStore: context.read<IdentityStore>(),
-              recentFrequenciesStore:
-                  context.read<RecentFrequenciesStore>(),
+              recentFrequenciesStore: context.read<RecentFrequenciesStore>(),
               transport: context.read<BleControlTransport>(),
               audio: context.read<AudioService>(),
               permissionWatcher: context.read<PermissionWatcher>(),
             )..bootstrap(),
           ),
           BlocProvider(
-            create: (context) => DiscoveryCubit(
-              context.read<DiscoveryService>(),
-            ),
+            create: (context) =>
+                DiscoveryCubit(context.read<DiscoveryService>()),
           ),
         ],
         child: MaterialApp(
@@ -281,7 +290,8 @@ class FrequencyApp extends StatefulWidget {
   State<FrequencyApp> createState() => _FrequencyAppState();
 }
 
-class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver {
+class _FrequencyAppState extends State<FrequencyApp>
+    with WidgetsBindingObserver {
   bool _pttMode = false;
 
   @override
@@ -338,12 +348,12 @@ class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver
     return switch (state) {
       SessionBooting() => const _BootSplash(),
       SessionOnboarding() => FrequencyOnboardingScreen(
-          // Wrap in a void closure so the screen's `ValueChanged<String>`
-          // signature isn't asked to absorb the cubit's `Future<void>`.
-          onDone: (name) {
-            cubit.completeOnboarding(name);
-          },
-        ),
+        // Wrap in a void closure so the screen's `ValueChanged<String>`
+        // signature isn't asked to absorb the cubit's `Future<void>`.
+        onDone: (name) {
+          cubit.completeOnboarding(name);
+        },
+      ),
       SessionDiscovery(:final myName, :final recentHostedFrequencies) =>
         FrequencyDiscoveryScreen(
           myName: myName,
@@ -407,8 +417,8 @@ class _FrequencyAppState extends State<FrequencyApp> with WidgetsBindingObserver
       SessionPermissionDenied(:final missing) =>
         FrequencyPermissionDeniedScreen(
           missing: missing,
-          onOpenSettings: const DefaultOnboardingPermissionGateway()
-              .openAppSettings,
+          onOpenSettings:
+              const DefaultOnboardingPermissionGateway().openAppSettings,
           onRetry: cubit.recheckPermissions,
         ),
     };

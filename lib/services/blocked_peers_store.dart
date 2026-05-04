@@ -62,14 +62,10 @@ class SqfliteBlockedPeersStore implements BlockedPeersStore {
     final trimmed = peerId.trim();
     if (trimmed.isEmpty) return;
     final db = await WalkieTalkieDatabase.open();
-    await db.insert(
-      _table,
-      {
-        'peer_id': trimmed,
-        'blocked_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(_table, {
+      'peer_id': trimmed,
+      'blocked_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override

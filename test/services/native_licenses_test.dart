@@ -33,10 +33,14 @@ void main() {
       final oboe = entries.firstWhere((e) => e.packages.contains('Oboe'));
       final opus = entries.firstWhere((e) => e.packages.contains('Opus'));
 
-      expect(oboe.paragraphs.map((p) => p.text).join(' '),
-          contains('OBOE LICENSE TEXT'));
-      expect(opus.paragraphs.map((p) => p.text).join(' '),
-          contains('OPUS LICENSE TEXT'));
+      expect(
+        oboe.paragraphs.map((p) => p.text).join(' '),
+        contains('OBOE LICENSE TEXT'),
+      );
+      expect(
+        opus.paragraphs.map((p) => p.text).join(' '),
+        contains('OPUS LICENSE TEXT'),
+      );
     });
 
     test('is idempotent — repeat calls do not re-register', () async {
@@ -48,14 +52,19 @@ void main() {
       registerNativeLicenses(bundle: bundle);
 
       final entries = await LicenseRegistry.licenses.toList();
-      final oboeCount = entries.where((e) => e.packages.contains('Oboe')).length;
-      final opusCount = entries.where((e) => e.packages.contains('Opus')).length;
+      final oboeCount = entries
+          .where((e) => e.packages.contains('Oboe'))
+          .length;
+      final opusCount = entries
+          .where((e) => e.packages.contains('Opus'))
+          .length;
       expect(oboeCount, 1);
       expect(opusCount, 1);
     });
 
-    testWidgets('asset paths declared in pubspec resolve at runtime',
-        (tester) async {
+    testWidgets('asset paths declared in pubspec resolve at runtime', (
+      tester,
+    ) async {
       // Loads the real bundled assets through the test binding. If pubspec
       // forgot to list them under `flutter.assets`, this throws.
       final oboe = await rootBundle.loadString(oboeLicenseAsset);

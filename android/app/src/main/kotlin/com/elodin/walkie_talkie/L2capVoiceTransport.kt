@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class L2capVoiceTransport(
     private val bluetoothAdapter: BluetoothAdapter,
-    private val onVoiceFrame: (ByteArray) -> Unit,
+    private val onVoiceFrame: (String, ByteArray) -> Unit,
     private val onClientConnected: (String) -> Unit,
     private val onError: (String) -> Unit,
 ) {
@@ -298,7 +298,7 @@ class L2capVoiceTransport(
                     Log.w(TAG, "Frame from $addr shorter than VoiceFrame header — dropping")
                     continue
                 }
-                onVoiceFrame(frame)
+                onVoiceFrame(addr, frame)
             }
         } catch (e: IOException) {
             // Defensive — DataInputStream construction shouldn't throw, but

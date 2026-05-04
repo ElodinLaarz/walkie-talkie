@@ -32,22 +32,22 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
   /// last-page check from this list rather than hard-coding indices,
   /// so adding or removing a page only touches this one place.
   List<_ExplainerPage> _buildPages(AppLocalizations l10n) => [
-        _ExplainerPage(
-          icon: Icons.podcasts_outlined,
-          headline: l10n.explainerPage1Headline,
-          body: l10n.explainerPage1Body,
-        ),
-        _ExplainerPage(
-          icon: Icons.bluetooth,
-          headline: l10n.explainerPage2Headline,
-          body: l10n.explainerPage2Body,
-        ),
-        _ExplainerPage(
-          icon: Icons.cloud_off_outlined,
-          headline: l10n.explainerPage3Headline,
-          body: l10n.explainerPage3Body,
-        ),
-      ];
+    _ExplainerPage(
+      icon: Icons.podcasts_outlined,
+      headline: l10n.explainerPage1Headline,
+      body: l10n.explainerPage1Body,
+    ),
+    _ExplainerPage(
+      icon: Icons.bluetooth,
+      headline: l10n.explainerPage2Headline,
+      body: l10n.explainerPage2Body,
+    ),
+    _ExplainerPage(
+      icon: Icons.cloud_off_outlined,
+      headline: l10n.explainerPage3Headline,
+      body: l10n.explainerPage3Body,
+    ),
+  ];
 
   @override
   void dispose() {
@@ -64,9 +64,7 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
     final c = FrequencyTheme.of(context).colors;
     return Scaffold(
       backgroundColor: c.bg,
-      body: SafeArea(
-        child: content,
-      ),
+      body: SafeArea(child: content),
     );
   }
 
@@ -86,7 +84,9 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
                   onPressed: widget.onDone,
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                   ),
                   child: Text(
                     l10n.explainerSkip,
@@ -107,7 +107,11 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
             children: pages,
           ),
         ),
-        _buildBottomBar(context, pageCount: pages.length, isLastPage: isLastPage),
+        _buildBottomBar(
+          context,
+          pageCount: pages.length,
+          isLastPage: isLastPage,
+        ),
       ],
     );
   }
@@ -122,10 +126,7 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       child: Column(
         children: [
-          _PageIndicator(
-            currentPage: _currentPage,
-            pageCount: pageCount,
-          ),
+          _PageIndicator(currentPage: _currentPage, pageCount: pageCount),
           const SizedBox(height: 20),
           if (isLastPage)
             PrimaryButton(
@@ -146,9 +147,9 @@ class _FrequencyExplainerScreenState extends State<FrequencyExplainerScreen> {
                     fontSize: 15,
                     onPressed: _currentPage > 0
                         ? () => _controller.previousPage(
-                              duration: const Duration(milliseconds: 280),
-                              curve: Curves.easeInOut,
-                            )
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeInOut,
+                          )
                         : null,
                   ),
                 ),
@@ -211,10 +212,9 @@ class _ExplainerPage extends StatelessWidget {
           const SizedBox(height: 20),
           Text(
             body,
-            style: Theme.of(context)
-                .textTheme
-                .bodyLarge
-                ?.copyWith(color: c.ink2, height: 1.5),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: c.ink2, height: 1.5),
             textAlign: TextAlign.center,
           ),
         ],
@@ -227,10 +227,7 @@ class _PageIndicator extends StatelessWidget {
   final int currentPage;
   final int pageCount;
 
-  const _PageIndicator({
-    required this.currentPage,
-    required this.pageCount,
-  });
+  const _PageIndicator({required this.currentPage, required this.pageCount});
 
   @override
   Widget build(BuildContext context) {

@@ -24,6 +24,7 @@ import 'package:walkie_talkie/widgets/frequency_toast_host.dart';
 const _audioChannel = MethodChannel('com.elodin.walkie_talkie/audio');
 
 class MockFrequencySessionCubit extends Mock implements FrequencySessionCubit {}
+
 class MockIdentityStore extends Mock implements IdentityStore {}
 
 /// Phone-portrait viewport. The chrome's intrinsic content width sits in
@@ -38,7 +39,12 @@ const _viewport = Size(432, 1200);
 /// Long enough to settle modal-sheet entry (~250 ms).
 const _settle = Duration(milliseconds: 500);
 
-Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio, BlockedPeersStore? store}) {
+Widget _wrap(
+  Widget child, {
+  FrequencySessionCubit? cubit,
+  AudioService? audio,
+  BlockedPeersStore? store,
+}) {
   final mockCubit = cubit ?? MockFrequencySessionCubit();
   final mockStore = MockIdentityStore();
   final providedAudio = audio ?? AudioService();
@@ -48,35 +54,42 @@ Widget _wrap(Widget child, {FrequencySessionCubit? cubit, AudioService? audio, B
     when(() => mockCubit.identityStore).thenReturn(mockStore);
     when(() => mockCubit.localPeerId).thenReturn(null);
     when(() => mockCubit.state).thenReturn(const SessionBooting());
-    when(() => mockCubit.stream).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
+    when(
+      () => mockCubit.stream,
+    ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
 
     final controller = StreamController<MediaCommand>.broadcast();
     when(() => mockCubit.mediaCommands).thenAnswer((_) => controller.stream);
 
     final weakSignalController =
         StreamController<({String peerId, String displayName})>.broadcast();
-    when(() => mockCubit.weakSignalEvents)
-        .thenAnswer((_) => weakSignalController.stream);
+    when(
+      () => mockCubit.weakSignalEvents,
+    ).thenAnswer((_) => weakSignalController.stream);
 
-    when(() => mockCubit.sendMediaCommand(
-          op: any(named: 'op'),
-          source: any(named: 'source'),
-          trackIdx: any(named: 'trackIdx'),
-          positionMs: any(named: 'positionMs'),
-        )).thenAnswer((invocation) async {
+    when(
+      () => mockCubit.sendMediaCommand(
+        op: any(named: 'op'),
+        source: any(named: 'source'),
+        trackIdx: any(named: 'trackIdx'),
+        positionMs: any(named: 'positionMs'),
+      ),
+    ).thenAnswer((invocation) async {
       final op = invocation.namedArguments[#op] as MediaOp;
       final source = invocation.namedArguments[#source] as String;
       final trackIdx = invocation.namedArguments[#trackIdx] as int?;
       final positionMs = invocation.namedArguments[#positionMs] as int?;
-      controller.add(MediaCommand(
-        peerId: 'me',
-        seq: 1,
-        atMs: DateTime.now().millisecondsSinceEpoch,
-        op: op,
-        source: source,
-        trackIdx: trackIdx,
-        positionMs: positionMs,
-      ));
+      controller.add(
+        MediaCommand(
+          peerId: 'me',
+          seq: 1,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+          op: op,
+          source: source,
+          trackIdx: trackIdx,
+          positionMs: positionMs,
+        ),
+      );
     });
 
     when(() => mockCubit.broadcastMute(any())).thenAnswer((_) async {});
@@ -118,15 +131,14 @@ Widget _room({
   bool pttMode = false,
   MediaKind mediaKind = MediaKind.music,
   VoidCallback? onLeave,
-}) =>
-    FrequencyRoomScreen(
-      freq: '104.3',
-      isHost: isHost,
-      myName: 'Caleb',
-      mediaKind: mediaKind,
-      pttMode: pttMode,
-      onLeave: onLeave ?? () {},
-    );
+}) => FrequencyRoomScreen(
+  freq: '104.3',
+  isHost: isHost,
+  myName: 'Caleb',
+  mediaKind: mediaKind,
+  pttMode: pttMode,
+  onLeave: onLeave ?? () {},
+);
 
 /// Spins up a real cubit + parks it in `SessionRoom('104.3')` so a test
 /// can directly seed roster / mediaState via `applyJoinAccepted`. The
@@ -166,12 +178,12 @@ void main() {
     audioCalls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_audioChannel, (call) async {
-      audioCalls.add(call);
-      // All audio methods this screen calls return bool today; returning
-      // true keeps the await chain happy without forcing per-method
-      // dispatch.
-      return true;
-    });
+          audioCalls.add(call);
+          // All audio methods this screen calls return bool today; returning
+          // true keeps the await chain happy without forcing per-method
+          // dispatch.
+          return true;
+        });
   });
 
   tearDown(() {
@@ -200,23 +212,25 @@ void main() {
       },
     );
 
-    testWidgets('renders the on-air chrome with the local user as the only chip',
-        (tester) async {
-      await tester.pumpWidget(_wrap(_room()));
-      await tester.pump();
+    testWidgets(
+      'renders the on-air chrome with the local user as the only chip',
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
 
-      // On-air pill in the chrome carries the frequency.
-      expect(find.text('On air'), findsOneWidget);
-      expect(find.text('104.3'), findsOneWidget);
+        // On-air pill in the chrome carries the frequency.
+        expect(find.text('On air'), findsOneWidget);
+        expect(find.text('104.3'), findsOneWidget);
 
-      // Me-row shows the configured name without the muted suffix.
-      expect(find.text('Caleb'), findsOneWidget);
-      expect(find.textContaining('· muted'), findsNothing);
+        // Me-row shows the configured name without the muted suffix.
+        expect(find.text('Caleb'), findsOneWidget);
+        expect(find.textContaining('· muted'), findsNothing);
 
-      // No mock peer roster — single-user room shows just the local user
-      // (acceptance criterion for #105). SectionLabel uppercases its text.
-      expect(find.text('ON THIS FREQUENCY · 1'), findsOneWidget);
-    });
+        // No mock peer roster — single-user room shows just the local user
+        // (acceptance criterion for #105). SectionLabel uppercases its text.
+        expect(find.text('ON THIS FREQUENCY · 1'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'me-row no longer leaks the mock "Sony WH-1000XM5" placeholder',
@@ -244,8 +258,9 @@ void main() {
       expect(find.text('HOST'), findsNothing);
     });
 
-    testWidgets('mute toggles the me-row label and the button text',
-        (tester) async {
+    testWidgets('mute toggles the me-row label and the button text', (
+      tester,
+    ) async {
       await tester.pumpWidget(_wrap(_room()));
       await tester.pump();
 
@@ -279,7 +294,10 @@ void main() {
         // toggled=true means "microphone is active/on"; unmuted → toggled=true.
         final semanticsUnmuted = tester
             .widgetList<Semantics>(
-              find.ancestor(of: find.text('Mute'), matching: find.byType(Semantics)),
+              find.ancestor(
+                of: find.text('Mute'),
+                matching: find.byType(Semantics),
+              ),
             )
             .firstWhere((s) => s.properties.toggled != null);
         expect(semanticsUnmuted.properties.toggled, isTrue);
@@ -296,7 +314,10 @@ void main() {
         // Muted → mic off → toggled=false; tap action still present.
         final semanticsMuted = tester
             .widgetList<Semantics>(
-              find.ancestor(of: find.text('Unmute'), matching: find.byType(Semantics)),
+              find.ancestor(
+                of: find.text('Unmute'),
+                matching: find.byType(Semantics),
+              ),
             )
             .firstWhere((s) => s.properties.toggled != null);
         expect(semanticsMuted.properties.toggled, isFalse);
@@ -304,8 +325,9 @@ void main() {
       },
     );
 
-    testWidgets('PTT mode swaps the mute button for Hold to talk',
-        (tester) async {
+    testWidgets('PTT mode swaps the mute button for Hold to talk', (
+      tester,
+    ) async {
       await tester.pumpWidget(_wrap(_room(pttMode: true)));
       await tester.pump();
 
@@ -319,8 +341,7 @@ void main() {
       );
     });
 
-    testWidgets('open-mic mode shows the open-mic footer hint',
-        (tester) async {
+    testWidgets('open-mic mode shows the open-mic footer hint', (tester) async {
       await tester.pumpWidget(_wrap(_room()));
       await tester.pump();
       expect(
@@ -329,44 +350,48 @@ void main() {
       );
     });
 
-    testWidgets('play/pause flips the transport icon and the Live/Paused badge',
-        (tester) async {
-      final cubit = _seededCubit();
-      addTearDown(cubit.close);
+    testWidgets(
+      'play/pause flips the transport icon and the Live/Paused badge',
+      (tester) async {
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
 
-      await tester.pumpWidget(_wrap(_room(), cubit: cubit));
-      await tester.pump();
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
 
-      // Land a playing snapshot so there is a real track and liveActive=true.
-      cubit.applyJoinAccepted(JoinAccepted(
-        peerId: 'p-host',
-        seq: 1,
-        atMs: 0,
-        hostPeerId: 'p-host',
-        roster: const [],
-        mediaState: const MediaState(
-          source: 'YouTube Music',
-          trackIdx: 0,
-          playing: true,
-          positionMs: 0,
-        ),
-      ));
-      await tester.pump();
+        // Land a playing snapshot so there is a real track and liveActive=true.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'YouTube Music',
+              trackIdx: 0,
+              playing: true,
+              positionMs: 0,
+            ),
+          ),
+        );
+        await tester.pump();
 
-      // Playing with real track: pause icon visible, badge says Live.
-      expect(find.byIcon(Icons.pause), findsOneWidget);
-      expect(find.byIcon(Icons.play_arrow), findsNothing);
-      expect(find.text('Live'), findsOneWidget);
+        // Playing with real track: pause icon visible, badge says Live.
+        expect(find.byIcon(Icons.pause), findsOneWidget);
+        expect(find.byIcon(Icons.play_arrow), findsNothing);
+        expect(find.text('Live'), findsOneWidget);
 
-      // Tap pause — command echoes back through the real cubit's stream.
-      await tester.tap(find.byIcon(Icons.pause));
-      await tester.pump();
+        // Tap pause — command echoes back through the real cubit's stream.
+        await tester.tap(find.byIcon(Icons.pause));
+        await tester.pump();
 
-      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
-      expect(find.byIcon(Icons.pause), findsNothing);
-      expect(find.text('Paused'), findsOneWidget);
-      expect(find.text('Live'), findsNothing);
-    });
+        expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+        expect(find.byIcon(Icons.pause), findsNothing);
+        expect(find.text('Paused'), findsOneWidget);
+        expect(find.text('Live'), findsNothing);
+      },
+    );
 
     testWidgets(
       'opening a peer row reveals the drawer with volume + mute switch',
@@ -380,15 +405,17 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [
-            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
-          ],
-        ));
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ],
+          ),
+        );
         await tester.pump();
 
         await tester.tap(find.text('Devon'));
@@ -407,15 +434,15 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      cubit.applyJoinAccepted(JoinAccepted(
-        peerId: 'p-host',
-        seq: 1,
-        atMs: 0,
-        hostPeerId: 'p-host',
-        roster: const [
-          ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
-        ],
-      ));
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Devon'));
@@ -432,15 +459,15 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      cubit.applyJoinAccepted(JoinAccepted(
-        peerId: 'p-guest',
-        seq: 1,
-        atMs: 0,
-        hostPeerId: 'me-peer-id',
-        roster: const [
-          ProtocolPeer(peerId: 'p-guest', displayName: 'Devon'),
-        ],
-      ));
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'me-peer-id',
+          roster: const [ProtocolPeer(peerId: 'p-guest', displayName: 'Devon')],
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Devon'));
@@ -470,15 +497,17 @@ void main() {
         // Land a roster with a single non-self peer. Different peerId
         // from the identity store's `'me-peer-id'` so the screen
         // doesn't filter it out as the local user.
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [
-            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
-          ],
-        ));
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ],
+          ),
+        );
         await tester.pump();
 
         expect(find.text('Devon'), findsOneWidget);
@@ -542,16 +571,18 @@ void main() {
         // Land a roster that includes the local peer's id (as a host
         // joining their own room does). The host's own entry is in the
         // roster so the filter is exercised.
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'me-peer-id',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'me-peer-id',
-          roster: const [
-            ProtocolPeer(peerId: 'me-peer-id', displayName: 'Myself'),
-            ProtocolPeer(peerId: 'p-guest', displayName: 'Guest'),
-          ],
-        ));
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'me-peer-id',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'me-peer-id',
+            roster: const [
+              ProtocolPeer(peerId: 'me-peer-id', displayName: 'Myself'),
+              ProtocolPeer(peerId: 'p-guest', displayName: 'Guest'),
+            ],
+          ),
+        );
         await tester.pump();
 
         // The local peer must not appear in the peers list — only the guest.
@@ -561,8 +592,7 @@ void main() {
       },
     );
 
-    testWidgets('podcast media kind switches the source label',
-        (tester) async {
+    testWidgets('podcast media kind switches the source label', (tester) async {
       await tester.pumpWidget(_wrap(_room(mediaKind: MediaKind.podcast)));
       await tester.pump();
 
@@ -593,111 +623,112 @@ void main() {
         await tester.pump();
 
         // Land an initial snapshot (playing).
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [],
-          mediaState: const MediaState(
-            source: 'YouTube Music',
-            trackIdx: 1,
-            playing: true,
-            positionMs: 91000,
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'YouTube Music',
+              trackIdx: 1,
+              playing: true,
+              positionMs: 91000,
+            ),
           ),
-        ));
+        );
         await tester.pump();
         expect(find.text('Live'), findsOneWidget);
 
         // Rejoin: host says "nothing playing" (mediaState absent on the
         // wire). The transport should reset, not strand on the prior state.
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 2,
-          atMs: 1,
-          hostPeerId: 'p-host',
-          roster: const [],
-        ));
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 2,
+            atMs: 1,
+            hostPeerId: 'p-host',
+            roster: const [],
+          ),
+        );
         await tester.pump();
         expect(find.text('Paused'), findsOneWidget);
       },
     );
 
-    testWidgets(
-      'startVoice fires on entry, stopVoice fires on dispose',
-      (tester) async {
-        await tester.pumpWidget(_wrap(_room()));
-        // Drain the post-frame microtask that resolves startVoice's then().
-        await tester.pump();
+    testWidgets('startVoice fires on entry, stopVoice fires on dispose', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(_room()));
+      // Drain the post-frame microtask that resolves startVoice's then().
+      await tester.pump();
 
-        expect(
-          audioCalls.where((c) => c.method == 'startVoice').length,
-          1,
-          reason: 'startVoice must be called once on entry',
-        );
+      expect(
+        audioCalls.where((c) => c.method == 'startVoice').length,
+        1,
+        reason: 'startVoice must be called once on entry',
+      );
 
-        // Pump an empty widget tree to dispose the room.
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump();
+      // Pump an empty widget tree to dispose the room.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
 
-        expect(
-          audioCalls.where((c) => c.method == 'stopVoice').length,
-          1,
-          reason: 'stopVoice must be called on dispose',
-        );
-      },
-    );
+      expect(
+        audioCalls.where((c) => c.method == 'stopVoice').length,
+        1,
+        reason: 'stopVoice must be called on dispose',
+      );
+    });
 
-    testWidgets(
-      'open-mic mute toggle pushes setMuted to the audio engine',
-      (tester) async {
-        await tester.pumpWidget(_wrap(_room()));
-        await tester.pump();
+    testWidgets('open-mic mute toggle pushes setMuted to the audio engine', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(_room()));
+      await tester.pump();
 
-        // Initial: not muted (open-mic default).
-        // Tap Mute → setMuted(true) on the engine.
-        await tester.tap(find.text('Mute'));
-        await tester.pump();
-        expect(
-          audioCalls.last,
-          isMethodCall('setMuted', arguments: {'muted': true}),
-        );
+      // Initial: not muted (open-mic default).
+      // Tap Mute → setMuted(true) on the engine.
+      await tester.tap(find.text('Mute'));
+      await tester.pump();
+      expect(
+        audioCalls.last,
+        isMethodCall('setMuted', arguments: {'muted': true}),
+      );
 
-        // Tap Unmute → setMuted(false).
-        await tester.tap(find.text('Unmute'));
-        await tester.pump();
-        expect(
-          audioCalls.last,
-          isMethodCall('setMuted', arguments: {'muted': false}),
-        );
-      },
-    );
+      // Tap Unmute → setMuted(false).
+      await tester.tap(find.text('Unmute'));
+      await tester.pump();
+      expect(
+        audioCalls.last,
+        isMethodCall('setMuted', arguments: {'muted': false}),
+      );
+    });
 
-    testWidgets(
-      'PTT hold/release pushes setMuted(false) and setMuted(true)',
-      (tester) async {
-        await tester.pumpWidget(_wrap(_room(pttMode: true)));
-        await tester.pump();
+    testWidgets('PTT hold/release pushes setMuted(false) and setMuted(true)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(_room(pttMode: true)));
+      await tester.pump();
 
-        // Press the PTT button — engine unmutes.
-        final ptt = find.text('Hold to talk');
-        final pttCenter = tester.getCenter(ptt);
-        final gesture = await tester.startGesture(pttCenter);
-        await tester.pump();
-        expect(
-          audioCalls.last,
-          isMethodCall('setMuted', arguments: {'muted': false}),
-        );
+      // Press the PTT button — engine unmutes.
+      final ptt = find.text('Hold to talk');
+      final pttCenter = tester.getCenter(ptt);
+      final gesture = await tester.startGesture(pttCenter);
+      await tester.pump();
+      expect(
+        audioCalls.last,
+        isMethodCall('setMuted', arguments: {'muted': false}),
+      );
 
-        // Release — engine re-mutes.
-        await gesture.up();
-        await tester.pump();
-        expect(
-          audioCalls.last,
-          isMethodCall('setMuted', arguments: {'muted': true}),
-        );
-      },
-    );
+      // Release — engine re-mutes.
+      await gesture.up();
+      await tester.pump();
+      expect(
+        audioCalls.last,
+        isMethodCall('setMuted', arguments: {'muted': true}),
+      );
+    });
 
     testWidgets(
       'PTT mode start emits setMuted(true) — push-to-talk default is muted',
@@ -707,30 +738,32 @@ void main() {
 
         // The very first setMuted after startVoice resolves must reflect
         // the PTT default (muted-until-held), not the open-mic default.
-        final firstSetMuted =
-            audioCalls.firstWhere((c) => c.method == 'setMuted');
+        final firstSetMuted = audioCalls.firstWhere(
+          (c) => c.method == 'setMuted',
+        );
         expect(firstSetMuted.arguments, {'muted': true});
       },
     );
 
-    testWidgets(
-      'applyJoinAccepted snapshot promotes the source on rejoin',
-      (tester) async {
-        // Real cubit so the BlocListener actually reacts to state changes.
-        final cubit = _seededCubit();
-        addTearDown(cubit.close);
+    testWidgets('applyJoinAccepted snapshot promotes the source on rejoin', (
+      tester,
+    ) async {
+      // Real cubit so the BlocListener actually reacts to state changes.
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
 
-        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
-        await tester.pump();
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+      await tester.pump();
 
-        // Initial render — no snapshot, eyebrow shows the local default
-        // source for music.
-        expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
+      // Initial render — no snapshot, eyebrow shows the local default
+      // source for music.
+      expect(find.text('LISTENING TOGETHER · YOUTUBE MUSIC'), findsOneWidget);
 
-        // Host's JoinAccepted lands; mediaState says we're paused on a
-        // different source. The eyebrow promotes the host's source verbatim
-        // and the transport flips to Paused.
-        cubit.applyJoinAccepted(JoinAccepted(
+      // Host's JoinAccepted lands; mediaState says we're paused on a
+      // different source. The eyebrow promotes the host's source verbatim
+      // and the transport flips to Paused.
+      cubit.applyJoinAccepted(
+        JoinAccepted(
           peerId: 'p-host',
           seq: 1,
           atMs: 0,
@@ -742,13 +775,13 @@ void main() {
             playing: false,
             positionMs: 91000,
           ),
-        ));
-        await tester.pump();
+        ),
+      );
+      await tester.pump();
 
-        expect(find.text('LISTENING TOGETHER · SPOTIFY'), findsOneWidget);
-        expect(find.text('Paused'), findsOneWidget);
-      },
-    );
+      expect(find.text('LISTENING TOGETHER · SPOTIFY'), findsOneWidget);
+      expect(find.text('Paused'), findsOneWidget);
+    });
 
     testWidgets(
       'queuePlay command for an out-of-range trackIdx grows the placeholder queue '
@@ -767,14 +800,16 @@ void main() {
         // Route a queuePlay through the cubit's mediaCommands stream
         // — same path the wire-driven case uses. trackIdx 7 is well
         // beyond any default placeholder size.
-        cubit.applyHostMediaEcho(MediaCommand(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          op: MediaOp.queuePlay,
-          source: 'YouTube Music',
-          trackIdx: 7,
-        ));
+        cubit.applyHostMediaEcho(
+          MediaCommand(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            op: MediaOp.queuePlay,
+            source: 'YouTube Music',
+            trackIdx: 7,
+          ),
+        );
         await tester.pump();
 
         // The screen survived (no RangeError) and the placeholder
@@ -801,22 +836,24 @@ void main() {
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
 
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [],
-          mediaState: const MediaState(
-            // 91s into the 2nd track on the wire — trackIdx must ride
-            // through so outgoing media commands keep referencing the
-            // same index the host published.
-            source: 'Spotify',
-            trackIdx: 1,
-            playing: true,
-            positionMs: 91000,
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              // 91s into the 2nd track on the wire — trackIdx must ride
+              // through so outgoing media commands keep referencing the
+              // same index the host published.
+              source: 'Spotify',
+              trackIdx: 1,
+              playing: true,
+              positionMs: 91000,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // Placeholder title reflects the host's index (1-based).
@@ -835,7 +872,9 @@ void main() {
       (tester) async {
         // Stub the EventChannel so we can fire a `muteToggle` from the
         // "native" side and watch the screen react.
-        final eventEmitter = _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
         addTearDown(eventEmitter.dispose);
 
         await tester.pumpWidget(_wrap(_room()));
@@ -866,7 +905,9 @@ void main() {
         // Wired/Bluetooth headset play buttons can't express press-and-hold,
         // so the screen treats each `pttToggle` as a flip of the PTT-held
         // state. Verifies the documented contract.
-        final eventEmitter = _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
         addTearDown(eventEmitter.dispose);
 
         await tester.pumpWidget(_wrap(_room(pttMode: true)));
@@ -893,8 +934,9 @@ void main() {
     testWidgets(
       'leaveRoom event from notification or MediaSession.onStop fires onLeave',
       (tester) async {
-        final eventEmitter =
-            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
         addTearDown(eventEmitter.dispose);
 
         var leaveCount = 0;
@@ -908,39 +950,39 @@ void main() {
       },
     );
 
-    testWidgets(
-      'peer drawer shows Block & Report button (#133)',
-      (tester) async {
-        final cubit = _seededCubit();
-        addTearDown(cubit.close);
+    testWidgets('peer drawer shows Block & Report button (#133)', (
+      tester,
+    ) async {
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
 
-        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
-        await tester.pump();
-        await tester.pump();
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+      await tester.pump();
+      await tester.pump();
 
-        cubit.applyJoinAccepted(JoinAccepted(
+      cubit.applyJoinAccepted(
+        JoinAccepted(
           peerId: 'p-host',
           seq: 1,
           atMs: 0,
           hostPeerId: 'p-host',
-          roster: const [
-            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
-          ],
-        ));
-        await tester.pump();
+          roster: const [ProtocolPeer(peerId: 'p-host', displayName: 'Devon')],
+        ),
+      );
+      await tester.pump();
 
-        await tester.tap(find.text('Devon'));
-        await tester.pump(_settle);
+      await tester.tap(find.text('Devon'));
+      await tester.pump(_settle);
 
-        expect(find.text('Block & Report'), findsOneWidget);
-      },
-    );
+      expect(find.text('Block & Report'), findsOneWidget);
+    });
 
     testWidgets(
       'pttToggle in open-mic mode mutes (notification PTT button in open-mic)',
       (tester) async {
-        final eventEmitter =
-            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
         addTearDown(eventEmitter.dispose);
 
         await tester.pumpWidget(_wrap(_room()));
@@ -972,8 +1014,9 @@ void main() {
     testWidgets(
       'muteToggle in PTT mode toggles PTT holding (notification Mute button in PTT mode)',
       (tester) async {
-        final eventEmitter =
-            _EventChannelEmitter('com.elodin.walkie_talkie/audio_events');
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
         addTearDown(eventEmitter.dispose);
 
         await tester.pumpWidget(_wrap(_room(pttMode: true)));
@@ -1002,26 +1045,23 @@ void main() {
 
     // --- NowPlayingCard idle state (issue #223) ---
 
-    testWidgets(
-      'idle state: VuMeter is static and slider/time row are absent '
-      'before any media snapshot lands (#223)',
-      (tester) async {
-        await tester.pumpWidget(_wrap(_room()));
-        await tester.pump();
+    testWidgets('idle state: VuMeter is static and slider/time row are absent '
+        'before any media snapshot lands (#223)', (tester) async {
+      await tester.pumpWidget(_wrap(_room()));
+      await tester.pump();
 
-        // No media snapshot → emptyMediaLib (durationSeconds == 0).
-        // The card must show "Paused" (not "Live") and must not render
-        // the Slider or time labels that would show negative numbers.
-        expect(find.text('Paused'), findsOneWidget);
-        expect(find.text('Live'), findsNothing);
-        expect(find.byType(Slider), findsNothing);
-        // 'Nothing playing' is the emptyMediaLib placeholder title.
-        expect(find.text('Nothing playing'), findsOneWidget);
-        // VuMeter must be inactive (static bars) in the idle state.
-        final vuMeter = tester.widget<VuMeter>(find.byType(VuMeter).first);
-        expect(vuMeter.active, false);
-      },
-    );
+      // No media snapshot → emptyMediaLib (durationSeconds == 0).
+      // The card must show "Paused" (not "Live") and must not render
+      // the Slider or time labels that would show negative numbers.
+      expect(find.text('Paused'), findsOneWidget);
+      expect(find.text('Live'), findsNothing);
+      expect(find.byType(Slider), findsNothing);
+      // 'Nothing playing' is the emptyMediaLib placeholder title.
+      expect(find.text('Nothing playing'), findsOneWidget);
+      // VuMeter must be inactive (static bars) in the idle state.
+      final vuMeter = tester.widget<VuMeter>(find.byType(VuMeter).first);
+      expect(vuMeter.active, false);
+    });
 
     testWidgets(
       'idle → live: slider and time row appear once a playing snapshot lands (#223)',
@@ -1035,22 +1075,27 @@ void main() {
         // Idle state — no Slider yet, VuMeter inactive.
         expect(find.byType(Slider), findsNothing);
         expect(find.text('Live'), findsNothing);
-        expect(tester.widget<VuMeter>(find.byType(VuMeter).first).active, false);
+        expect(
+          tester.widget<VuMeter>(find.byType(VuMeter).first).active,
+          false,
+        );
 
         // Host publishes a playing snapshot.
-        cubit.applyJoinAccepted(JoinAccepted(
-          peerId: 'p-host',
-          seq: 1,
-          atMs: 0,
-          hostPeerId: 'p-host',
-          roster: const [],
-          mediaState: const MediaState(
-            source: 'YouTube Music',
-            trackIdx: 0,
-            playing: true,
-            positionMs: 5000,
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'YouTube Music',
+              trackIdx: 0,
+              playing: true,
+              positionMs: 5000,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // Slider and time labels are now visible.
@@ -1063,32 +1108,29 @@ void main() {
       },
     );
 
-    testWidgets(
-      'pre-blocked peer starts muted on join (#133)',
-      (tester) async {
-        final cubit = _seededCubit();
-        addTearDown(cubit.close);
-        final store = _FakeBlockedPeersStore(initial: {'p-peer'});
+    testWidgets('pre-blocked peer starts muted on join (#133)', (tester) async {
+      final cubit = _seededCubit();
+      addTearDown(cubit.close);
+      final store = _FakeBlockedPeersStore(initial: {'p-peer'});
 
-        await tester.pumpWidget(_wrap(_room(), cubit: cubit, store: store));
-        await tester.pump();
-        await tester.pump();
+      await tester.pumpWidget(_wrap(_room(), cubit: cubit, store: store));
+      await tester.pump();
+      await tester.pump();
 
-        cubit.applyJoinAccepted(JoinAccepted(
+      cubit.applyJoinAccepted(
+        JoinAccepted(
           peerId: 'p-peer',
           seq: 1,
           atMs: 0,
           hostPeerId: 'p-host',
-          roster: const [
-            ProtocolPeer(peerId: 'p-peer', displayName: 'Devon'),
-          ],
-        ));
-        await tester.pump();
-        await tester.pump();
+          roster: const [ProtocolPeer(peerId: 'p-peer', displayName: 'Devon')],
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
 
-        expect(find.text('muted'), findsOneWidget);
-      },
-    );
+      expect(find.text('muted'), findsOneWidget);
+    });
   });
 }
 
@@ -1101,15 +1143,15 @@ class _EventChannelEmitter {
   _EventChannelEmitter(this.channelName) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(MethodChannel(channelName), (call) async {
-      if (call.method == 'listen') {
-        // The framework hands back a no-op success on the listen call.
-        return null;
-      }
-      if (call.method == 'cancel') {
-        return null;
-      }
-      return null;
-    });
+          if (call.method == 'listen') {
+            // The framework hands back a no-op success on the listen call.
+            return null;
+          }
+          if (call.method == 'cancel') {
+            return null;
+          }
+          return null;
+        });
   }
 
   final String channelName;
@@ -1170,8 +1212,7 @@ class _NullRecentFrequenciesStore implements RecentFrequenciesStore {
 /// keeps tests off sqflite without losing the wiring.
 class _FakeBlockedPeersStore implements BlockedPeersStore {
   final Set<String> _blocked;
-  _FakeBlockedPeersStore({Set<String>? initial})
-      : _blocked = {...?initial};
+  _FakeBlockedPeersStore({Set<String>? initial}) : _blocked = {...?initial};
 
   @override
   Future<Set<String>> getAll() async => Set<String>.unmodifiable(_blocked);

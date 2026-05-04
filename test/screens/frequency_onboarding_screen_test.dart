@@ -48,16 +48,20 @@ Widget _wrap(Widget child) {
 
 void main() {
   group('FrequencyOnboardingScreen', () {
-    testWidgets('happy path: welcome → grant both → name → onDone fires', (tester) async {
+    testWidgets('happy path: welcome → grant both → name → onDone fires', (
+      tester,
+    ) async {
       final gateway = _FakeGateway();
       String? doneName;
 
-      await tester.pumpWidget(_wrap(
-        FrequencyOnboardingScreen(
-          permissionGateway: gateway,
-          onDone: (name) => doneName = name,
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyOnboardingScreen(
+            permissionGateway: gateway,
+            onDone: (name) => doneName = name,
+          ),
         ),
-      ));
+      );
 
       // Welcome step
       expect(find.text('Get started'), findsOneWidget);
@@ -65,7 +69,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Explainer step — skip through the 3 pages
-      expect(find.text('Voice walkie-talkie\nfor nearby friends'), findsOneWidget);
+      expect(
+        find.text('Voice walkie-talkie\nfor nearby friends'),
+        findsOneWidget,
+      );
       // Navigate to the last page of the explainer
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
@@ -106,12 +113,11 @@ void main() {
     testWidgets('denied permission can be re-requested', (tester) async {
       final gateway = _FakeGateway(btResult: OnboardingPermissionStatus.denied);
 
-      await tester.pumpWidget(_wrap(
-        FrequencyOnboardingScreen(
-          permissionGateway: gateway,
-          onDone: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyOnboardingScreen(permissionGateway: gateway, onDone: (_) {}),
         ),
-      ));
+      );
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
@@ -137,17 +143,18 @@ void main() {
       expect(find.text('Allowed'), findsOneWidget);
     });
 
-    testWidgets('permanently-denied permission shows Open settings', (tester) async {
+    testWidgets('permanently-denied permission shows Open settings', (
+      tester,
+    ) async {
       final gateway = _FakeGateway(
         btResult: OnboardingPermissionStatus.permanentlyDenied,
       );
 
-      await tester.pumpWidget(_wrap(
-        FrequencyOnboardingScreen(
-          permissionGateway: gateway,
-          onDone: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyOnboardingScreen(permissionGateway: gateway, onDone: (_) {}),
         ),
-      ));
+      );
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
@@ -163,25 +170,32 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Open settings'), findsOneWidget);
-      expect(find.text('Blocked — re-enable in system settings'), findsOneWidget);
+      expect(
+        find.text('Blocked — re-enable in system settings'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Open settings'));
       await tester.pumpAndSettle();
       expect(gateway.settingsOpens, 1);
     });
 
-    testWidgets('Continue stays disabled when only one permission is granted', (tester) async {
+    testWidgets('Continue stays disabled when only one permission is granted', (
+      tester,
+    ) async {
       final gateway = _FakeGateway(
         micResult: OnboardingPermissionStatus.denied,
       );
       String? doneName;
 
-      await tester.pumpWidget(_wrap(
-        FrequencyOnboardingScreen(
-          permissionGateway: gateway,
-          onDone: (n) => doneName = n,
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyOnboardingScreen(
+            permissionGateway: gateway,
+            onDone: (n) => doneName = n,
+          ),
         ),
-      ));
+      );
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 
@@ -204,16 +218,17 @@ void main() {
       expect(doneName, isNull);
     });
 
-    testWidgets('in-flight request label shows while gateway is pending', (tester) async {
+    testWidgets('in-flight request label shows while gateway is pending', (
+      tester,
+    ) async {
       final completer = Completer<OnboardingPermissionStatus>();
       final gateway = _SlowGateway(completer);
 
-      await tester.pumpWidget(_wrap(
-        FrequencyOnboardingScreen(
-          permissionGateway: gateway,
-          onDone: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyOnboardingScreen(permissionGateway: gateway, onDone: (_) {}),
         ),
-      ));
+      );
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
 

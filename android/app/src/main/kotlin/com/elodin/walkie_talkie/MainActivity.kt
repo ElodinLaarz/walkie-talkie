@@ -57,6 +57,9 @@ class MainActivity : FlutterActivity() {
     private var gattClientManager: GattClientManager? = null
     private var hostAdvertiser: HostAdvertiser? = null
     private var voiceTransport: L2capVoiceTransport? = null
+    private var peerAudioManager: PeerAudioManager? = null
+    private var audioMixerManager: AudioMixerManager? = null
+    private var isVoiceHost: Boolean = false
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
@@ -180,35 +183,64 @@ class MainActivity : FlutterActivity() {
                 }
                 "startVoice" -> {
                     Log.i(TAG, "Starting voice capture")
-                    // Start auto-detect for Bluetooth headset routing while voice is active
                     audioRoutingManager?.startAutoDetect { outputType ->
                         sendEventToFlutter(mapOf(
                             "type" to "audioOutputChanged",
                             "output" to outputType
                         ))
                     }
-                    // Placeholder - native voice pipeline will be implemented later
+                    // Init the mixer (device 0 = local mic) and start the Oboe engine.
+                    audioMixerManager = AudioMixerManager()
+                    audioMixerManager?.addDevice(0)
+                    val engineStarted = WalkieTalkieService.getRunning()?.startAudioEngine() ?: false
+                    if (!engineStarted) {
+                        Log.e(TAG, "Audio engine failed to start — rolling back partial init")
+                        audioRoutingManager?.stopAutoDetect()
+                        audioMixerManager?.clear()
+                        audioMixerManager = null
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    // Init the per-peer manager and wire its outbound callback to L2CAP.
+                    val pm = PeerAudioManager()
+                    pm.init()
+                    pm.setCallback(object : PeerAudioManager.AudioCallback {
+                        override fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
+                            val frame = buildVoiceFrame(opusData, seq)
+                            if (isVoiceHost) {
+                                voiceTransport?.sendToClient(macAddress, frame)
+                            } else {
+                                voiceTransport?.sendToHost(frame)
+                            }
+                        }
+                    })
+                    pm.startMixerThread()
+                    peerAudioManager = pm
                     result.success(true)
                 }
                 "stopVoice" -> {
                     Log.i(TAG, "Stopping voice capture")
-                    // Stop auto-detect when voice stops
                     audioRoutingManager?.stopAutoDetect()
-                    // Placeholder - native voice pipeline will be implemented later
+                    peerAudioManager?.stopMixerThread()
+                    peerAudioManager?.clear()
+                    peerAudioManager = null
+                    WalkieTalkieService.getRunning()?.stopAudioEngine()
+                    audioMixerManager?.clear()
+                    audioMixerManager = null
+                    // Stop and release the L2CAP transport so stale sockets
+                    // don't bleed into the next session (Dart has no separate
+                    // stopVoiceTransport call-site in the room exit path).
+                    voiceTransport?.stop()
+                    voiceTransport = null
+                    isVoiceHost = false
                     result.success(true)
                 }
                 "setMuted" -> {
                     val muted = call.argument<Boolean>("muted")
                     if (muted != null) {
                         Log.i(TAG, "Setting mute state: $muted")
-                        // Update the MediaStyle notification's Mute/Unmute
-                        // label directly on the running service — no
-                        // `startService` so we don't accidentally spin up an
-                        // FGS just to refresh a label when no room is active.
                         WalkieTalkieService.getRunning()?.setMuteState(muted)
-                        // Native engine `setMuted` will be implemented when the
-                        // native voice pipeline lands; for now this is a no-op
-                        // beyond the notification label sync above.
+                        WalkieTalkieService.getRunning()?.setEngineMuted(muted)
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
@@ -368,11 +400,15 @@ class MainActivity : FlutterActivity() {
                     if (bt == null) {
                         result.error("BT_UNAVAILABLE", "BluetoothAdapter is null", null)
                     } else {
+                        isVoiceHost = true
                         if (voiceTransport == null) {
                             voiceTransport = L2capVoiceTransport(
                                 bluetoothAdapter = bt,
-                                onVoiceFrame = { /* mix-minus wired in issue #48 */ },
+                                onVoiceFrame = { addr, frameBytes ->
+                                    dispatchVoiceFrame(addr, frameBytes)
+                                },
                                 onClientConnected = { addr ->
+                                    registerVoicePeer(addr)
                                     sendEventToFlutter(mapOf(
                                         "type" to "voiceClientConnected",
                                         "address" to addr,
@@ -402,7 +438,9 @@ class MainActivity : FlutterActivity() {
                             if (voiceTransport == null) {
                                 voiceTransport = L2capVoiceTransport(
                                     bluetoothAdapter = bt,
-                                    onVoiceFrame = { /* playback wired in issue #48 */ },
+                                    onVoiceFrame = { addr, frameBytes ->
+                                        dispatchVoiceFrame(addr, frameBytes)
+                                    },
                                     onClientConnected = {},
                                     onError = { msg ->
                                         sendEventToFlutter(mapOf("type" to "error", "message" to msg))
@@ -414,6 +452,12 @@ class MainActivity : FlutterActivity() {
                             Thread({
                                 try {
                                     val ok = transport.connectClient(mac, psm)
+                                    if (ok) {
+                                        // Register the host as our single peer so the mixer
+                                        // thread can decode inbound frames and encode the mic
+                                        // signal to send back.
+                                        Handler(Looper.getMainLooper()).post { registerVoicePeer(mac) }
+                                    }
                                     Handler(Looper.getMainLooper()).post { result.success(ok) }
                                 } catch (e: Exception) {
                                     Log.e(TAG, "connectVoiceClient thread error: ${e.message}")
@@ -464,6 +508,43 @@ class MainActivity : FlutterActivity() {
                 controlBytesSink = null
             }
         })
+    }
+
+    // Parse the 8-byte VoiceFrame header and push the Opus payload into the
+    // native peer manager. Drops silently on malformed or oversized frames.
+    private fun dispatchVoiceFrame(addr: String, frameBytes: ByteArray) {
+        if (frameBytes.size < 8) return
+        val seq = ((frameBytes[0].toInt() and 0xFF) shl 24) or
+                  ((frameBytes[1].toInt() and 0xFF) shl 16) or
+                  ((frameBytes[2].toInt() and 0xFF) shl 8) or
+                  (frameBytes[3].toInt() and 0xFF)
+        val opusPayload = frameBytes.copyOfRange(8, frameBytes.size)
+        peerAudioManager?.onVoiceFrameReceived(addr, opusPayload, seq.toLong() and 0xFFFFFFFFL)
+    }
+
+    // Register addr as a peer in the native manager and add its mixer slot.
+    private fun registerVoicePeer(addr: String) {
+        val pm = peerAudioManager ?: return
+        val deviceId = pm.registerPeer(addr)
+        if (deviceId >= 0) {
+            audioMixerManager?.addDevice(deviceId)
+        }
+    }
+
+    // Encode [opusData] + [seq] into the 8-byte VoiceFrame wire format (big-endian).
+    private fun buildVoiceFrame(opusData: ByteArray, seq: Int): ByteArray {
+        val ts = (System.currentTimeMillis() and 0xFFFFFFFFL).toInt()
+        val frame = ByteArray(8 + opusData.size)
+        frame[0] = ((seq ushr 24) and 0xFF).toByte()
+        frame[1] = ((seq ushr 16) and 0xFF).toByte()
+        frame[2] = ((seq ushr 8) and 0xFF).toByte()
+        frame[3] = (seq and 0xFF).toByte()
+        frame[4] = ((ts ushr 24) and 0xFF).toByte()
+        frame[5] = ((ts ushr 16) and 0xFF).toByte()
+        frame[6] = ((ts ushr 8) and 0xFF).toByte()
+        frame[7] = (ts and 0xFF).toByte()
+        System.arraycopy(opusData, 0, frame, 8, opusData.size)
+        return frame
     }
 
     private fun sendEventToFlutter(event: Map<String, Any>) {
@@ -521,6 +602,10 @@ class MainActivity : FlutterActivity() {
         nativeUnregisterCallbacks()
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
+        peerAudioManager?.clear()
+        peerAudioManager = null
+        audioMixerManager?.clear()
+        audioMixerManager = null
         voiceTransport?.stop()
         gattServerManager?.stop()
         gattClientManager?.disconnect()

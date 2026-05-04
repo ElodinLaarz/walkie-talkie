@@ -24,10 +24,10 @@ void main() {
   });
 
   group('SignalReporter.start / stop', () {
-    test('start fires onTick periodically, stop cancels the timer',
-        () async {
-      final reporter =
-          SignalReporter(interval: const Duration(milliseconds: 10));
+    test('start fires onTick periodically, stop cancels the timer', () async {
+      final reporter = SignalReporter(
+        interval: const Duration(milliseconds: 10),
+      );
 
       var ticks = 0;
       reporter.start(onTick: () => ticks++);
@@ -44,9 +44,7 @@ void main() {
     });
 
     test('isRunning toggles on start / stop', () {
-      final reporter = SignalReporter(
-        interval: const Duration(seconds: 1),
-      );
+      final reporter = SignalReporter(interval: const Duration(seconds: 1));
       expect(reporter.isRunning, isFalse);
       reporter.start(onTick: () {});
       expect(reporter.isRunning, isTrue);
@@ -54,10 +52,10 @@ void main() {
       expect(reporter.isRunning, isFalse);
     });
 
-    test('start while running cancels the previous timer + callback',
-        () async {
-      final reporter =
-          SignalReporter(interval: const Duration(milliseconds: 10));
+    test('start while running cancels the previous timer + callback', () async {
+      final reporter = SignalReporter(
+        interval: const Duration(milliseconds: 10),
+      );
 
       var ticks1 = 0;
       reporter.start(onTick: () => ticks1++);
@@ -82,9 +80,7 @@ void main() {
     });
 
     test('stop is idempotent', () {
-      final reporter = SignalReporter(
-        interval: const Duration(seconds: 1),
-      );
+      final reporter = SignalReporter(interval: const Duration(seconds: 1));
       reporter.start(onTick: () {});
       reporter.stop();
       expect(reporter.stop, returnsNormally);

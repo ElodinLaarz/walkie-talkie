@@ -40,8 +40,8 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
   final List<_FakeRecentRow> _rows;
   int _nextRecordedAt;
   _FakeRecentFrequenciesStore({List<String>? initial})
-      : _rows = [],
-        _nextRecordedAt = 0 {
+    : _rows = [],
+      _nextRecordedAt = 0 {
     final asList = (initial ?? const <String>[]).toList();
     // Seed in reverse so the first item ends up most-recent.
     for (var i = asList.length - 1; i >= 0; i--) {
@@ -90,10 +90,12 @@ class _FakeRecentFrequenciesStore implements RecentFrequenciesStore {
       orElse: () => _FakeRecentRow(RecentFrequency(freq: trimmed), -1),
     );
     if (existing.recordedAt < 0) {
-      _rows.add(_FakeRecentRow(
-        RecentFrequency(freq: trimmed, sessionUuid: sessionUuid),
-        _nextRecordedAt++,
-      ));
+      _rows.add(
+        _FakeRecentRow(
+          RecentFrequency(freq: trimmed, sessionUuid: sessionUuid),
+          _nextRecordedAt++,
+        ),
+      );
     } else {
       existing.recordedAt = _nextRecordedAt++;
       if (sessionUuid != null) {
@@ -227,13 +229,15 @@ class _FakeSettingsStore implements SettingsStore {
 
 void main() {
   testWidgets('first launch routes through onboarding', (tester) async {
-    await tester.pumpWidget(WalkieTalkieApp(
-      identityStore: _FakeIdentityStore(),
-      recentFrequenciesStore: _FakeRecentFrequenciesStore(),
-      discoveryService: _FakeDiscoveryService(),
-      permissionWatcher: _FakePermissionWatcher(),
-      settingsStore: _FakeSettingsStore(),
-    ));
+    await tester.pumpWidget(
+      WalkieTalkieApp(
+        identityStore: _FakeIdentityStore(),
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        discoveryService: _FakeDiscoveryService(),
+        permissionWatcher: _FakePermissionWatcher(),
+        settingsStore: _FakeSettingsStore(),
+      ),
+    );
     // Boot splash → microtask flush → onboarding welcome.
     await tester.pump();
     await tester.pump();
@@ -259,8 +263,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Phones around you,\non the same wavelength.'),
-          findsOneWidget);
+      expect(
+        find.text('Phones around you,\non the same wavelength.'),
+        findsOneWidget,
+      );
       expect(find.text('Get started'), findsNothing);
       expect(find.text('MA'), findsOneWidget);
     },
@@ -272,8 +278,9 @@ void main() {
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
-          recentFrequenciesStore:
-              _FakeRecentFrequenciesStore(initial: const ['100.1', '92.4']),
+          recentFrequenciesStore: _FakeRecentFrequenciesStore(
+            initial: const ['100.1', '92.4'],
+          ),
           discoveryService: _FakeDiscoveryService(),
           permissionWatcher: _FakePermissionWatcher(),
           settingsStore: _FakeSettingsStore(),

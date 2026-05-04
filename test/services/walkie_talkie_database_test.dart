@@ -51,28 +51,31 @@ void main() {
         final dbPath = p.join(tempDir.path, 'wt.db');
         final v2 = await databaseFactoryFfi.openDatabase(
           dbPath,
-          options: OpenDatabaseOptions(version: 2, onCreate: (db, _) async {
-            await db.execute('''
+          options: OpenDatabaseOptions(
+            version: 2,
+            onCreate: (db, _) async {
+              await db.execute('''
               CREATE TABLE recent_frequencies (
                 freq TEXT PRIMARY KEY NOT NULL,
                 recorded_at INTEGER NOT NULL
               )
             ''');
-          }),
+            },
+          ),
         );
-        await v2.insert(
-          'recent_frequencies',
-          {'freq': '92.4', 'recorded_at': 1000},
-        );
-        await v2.insert(
-          'recent_frequencies',
-          {'freq': '100.1', 'recorded_at': 2000},
-        );
+        await v2.insert('recent_frequencies', {
+          'freq': '92.4',
+          'recorded_at': 1000,
+        });
+        await v2.insert('recent_frequencies', {
+          'freq': '100.1',
+          'recorded_at': 2000,
+        });
         await v2.close();
 
         // Now open via the production path which runs `_onUpgrade` to v3.
-        final detailed =
-            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+        final detailed = await SqfliteRecentFrequenciesStore()
+            .getRecentDetailed();
 
         // Both rows survive the migration with the v3 default values.
         expect(detailed.length, 2);
@@ -82,11 +85,12 @@ void main() {
         }
         // Setting a nickname / pin after the migration round-trips —
         // proves the new columns are actually writable, not just present.
-        await SqfliteRecentFrequenciesStore()
-            .setNickname('92.4', 'Family channel');
+        await SqfliteRecentFrequenciesStore().setNickname(
+          '92.4',
+          'Family channel',
+        );
         await SqfliteRecentFrequenciesStore().setPinned('100.1', true);
-        final after =
-            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+        final after = await SqfliteRecentFrequenciesStore().getRecentDetailed();
         final nicknamed = after.firstWhere((e) => e.freq == '92.4');
         final pinned = after.firstWhere((e) => e.freq == '100.1');
         expect(nicknamed.nickname, 'Family channel');
@@ -109,26 +113,30 @@ void main() {
         final dbPath = p.join(tempDir.path, 'wt.db');
         final partial = await databaseFactoryFfi.openDatabase(
           dbPath,
-          options: OpenDatabaseOptions(version: 2, onCreate: (db, _) async {
-            await db.execute('''
+          options: OpenDatabaseOptions(
+            version: 2,
+            onCreate: (db, _) async {
+              await db.execute('''
               CREATE TABLE recent_frequencies (
                 freq TEXT PRIMARY KEY NOT NULL,
                 recorded_at INTEGER NOT NULL,
                 nickname TEXT
               )
             ''');
-          }),
+            },
+          ),
         );
-        await partial.insert(
-          'recent_frequencies',
-          {'freq': '92.4', 'recorded_at': 1000, 'nickname': 'Family'},
-        );
+        await partial.insert('recent_frequencies', {
+          'freq': '92.4',
+          'recorded_at': 1000,
+          'nickname': 'Family',
+        });
         await partial.close();
 
         // Open via the production path — _onUpgrade fires (oldVersion < 3),
         // and the guarded migration only adds the missing `pinned` column.
-        final detailed =
-            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+        final detailed = await SqfliteRecentFrequenciesStore()
+            .getRecentDetailed();
 
         expect(detailed.length, 1);
         expect(detailed.single.freq, '92.4');
@@ -140,29 +148,25 @@ void main() {
         // Writing through the new API works end-to-end against the
         // recovered schema.
         await SqfliteRecentFrequenciesStore().setPinned('92.4', true);
-        final after =
-            await SqfliteRecentFrequenciesStore().getRecentDetailed();
+        final after = await SqfliteRecentFrequenciesStore().getRecentDetailed();
         expect(after.single.pinned, isTrue);
       },
     );
 
-    test(
-      're-opening a v3 database is a no-op (idempotent ALTER)',
-      () async {
-        // First open creates fresh at the current version.
-        await SqfliteRecentFrequenciesStore().record('92.4');
+    test('re-opening a v3 database is a no-op (idempotent ALTER)', () async {
+      // First open creates fresh at the current version.
+      await SqfliteRecentFrequenciesStore().record('92.4');
 
-        // Re-open the same file. The migration won't fire because the
-        // version matches, but if it ever does (e.g. someone bumps the
-        // version then later reverts), the PRAGMA table_info guard in
-        // `_addRecentFrequenciesNicknameAndPinned` keeps this from
-        // double-ALTERing and crashing.
-        await WalkieTalkieDatabase.resetForTesting();
-        await expectLater(
-          SqfliteRecentFrequenciesStore().getRecentDetailed(),
-          completion(hasLength(1)),
-        );
-      },
-    );
+      // Re-open the same file. The migration won't fire because the
+      // version matches, but if it ever does (e.g. someone bumps the
+      // version then later reverts), the PRAGMA table_info guard in
+      // `_addRecentFrequenciesNicknameAndPinned` keeps this from
+      // double-ALTERing and crashing.
+      await WalkieTalkieDatabase.resetForTesting();
+      await expectLater(
+        SqfliteRecentFrequenciesStore().getRecentDetailed(),
+        completion(hasLength(1)),
+      );
+    });
   });
 }
