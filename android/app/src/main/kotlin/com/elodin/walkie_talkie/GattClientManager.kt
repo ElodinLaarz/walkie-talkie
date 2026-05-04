@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * GATT client manager for the guest side of the Frequency control plane.
@@ -61,9 +62,9 @@ class GattClientManager(
     private val negotiatedMtus: MutableMap<String, Int> = mutableMapOf()
 
     // Latest RSSI sample per host MAC, populated by [onReadRemoteRssi].
-    // Keyed by MAC address; the Dart layer treats the key as an opaque peerId
-    // (see audio_service.dart § getCurrentRssi note on peerId).
-    private val latestRssi: MutableMap<String, Int> = mutableMapOf()
+    // ConcurrentHashMap: written on the GATT callback thread, read on the
+    // MethodChannel (main) thread by getLatestRssiSamples().
+    private val latestRssi = ConcurrentHashMap<String, Int>()
 
     // Retries are scheduled via a Handler.postDelayed so the GATT callback
     // thread isn't blocked. The Runnable is cached so [disconnect] (and a
@@ -223,9 +224,8 @@ class GattClientManager(
             } else {
                 Log.i(TAG, "GATT client setup complete, notifications enabled")
             }
-
-            // Link is fully set up — start periodic RSSI sampling.
-            startRssiPolling(gatt.device.address)
+            // RSSI polling starts in onDescriptorWrite once the CCCD write is confirmed
+            // so we don't overlap in-flight GATT operations.
         }
 
         // API 33+ onCharacteristicChanged with explicit value parameter — the
@@ -254,6 +254,8 @@ class GattClientManager(
             if (descriptor.uuid == GattConstants.CCCD_UUID) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.i(TAG, "CCCD write successful, notifications active")
+                    // CCCD confirmed — GATT is fully idle, safe to start RSSI polling.
+                    startRssiPolling()
                 } else {
                     // Check for authorization failures on descriptor writes
                     if (status in GattConstants.AUTHORIZATION_ERRORS) {
@@ -299,15 +301,21 @@ class GattClientManager(
         }
     }
 
-    private fun startRssiPolling(address: String) {
+    private fun startRssiPolling() {
         stopRssiPolling()
         val runnable = object : Runnable {
             override fun run() {
                 val currentGatt = gatt ?: return
                 try {
-                    currentGatt.readRemoteRssi()
+                    val queued = currentGatt.readRemoteRssi()
+                    if (!queued) {
+                        Log.w(TAG, "readRemoteRssi: GATT busy, will retry next tick")
+                    }
                 } catch (e: SecurityException) {
-                    Log.w(TAG, "Missing permission for readRemoteRssi", e)
+                    Log.w(TAG, "Missing permission for readRemoteRssi — stopping RSSI polling", e)
+                    stopRssiPolling()
+                    onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
+                    return
                 }
                 rssiHandler.postDelayed(this, RSSI_POLL_MS)
             }
@@ -461,7 +469,7 @@ class GattClientManager(
      * Returns an empty list if no samples have been collected yet.
      */
     fun getLatestRssiSamples(): List<Map<String, Any>> =
-        latestRssi.map { (mac, rssi) -> mapOf("peerId" to mac, "rssi" to rssi) }
+        latestRssi.entries.map { (mac, rssi) -> mapOf("peerId" to mac, "rssi" to rssi) }
 
     /**
      * Check if currently connected to a host.
