@@ -17,10 +17,10 @@ anonymised diagnostic data if enabled in Settings.
 
 ### Documentation
 
-- **[Privacy Policy]({% link privacy-policy.md %})** — what data the app processes, what is
+- **[Privacy Policy]({{ '/privacy-policy/' | relative_url }})** — what data the app processes, what is
   stored locally, and how to delete it. Required reading for the Play Store
   Data Safety form.
-- **[Wire Protocol]({% link protocol.md %})** — the on-wire format for discovery
+- **[Wire Protocol]({{ '/protocol/' | relative_url }})** — the on-wire format for discovery
   advertisements, control messages, and audio framing.
-- **[Play Store Submission Guide]({% link play-store-submission-guide.md %})** — step-by-step
+- **[Play Store Submission Guide]({{ '/play-store-submission/' | relative_url }})** — step-by-step
   checklist for completing the Google Play Store listing and publishing the app.
