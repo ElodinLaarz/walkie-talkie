@@ -275,6 +275,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         } else {
           _setOpenMicMuted(!_meMuted);
         }
+      } else if (type == 'audioError') {
+        // Oboe stream failure (e.g. RECORD_AUDIO revoked mid-call). Trigger
+        // an immediate permission re-check so the cubit can transition to
+        // SessionPermissionDenied without waiting for the 5-second poll
+        // cycle in DefaultPermissionWatcher. The watcher runs the check,
+        // finds the missing permission, and calls _teardownForPermissionRevoke.
+        if (mounted) {
+          unawaited(context.read<FrequencySessionCubit>().recheckPermissions());
+        }
       }
     });
 

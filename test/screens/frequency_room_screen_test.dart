@@ -93,6 +93,7 @@ Widget _wrap(
     });
 
     when(() => mockCubit.broadcastMute(any())).thenAnswer((_) async {});
+    when(() => mockCubit.recheckPermissions()).thenAnswer((_) async {});
   }
 
   return MaterialApp(
@@ -947,6 +948,54 @@ void main() {
         await tester.pump();
 
         expect(leaveCount, 1);
+      },
+    );
+
+    testWidgets(
+      'audioError event triggers immediate permission recheck (#250)',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        final cubit = MockFrequencySessionCubit();
+        final mockStore = MockIdentityStore();
+        when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
+        when(() => cubit.identityStore).thenReturn(mockStore);
+        when(() => cubit.localPeerId).thenReturn(null);
+        when(() => cubit.state).thenReturn(const SessionBooting());
+        when(
+          () => cubit.stream,
+        ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
+        final mediaCtrl = StreamController<MediaCommand>.broadcast();
+        when(() => cubit.mediaCommands).thenAnswer((_) => mediaCtrl.stream);
+        final weakCtrl =
+            StreamController<({String peerId, String displayName})>.broadcast();
+        when(() => cubit.weakSignalEvents).thenAnswer((_) => weakCtrl.stream);
+        when(
+          () => cubit.sendMediaCommand(
+            op: any(named: 'op'),
+            source: any(named: 'source'),
+            trackIdx: any(named: 'trackIdx'),
+            positionMs: any(named: 'positionMs'),
+          ),
+        ).thenAnswer((_) async {});
+        when(() => cubit.broadcastMute(any())).thenAnswer((_) async {});
+        when(() => cubit.recheckPermissions()).thenAnswer((_) async {});
+        addTearDown(() {
+          mediaCtrl.close();
+          weakCtrl.close();
+        });
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        // Simulate Oboe stream failure (e.g. RECORD_AUDIO revoked mid-call).
+        eventEmitter.emit({'type': 'audioError', 'reason': 'DISCONNECTED'});
+        await tester.pump();
+
+        verify(() => cubit.recheckPermissions()).called(1);
       },
     );
 
