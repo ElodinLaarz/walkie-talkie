@@ -1669,14 +1669,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///   1. Build the command with the local peerId and a fresh seq.
   ///   2. Apply it **optimistically** by emitting on [mediaCommands] so
   ///      the UI updates instantly.
-  ///   3. (Once the BLE transport lands) write it to the host's REQUEST
-  ///      characteristic. The host validates, applies, and echoes a
-  ///      canonical version to all peers via [applyHostMediaEcho].
+  ///   3. Write it to the host's REQUEST characteristic via
+  ///      `_transport?.send(cmd)`. The host validates, applies, and echoes
+  ///      a canonical version to all peers via [applyHostMediaEcho].
   ///
-  /// In v1 the BLE transport isn't wired yet, so step 3 is a no-op and
-  /// the originator's optimistic apply is the only apply that fires.
-  /// When the transport lands, the originator's [applyHostMediaEcho]
-  /// callback will reconcile any disagreement (host wins).
+  /// The BLE transport is wired — step 3 runs alongside the optimistic
+  /// apply. Cross-peer reconciliation (guest A seeing guest B's state)
+  /// additionally requires host fan-out, tracked in issue #273.
   Future<void> sendMediaCommand({
     required MediaOp op,
     required String source,
@@ -1729,10 +1728,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// queue (`MediaSourceLib.queue.length`), so it can't correctly
   /// resolve the trackIdx for `skip` / `prev`. The room screen owns
   /// queue-aware advancement; the cubit's `mediaState` is the
-  /// `JoinAccepted` bootstrap snapshot only. Once the BLE host
-  /// implementation lands, the host side will track canonical
-  /// mediaState (with queue access) and snapshot it into every
-  /// outgoing `JoinAccepted` for guests to seed from.
+  /// `JoinAccepted` bootstrap snapshot only. Host fan-out (so the host
+  /// tracks canonical mediaState and snapshots it into `JoinAccepted`
+  /// for guests) is still pending — tracked in issue #273.
   ///
   /// No-op outside `SessionRoom`, or after the cubit is closed.
   void applyHostMediaEcho(MediaCommand cmd) {
