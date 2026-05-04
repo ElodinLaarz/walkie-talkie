@@ -952,7 +952,7 @@ void main() {
     );
 
     testWidgets(
-      'audioError event triggers immediate permission recheck (#250)',
+      'audioError and error events trigger immediate permission recheck (#250)',
       (tester) async {
         final eventEmitter = _EventChannelEmitter(
           'com.elodin.walkie_talkie/audio_events',
@@ -991,11 +991,18 @@ void main() {
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
 
-        // Simulate Oboe stream failure (e.g. RECORD_AUDIO revoked mid-call).
+        // Oboe failure (e.g. RECORD_AUDIO revoked) → 'audioError'.
         eventEmitter.emit({'type': 'audioError', 'reason': 'DISCONNECTED'});
         await tester.pump();
 
-        verify(() => cubit.recheckPermissions()).called(1);
+        // L2CAP transport failure (e.g. BLUETOOTH_CONNECT revoked) → 'error'.
+        eventEmitter.emit({
+          'type': 'error',
+          'message': 'BLUETOOTH_PERMISSION_DENIED',
+        });
+        await tester.pump();
+
+        verify(() => cubit.recheckPermissions()).called(2);
       },
     );
 
