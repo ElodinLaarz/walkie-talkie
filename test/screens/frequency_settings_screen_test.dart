@@ -178,6 +178,22 @@ void main() {
     );
 
     testWidgets(
+      'Keep screen on toggle reflects initial true value from store',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            FrequencySettingsScreen(
+              settingsStore: _FakeSettingsStore(keepScreenOn: true),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(_findToggleFor(tester, 'Keep screen on').value, isTrue);
+      },
+    );
+
+    testWidgets(
       'tapping Keep screen on toggle calls setKeepScreenOn and flips state',
       (tester) async {
         final store = _FakeSettingsStore(keepScreenOn: false);
@@ -194,21 +210,35 @@ void main() {
       },
     );
 
-    testWidgets('Crash reporting row is visible in Privacy section', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'Crash reporting row is visible and disabled when Sentry is not configured',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.dragUntilVisible(
-        find.text('Crash reporting'),
-        find.byType(ListView),
-        const Offset(0, -200),
-      );
-      expect(find.text('Crash reporting'), findsOneWidget);
-    });
+        await tester.dragUntilVisible(
+          find.text('Crash reporting'),
+          find.byType(ListView),
+          const Offset(0, -200),
+        );
+        expect(find.text('Crash reporting'), findsOneWidget);
+
+        // kSentryConfigured is always false in test builds, so the toggle must
+        // be inert (onChanged == null on the underlying FreqSwitch).
+        final toggle = tester.widget<FreqSwitch>(
+          find.descendant(
+            of: find.ancestor(
+              of: find.text('Crash reporting'),
+              matching: find.byType(ListTile),
+            ),
+            matching: find.byType(FreqSwitch),
+          ),
+        );
+        expect(toggle.onChanged, isNull);
+      },
+    );
 
     testWidgets('version row shows version from PackageInfo', (tester) async {
       await tester.pumpWidget(
