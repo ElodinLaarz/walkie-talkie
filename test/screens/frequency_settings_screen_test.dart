@@ -40,7 +40,8 @@ class _FakeSettingsStore implements SettingsStore {
   Future<bool> getKeepScreenOn() async => keepScreenOn;
 
   @override
-  Future<void> setKeepScreenOn(bool v) async => calls.add(('setKeepScreenOn', v));
+  Future<void> setKeepScreenOn(bool v) async =>
+      calls.add(('setKeepScreenOn', v));
 
   @override
   Future<bool> getCrashReportingEnabled() async => crashReporting;
@@ -53,10 +54,7 @@ class _FakeSettingsStore implements SettingsStore {
 FreqSwitch _findToggleFor(WidgetTester tester, String label) {
   return tester.widget<FreqSwitch>(
     find.descendant(
-      of: find.ancestor(
-        of: find.text(label),
-        matching: find.byType(ListTile),
-      ),
+      of: find.ancestor(of: find.text(label), matching: find.byType(ListTile)),
       matching: find.byType(FreqSwitch),
     ),
   );
