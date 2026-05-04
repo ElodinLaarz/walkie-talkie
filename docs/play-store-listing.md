@@ -30,7 +30,7 @@ Offline voice rooms over Bluetooth LE — no internet or accounts needed.
 ```text
 Talk to anyone nearby — no internet, no accounts, no servers.
 
-Walkie Talkie turns your Android phone into a classic push-to-talk radio using Bluetooth Low Energy. Press the big button, speak, release. Everyone in the same "Frequency" hears you instantly, even when there's no Wi-Fi signal in sight.
+Frequency turns your Android phone into a classic push-to-talk radio using Bluetooth Low Energy. Press the big button, speak, release. Everyone on the same Frequency hears you instantly, even when there's no Wi-Fi signal in sight.
 
 ── How it works ──
 
@@ -59,10 +59,10 @@ One person hosts a Frequency room. Others nearby discover it automatically and j
 
 ── Requirements ──
 
-Android 9.0 (API 28) or higher. Bluetooth LE support required (present on virtually all phones made since 2014). Works best within 30–100 m of the host; range depends on environment and device hardware.
+Android 13 (API 33) or higher. Bluetooth LE support required. Works best within 30–100 m of the host; range depends on environment and device hardware.
 ```
 
-1 897 characters (max 4 000).
+1 873 characters (max 4 000).
 
 ---
 
