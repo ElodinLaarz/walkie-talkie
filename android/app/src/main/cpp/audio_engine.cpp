@@ -376,10 +376,12 @@ public:
             return false;
         }
 
-        // Reset resampler history on every (re)start so the first samples
-        // don't carry transients from a previous session.
+        // Reset resampler history and VAD state on every (re)start so
+        // transients and stale hysteresis counts from a prior session
+        // don't carry over into the new one.
         micResampler_.reset();
         playbackResampler_.reset();
+        vad_.reset();
 
         // Bring the worker thread up before starting the streams so any
         // VAD edge from the very first callback finds a draining consumer.
@@ -488,7 +490,7 @@ public:
         // VAD on the raw 48 kHz mic signal — pre-mute so the UI shows
         // "talking" feedback even when transmit is muted.
         const double rms = computeRms(inputData, numFrames);
-        if (auto edge = vad_.update(rms > VadDetector::kDefaultThreshold, numFrames)) {
+        if (auto edge = vad_.update(rms > vad_.threshold(), numFrames)) {
             emitTalkingEvent(*edge);
         }
 

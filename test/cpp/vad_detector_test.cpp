@@ -10,6 +10,7 @@
 //   - Silence state is entered only after the off-hysteresis window.
 //   - Hysteresis does not flicker at threshold edges (brief blips are absorbed).
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>

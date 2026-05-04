@@ -1,6 +1,7 @@
 #ifndef VAD_DETECTOR_H
 #define VAD_DETECTOR_H
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -47,14 +48,17 @@ struct VadDetector {
     // the state did not change this burst.
     std::optional<bool> update(bool aboveThreshold, int32_t numFrames) {
         if (aboveThreshold) {
-            aboveFrames_ += numFrames;
+            // Clamp at onFrames_ so the counter never overflows int32_t on a
+            // long above-threshold run (overflow horizon: ~12 h at 48 kHz).
+            aboveFrames_ = std::min(aboveFrames_ + numFrames, onFrames_);
             belowFrames_ = 0;
             if (!talking_ && aboveFrames_ >= onFrames_) {
                 talking_ = true;
                 return true;
             }
         } else {
-            belowFrames_ += numFrames;
+            // Symmetric clamp for the off-hysteresis window.
+            belowFrames_ = std::min(belowFrames_ + numFrames, offFrames_);
             aboveFrames_ = 0;
             if (talking_ && belowFrames_ >= offFrames_) {
                 talking_ = false;
