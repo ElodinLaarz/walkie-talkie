@@ -15,6 +15,7 @@
 #include "audio_mixer.h"
 #include "resampler.h"
 #include "talking_event_queue.h"
+#include "vad_detector.h"
 
 #define LOG_TAG "WalkieTalkieAudio"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -284,15 +285,8 @@ private:
 
     // Voice activity detection. RMS is computed at the playout rate so the
     // hysteresis threshold scales with the mic's actual sample count, not
-    // the codec's downsampled count.
-    static constexpr double kTalkingThreshold = 0.01;  // -40 dBFS
-    static constexpr int32_t kOnHysteresisMs = 100;
-    static constexpr int32_t kOffHysteresisMs = 300;
-    bool lastTalking = false;
-    int32_t aboveThresholdFrames = 0;
-    int32_t belowThresholdFrames = 0;
-    const int32_t onHysteresisFrames = (kSampleRate * kOnHysteresisMs) / 1000;
-    const int32_t offHysteresisFrames = (kSampleRate * kOffHysteresisMs) / 1000;
+    // the codec's downsampled count. State is owned by VadDetector.
+    VadDetector vad_{kSampleRate};
 
     // Resampler bridge between 48 kHz Oboe and the 16 kHz codec/mixer plane.
     // These are owned by the engine because their FIR history must persist
@@ -382,10 +376,12 @@ public:
             return false;
         }
 
-        // Reset resampler history on every (re)start so the first samples
-        // don't carry transients from a previous session.
+        // Reset resampler history and VAD state on every (re)start so
+        // transients and stale hysteresis counts from a prior session
+        // don't carry over into the new one.
         micResampler_.reset();
         playbackResampler_.reset();
+        vad_.reset();
 
         // Bring the worker thread up before starting the streams so any
         // VAD edge from the very first callback finds a draining consumer.
@@ -494,21 +490,8 @@ public:
         // VAD on the raw 48 kHz mic signal — pre-mute so the UI shows
         // "talking" feedback even when transmit is muted.
         const double rms = computeRms(inputData, numFrames);
-        const bool nowAboveThreshold = rms > kTalkingThreshold;
-        if (nowAboveThreshold) {
-            aboveThresholdFrames += numFrames;
-            belowThresholdFrames = 0;
-            if (!lastTalking && aboveThresholdFrames >= onHysteresisFrames) {
-                lastTalking = true;
-                emitTalkingEvent(true);
-            }
-        } else {
-            belowThresholdFrames += numFrames;
-            aboveThresholdFrames = 0;
-            if (lastTalking && belowThresholdFrames >= offHysteresisFrames) {
-                lastTalking = false;
-                emitTalkingEvent(false);
-            }
+        if (auto edge = vad_.update(rms > vad_.threshold(), numFrames)) {
+            emitTalkingEvent(*edge);
         }
 
         // Mute zeros the mic signal before resampling so the wire path sees

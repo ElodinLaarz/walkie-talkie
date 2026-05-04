@@ -27,11 +27,13 @@ for required in \
     test/cpp/talking_event_queue_test.cpp \
     test/cpp/ring_buffer_test.cpp \
     test/cpp/opus_codec_test.cpp \
+    test/cpp/vad_detector_test.cpp \
     android/app/src/main/cpp/audio_mixer.cpp \
     android/app/src/main/cpp/talking_event_queue.h \
     android/app/src/main/cpp/ring_buffer.h \
     android/app/src/main/cpp/opus_codec.h \
-    android/app/src/main/cpp/opus_codec.cpp; do
+    android/app/src/main/cpp/opus_codec.cpp \
+    android/app/src/main/cpp/vad_detector.h; do
   if [ ! -f "$required" ]; then
     echo "$required missing — failing fast"
     exit 1
@@ -82,6 +84,15 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     test/cpp/ring_buffer_test.cpp \
     -o build/cpp_test/ring_buffer_test
 build/cpp_test/ring_buffer_test
+
+# vad_detector_test exercises the two-sided hysteresis state machine extracted
+# from audio_engine.cpp. Header-only; no extra link deps beyond the STL.
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    test/cpp/vad_detector_test.cpp \
+    -o build/cpp_test/vad_detector_test
+build/cpp_test/vad_detector_test
 
 # opus_codec_test exercises OpusEncoder/OpusDecoder from opus_codec.cpp.
 # Requires libopus and pkg-config. Without an explicit preflight, a missing
