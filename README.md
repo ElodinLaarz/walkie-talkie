@@ -71,8 +71,9 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
     * **BLE Connection Manager** (Phase 2 ✅ done) — LE advertise (host),
       scan (guest), GATT server / client, L2CAP CoC server / client.
       Implemented across [#37–#45](https://github.com/ElodinLaarz/walkie-talkie/issues/37).
-    * **Audio Engine** (Phase 3) — mic capture (Oboe), Opus encode/decode,
-      mix-minus. Not yet implemented.
+    * **Audio Engine** (Phase 3 ✅) — mic capture (Oboe), Opus encode/decode,
+      mix-minus. Fully wired; see
+      [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
 5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
 
 -----
@@ -200,10 +201,8 @@ graph TD
 ### Android Native (Kotlin / C++)
 
 The libraries / APIs below are the native surface for Phases 2-3
-(see roadmap). Phase 2 (BLE control plane) is complete; Phase 3
-(voice pipeline) building blocks have landed but the session-level
-wiring is still owed (tracked in
-[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246)).
+(see roadmap). Both Phase 2 (BLE control plane) and Phase 3
+(voice pipeline) are complete.
 
 1.  **AndroidX Bluetooth APIs** *(Phase 2)* — `BluetoothLeAdvertiser`,
     `BluetoothLeScanner`, `BluetoothGattServer` / `BluetoothGatt`, and
@@ -250,18 +249,14 @@ real radios.
 * [#39](https://github.com/ElodinLaarz/walkie-talkie/issues/39) Host-side session bootstrap (mint `sessionUuid`, self-seed `JoinAccepted`).
 * [#40](https://github.com/ElodinLaarz/walkie-talkie/issues/40) Replace mock roster + media in the room screen with cubit state.
 
-### Phase 3 — Voice plane (bricks landed, session wiring pending)
+### Phase 3 — Voice plane ✅ done
 
-Individual building blocks are all closed; the session-level wiring that
-makes audio flow end-to-end is tracked in
-[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
-
-* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) ✅ Native L2CAP CoC server (host) + client (guest).
-* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) ✅ Native libopus encoder + decoder.
-* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) ✅ Real mix-minus across multiple peers.
-* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) ✅ Per-peer voice-frame seq tracking with stuck-producer prune.
-* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) ✅ Voice-activity detection + outbound `TalkingState` messages.
-* [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246) ⏳ Session-level wiring: mic→encode→send + receive→decode→playback.
+* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) Native L2CAP CoC server (host) + client (guest).
+* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) Native libopus encoder + decoder.
+* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) Real mix-minus across multiple peers.
+* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) Per-peer voice-frame seq tracking with stuck-producer prune.
+* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) Voice-activity detection + outbound `TalkingState` messages.
+* [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246) Session-level wiring: mic→encode→send + receive→decode→playback.
 
 ### Phase 4 — Reliability ✅ done
 
@@ -277,6 +272,15 @@ makes audio flow end-to-end is tracked in
 * [#35](https://github.com/ElodinLaarz/walkie-talkie/issues/35) CI: build & run native `mixer_test` (and delete the checked-in binary).
 * [#36](https://github.com/ElodinLaarz/walkie-talkie/issues/36) Delete iOS / macOS / Windows / Linux scaffolding (Android-only v1).
 * [#52](https://github.com/ElodinLaarz/walkie-talkie/issues/52) Verify foreground notification configuration in `WalkieTalkieService`.
+
+### Phase 6 — Play Store submission (in progress)
+
+Code and assets are ready; remaining steps are Play Console actions.
+
+* [#111](https://github.com/ElodinLaarz/walkie-talkie/issues/111) ✅ Privacy policy: written (`docs/privacy-policy.md`), linked from in-app About screen. Requires GitHub Pages to be enabled in repo settings before the URL goes live.
+* [#112](https://github.com/ElodinLaarz/walkie-talkie/issues/112) ✅ Adaptive launcher icon + monochrome icon for Android 13 themed icons.
+* [#120](https://github.com/ElodinLaarz/walkie-talkie/issues/120) ✅ Crash + error reporting (Sentry, opt-in, no PII, on-device queue).
+* [#126](https://github.com/ElodinLaarz/walkie-talkie/issues/126) ⏳ Play Store listing prep: store metadata, screenshots, content rating, closed testing. See [`docs/play-store-submission-guide.md`](docs/play-store-submission-guide.md) for the step-by-step checklist.
 
 Out of scope for v1: encryption beyond LE pairing, host handover, mesh
 topology, > 12 peers per room. See
