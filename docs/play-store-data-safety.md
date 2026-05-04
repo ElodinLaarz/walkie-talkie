@@ -50,7 +50,7 @@ All other data type rows should be answered **No**.
 
 All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server. No data is shared with any third party by default.
 
-Exception: if the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from all event fields before transmission, so only Sentry's own per-install session ID is used for crash correlation. Users who keep crash reporting disabled have zero outbound network traffic.
+Exception: if the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from contexts, tags, and breadcrumbs (including nested values) before transmission, so only Sentry's own SDK-generated session identifiers are used for crash correlation. Users who keep crash reporting disabled send no outbound crash telemetry.
 
 ---
 
