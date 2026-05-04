@@ -269,15 +269,11 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "getCurrentRssi" -> {
-                    // Returns one (peerId, rssi) entry per peer connected
-                    // over the GATT link. Full implementation requires
-                    // BluetoothGatt.readRemoteRssi on the client side
-                    // (gattClientManager); the server side cannot read
-                    // remote RSSI on its accepted connections. Until that
-                    // sampling is wired we return an empty list rather
-                    // than fabricating values; the Dart side already
-                    // short-circuits a send when the list is empty.
-                    result.success(emptyList<Map<String, Any>>())
+                    // Returns one {peerId, rssi} entry per active GATT link.
+                    // Only the GATT client (guest) can read remote RSSI;
+                    // the server side has no equivalent API.
+                    val samples = gattClientManager?.getLatestRssiSamples() ?: emptyList()
+                    result.success(samples)
                 }
                 "writeNotification" -> {
                     val deviceAddress = call.argument<String>("deviceAddress")
