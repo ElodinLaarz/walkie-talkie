@@ -236,7 +236,7 @@ UI screens, onboarding + permissions, BLoC state, Hive persistence
 (`peerId` + display name), wire-protocol Dart stubs (framing,
 sequence filter, message envelope, voice-frame), foreground service shell.
 
-### Phase 2 — Native BLE control plane (in flight)
+### Phase 2 — Native BLE control plane ✅ done
 
 End-to-end host advertise → guest connect → JoinAccepted snapshot, all on
 real radios.
@@ -251,17 +251,20 @@ real radios.
 * [#39](https://github.com/ElodinLaarz/walkie-talkie/issues/39) Host-side session bootstrap (mint `sessionUuid`, self-seed `JoinAccepted`).
 * [#40](https://github.com/ElodinLaarz/walkie-talkie/issues/40) Replace mock roster + media in the room screen with cubit state.
 
-### Phase 3 — Voice plane
+### Phase 3 — Voice plane (bricks landed, session wiring pending)
 
-Real audio between two phones.
+Individual building blocks are all closed; the session-level wiring that
+makes audio flow end-to-end is tracked in
+[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
 
-* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) Native L2CAP CoC server (host) + client (guest).
-* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) Native libopus encoder + decoder.
-* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) Real mix-minus across multiple peers.
-* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) Per-peer voice-frame seq tracking with stuck-producer prune.
-* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) Voice-activity detection + outbound `TalkingState` messages.
+* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) ✅ Native L2CAP CoC server (host) + client (guest).
+* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) ✅ Native libopus encoder + decoder.
+* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) ✅ Real mix-minus across multiple peers.
+* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) ✅ Per-peer voice-frame seq tracking with stuck-producer prune.
+* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) ✅ Voice-activity detection + outbound `TalkingState` messages.
+* [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246) ⏳ Session-level wiring: mic→encode→send + receive→decode→playback.
 
-### Phase 4 — Reliability
+### Phase 4 — Reliability ✅ done
 
 * [#51](https://github.com/ElodinLaarz/walkie-talkie/issues/51) Heartbeats + dirty-disconnect detection.
 * [#53](https://github.com/ElodinLaarz/walkie-talkie/issues/53) `SignalReport` on a 10s timer (replaces the demo weak-signal toast).
@@ -269,7 +272,7 @@ Real audio between two phones.
 * [#56](https://github.com/ElodinLaarz/walkie-talkie/issues/56) Graceful auto-reconnect for transient drops (≤30s).
 * [#57](https://github.com/ElodinLaarz/walkie-talkie/issues/57) Permissions revocation handling (mic / BT revoked while in-room).
 
-### Phase 5 — Release polish
+### Phase 5 — Release polish ✅ done
 
 * [#34](https://github.com/ElodinLaarz/walkie-talkie/issues/34) Release signing config (replace debug-key fallback).
 * [#35](https://github.com/ElodinLaarz/walkie-talkie/issues/35) CI: build & run native `mixer_test` (and delete the checked-in binary).

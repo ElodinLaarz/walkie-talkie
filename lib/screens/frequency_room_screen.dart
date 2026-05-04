@@ -61,6 +61,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   bool _meMuted = false;
   bool _holdingPtt = false;
+
   /// Per-peer playback volume, keyed by peerId. Populated lazily —
   /// only entries the user has explicitly adjusted exist; everything
   /// else reads through [_volumeFor] which falls back to
@@ -70,6 +71,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   final Map<String, double> _volumes = {};
   static const double _kDefaultPeerVolume = 0.7;
   double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;
+
   /// Mirrors the contents of [BlockedPeersStore] for the lifetime of
   /// this screen. Hydrated on initState (asynchronously — until the
   /// first read resolves the set is empty, which means a freshly-joined
@@ -85,8 +87,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   Timer? _progressTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
   StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
-  StreamSubscription<({String peerId, String displayName})>?
-      _weakSignalSub;
+  StreamSubscription<({String peerId, String displayName})>? _weakSignalSub;
 
   /// Local peer's stable id, resolved once asynchronously from the
   /// identity store. Until it lands, originator-vs-remote attribution
@@ -133,7 +134,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   void initState() {
     super.initState();
     final firstName = widget.myName.isEmpty ? 'You' : widget.myName;
-    final initials = (firstName.length >= 2 ? firstName.substring(0, 2) : firstName).toUpperCase();
+    final initials =
+        (firstName.length >= 2 ? firstName.substring(0, 2) : firstName)
+            .toUpperCase();
     _me = Person(
       id: 'me',
       name: firstName,
@@ -147,7 +150,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     );
     _meMuted = widget.pttMode;
 
-    _source = widget.mediaKind == MediaKind.podcast ? 'Podcasts' : 'YouTube Music';
+    _source = widget.mediaKind == MediaKind.podcast
+        ? 'Podcasts'
+        : 'YouTube Music';
     _lib = emptyMediaLib;
     _lastAction = const _LastAction(by: '', action: '', when: '');
 
@@ -193,7 +198,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // device when _output is bluetooth), keep the UI selection but log it.
       final routed = await _audio.setAudioOutput(_output.name);
       if (!routed) {
-        if (kDebugMode) debugPrint('Failed to route to ${_output.name}, device may be unavailable');
+        if (kDebugMode) {
+          debugPrint(
+            'Failed to route to ${_output.name}, device may be unavailable',
+          );
+        }
       }
     }());
 
@@ -221,14 +230,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               final btNameFromEvent = event['btName'] as String?;
               if (btNameFromEvent != null && btNameFromEvent.isNotEmpty) {
                 _me = Person(
-                  id: _me.id, name: _me.name,
-                  initials: _me.initials, hue: _me.hue,
+                  id: _me.id,
+                  name: _me.name,
+                  initials: _me.initials,
+                  hue: _me.hue,
                   btDevice: btNameFromEvent,
                 );
               } else if (_me.btDevice.isEmpty) {
                 _me = Person(
-                  id: _me.id, name: _me.name,
-                  initials: _me.initials, hue: _me.hue,
+                  id: _me.id,
+                  name: _me.name,
+                  initials: _me.initials,
+                  hue: _me.hue,
                   btDevice: 'Bluetooth',
                 );
               }
@@ -237,8 +250,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               // switched by the system). Clear btDevice so the BT row in
               // the output picker is shown as disabled.
               _me = Person(
-                id: _me.id, name: _me.name,
-                initials: _me.initials, hue: _me.hue,
+                id: _me.id,
+                name: _me.name,
+                initials: _me.initials,
+                hue: _me.hue,
                 btDevice: '',
               );
             }
@@ -301,7 +316,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // production case). Skip the extra identity-store round-trip entirely.
     if (_myPeerId != null) return;
     try {
-      final peerId = await context.read<FrequencySessionCubit>().identityStore.getPeerId();
+      final peerId = await context
+          .read<FrequencySessionCubit>()
+          .identityStore
+          .getPeerId();
       if (!mounted) return;
       // setState triggers a re-render so the roster filter uses the
       // resolved id (only reached when bootstrap hadn't completed yet).
@@ -371,8 +389,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     int positionSec = 0,
   }) {
     final clampedIdx = trackIdx < 0 ? 0 : trackIdx;
-    final placeholderDurationSec =
-        positionSec * 2 < 60 ? 60 : positionSec * 2;
+    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
     // Use the human-readable display label for MediaSourceLib.name so UI
     // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
     // showing raw wire keys like "spotify" or "pocket_casts". Unknown future
@@ -445,7 +462,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // PTT ⇒ muted-until-held), so the engine needs the new state.
       final effectiveMuted = _meEffectivelyMuted;
       unawaited(_audio.setMuted(effectiveMuted));
-      unawaited(context.read<FrequencySessionCubit>().broadcastMute(effectiveMuted));
+      unawaited(
+        context.read<FrequencySessionCubit>().broadcastMute(effectiveMuted),
+      );
     }
   }
 
@@ -465,12 +484,14 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// production match without duplicating the spec.
   void _onWeakSignal(({String peerId, String displayName}) e) {
     if (!mounted) return;
-    FrequencyToastHost.of(context).push(FrequencyToastSpec(
-      tone: ToastTone.warn,
-      title: "${e.displayName}'s signal is weak",
-      description: 'Ask them to move closer',
-      autoDismiss: const Duration(milliseconds: 3600),
-    ));
+    FrequencyToastHost.of(context).push(
+      FrequencyToastSpec(
+        tone: ToastTone.warn,
+        title: "${e.displayName}'s signal is weak",
+        description: 'Ask them to move closer',
+        autoDismiss: const Duration(milliseconds: 3600),
+      ),
+    );
   }
 
   /// Open-mic mute toggle. Updates the local UI state and pushes the new
@@ -499,31 +520,52 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       switch (cmd.op) {
         case MediaOp.play:
           _playing = true;
-          _lastAction = _LastAction(by: senderName, action: 'resumed', when: 'just now');
+          _lastAction = _LastAction(
+            by: senderName,
+            action: 'resumed',
+            when: 'just now',
+          );
           break;
         case MediaOp.pause:
           _playing = false;
-          _lastAction = _LastAction(by: senderName, action: 'paused', when: 'just now');
+          _lastAction = _LastAction(
+            by: senderName,
+            action: 'paused',
+            when: 'just now',
+          );
           break;
         case MediaOp.skip:
           _trackIdx = (_trackIdx + 1) % _lib.queue.length;
           _progress = 0;
-          _lastAction = _LastAction(by: senderName, action: 'skipped', when: 'just now');
+          _lastAction = _LastAction(
+            by: senderName,
+            action: 'skipped',
+            when: 'just now',
+          );
           break;
         case MediaOp.prev:
           _trackIdx = (_trackIdx - 1 + _lib.queue.length) % _lib.queue.length;
           _progress = 0;
-          _lastAction = _LastAction(by: senderName, action: 'went back', when: 'just now');
+          _lastAction = _LastAction(
+            by: senderName,
+            action: 'went back',
+            when: 'just now',
+          );
           break;
         case MediaOp.seek:
           if (cmd.positionMs != null) {
             // Anchor scrub seeks to peer clocks
             final deltaMs = DateTime.now().millisecondsSinceEpoch - cmd.atMs;
             final effectiveMs = cmd.positionMs! + (deltaMs > 0 ? deltaMs : 0);
-            _progress = (effectiveMs / 1000)
-                .round()
-                .clamp(0, _track.durationSeconds);
-            _lastAction = _LastAction(by: senderName, action: 'scrubbed', when: 'just now');
+            _progress = (effectiveMs / 1000).round().clamp(
+              0,
+              _track.durationSeconds,
+            );
+            _lastAction = _LastAction(
+              by: senderName,
+              action: 'scrubbed',
+              when: 'just now',
+            );
           }
           break;
         case MediaOp.queuePlay:
@@ -535,12 +577,19 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             // trackIdx exceeds the current queue length (Copilot review #153).
             if (nextSource != _source || nextIdx >= _lib.queue.length) {
               _source = nextSource;
-              _lib = _buildPlaceholderLib(source: nextSource, trackIdx: nextIdx);
+              _lib = _buildPlaceholderLib(
+                source: nextSource,
+                trackIdx: nextIdx,
+              );
             }
             _trackIdx = nextIdx;
             _progress = 0;
             _playing = true;
-            _lastAction = _LastAction(by: senderName, action: 'queued up track', when: 'just now');
+            _lastAction = _LastAction(
+              by: senderName,
+              action: 'queued up track',
+              when: 'just now',
+            );
           }
           break;
       }
@@ -618,10 +667,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// the same color across sessions.
   Person _protocolPeerToPerson(ProtocolPeer peer) {
     final displayName = peer.displayName.isEmpty ? 'Unknown' : peer.displayName;
-    final initials = (displayName.length >= 2
-            ? displayName.substring(0, 2)
-            : displayName)
-        .toUpperCase();
+    final initials =
+        (displayName.length >= 2 ? displayName.substring(0, 2) : displayName)
+            .toUpperCase();
     final hue = (peer.peerId.hashCode % 360).toDouble();
     return Person(
       id: peer.peerId,
@@ -688,7 +736,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     NowPlayingCard(
                       track: _track,
                       source: source,
-                      isPodcast: MediaSourceExtension.fromWireKey(_source).isPodcast,
+                      isPodcast: MediaSourceExtension.fromWireKey(
+                        _source,
+                      ).isPodcast,
                       playing: _playing,
                       progress: _progress,
                       lastActionBy: _lastAction.by,
@@ -763,7 +813,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                                         key: ValueKey(peers[i].id),
                                         person: peers[i],
                                         first: i == 0,
-                                        talking: talkingIds.contains(peers[i].id) && !_peerMuted.contains(peers[i].id),
+                                        talking:
+                                            talkingIds.contains(peers[i].id) &&
+                                            !_peerMuted.contains(peers[i].id),
                                         muted: _peerMuted.contains(peers[i].id),
                                         volume: _volumeFor(peers[i].id),
                                         onTap: () => _showPeerDrawer(peers[i]),
@@ -781,7 +833,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                         widget.pttMode
                             ? 'Push-to-talk · hold the mic button to transmit'
                             : 'Open mic · everyone hears you when not muted',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          color: c.ink3,
+                        ),
                       ),
                     ),
                   ],
@@ -864,13 +920,19 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                   ),
                 ),
                 if (phase == ConnectionPhase.online) ...[
-                  Text(' · ', style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: pillText,
-                    fontWeight: FontWeight.w500,
-                  )),
-                  Text(widget.freq, style: kMonoStyle.copyWith(fontSize: 11, color: pillText)),
+                  Text(
+                    ' · ',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      color: pillText,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
+                    widget.freq,
+                    style: kMonoStyle.copyWith(fontSize: 11, color: pillText),
+                  ),
                 ],
               ],
             ),
@@ -932,7 +994,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        _output == AudioOutput.bluetooth && _me.btDevice.isNotEmpty
+                        _output == AudioOutput.bluetooth &&
+                                _me.btDevice.isNotEmpty
                             ? _me.btDevice
                             : _output.label,
                         overflow: TextOverflow.ellipsis,
@@ -949,10 +1012,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             ),
           ),
           if (widget.pttMode)
-            PushToTalkButton(
-              holding: _holdingPtt,
-              onChange: _setPttHolding,
-            )
+            PushToTalkButton(holding: _holdingPtt, onChange: _setPttHolding)
           else
             SizedBox(
               width: 102,
@@ -967,7 +1027,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 child: FreqButton(
                   icon: _meMuted ? Icons.mic_off : Icons.mic,
                   label: _meMuted ? 'Unmute' : 'Mute',
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   fontSize: 13,
                   labelColor: _meMuted ? c.danger : null,
                   onPressed: () => _setOpenMicMuted(!_meMuted),
@@ -1018,10 +1081,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
               _removed.add(person.id);
             });
             Navigator.pop(ctx);
-            FrequencyToastHost.of(context).push(FrequencyToastSpec(
-              tone: ToastTone.leave,
-              title: '${person.name} was removed',
-            ));
+            FrequencyToastHost.of(context).push(
+              FrequencyToastSpec(
+                tone: ToastTone.leave,
+                title: '${person.name} was removed',
+              ),
+            );
           },
           onReport: () => _reportPeer(ctx, person),
         );
@@ -1064,23 +1129,22 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     if (!mounted) return;
 
     if (blocked) {
-      FrequencyToastHost.of(context).push(FrequencyToastSpec(
-        tone: ToastTone.warn,
-        title: '$safeName blocked',
-      ));
+      FrequencyToastHost.of(context).push(
+        FrequencyToastSpec(tone: ToastTone.warn, title: '$safeName blocked'),
+      );
       final report = _buildSanitizedReport(person);
       showDialog<void>(
         context: context,
-        builder: (ctx) => _ReportSentDialog(
-          peerName: safeName,
-          reportText: report,
-        ),
+        builder: (ctx) =>
+            _ReportSentDialog(peerName: safeName, reportText: report),
       );
     } else {
-      FrequencyToastHost.of(context).push(FrequencyToastSpec(
-        tone: ToastTone.warn,
-        title: 'Could not block $safeName — try again',
-      ));
+      FrequencyToastHost.of(context).push(
+        FrequencyToastSpec(
+          tone: ToastTone.warn,
+          title: 'Could not block $safeName — try again',
+        ),
+      );
     }
   }
 
@@ -1146,9 +1210,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         // Only show "Open in app" when lib.name is populated (hides button
         // before first host snapshot), source is a known wire key, and that
         // source has a canonical appUri (null for generic Podcasts).
-        onOpenInSource: widget.isHost &&
-                _lib.name.isNotEmpty &&
-                launchable?.appUri != null
+        onOpenInSource:
+            widget.isHost && _lib.name.isNotEmpty && launchable?.appUri != null
             ? () {
                 Navigator.pop(ctx);
                 _openSourceApp(launchable!);
@@ -1202,7 +1265,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       if (success) {
         setState(() => _output = picked);
       } else {
-        if (kDebugMode) debugPrint('Failed to route audio to $outputStr, keeping current output');
+        if (kDebugMode) {
+          debugPrint(
+            'Failed to route audio to $outputStr, keeping current output',
+          );
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1261,7 +1328,11 @@ class _LastAction {
   final String by;
   final String action;
   final String when;
-  const _LastAction({required this.by, required this.action, required this.when});
+  const _LastAction({
+    required this.by,
+    required this.action,
+    required this.when,
+  });
 }
 
 class _ReportSentDialog extends StatefulWidget {
@@ -1347,7 +1418,3 @@ class _ReportSentDialogState extends State<_ReportSentDialog> {
     );
   }
 }
-
-
-
-
