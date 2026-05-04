@@ -43,12 +43,12 @@ class LinkTelemetrySnapshot {
 
   @override
   int get hashCode => Object.hash(
-        underrunCount,
-        lateFrameCount,
-        targetDepthFrames,
-        currentDepthFrames,
-        currentBitrateBps,
-      );
+    underrunCount,
+    lateFrameCount,
+    targetDepthFrames,
+    currentDepthFrames,
+    currentBitrateBps,
+  );
 }
 
 /// Service for communicating with native Android audio layer
@@ -262,15 +262,13 @@ class AudioService {
   ///
   /// Filters audioEvents for 'talkingPeers' events and extracts the peer list.
   Stream<Set<String>> get talkingPeers {
-    return audioEvents
-        .where((e) => e['type'] == 'talkingPeers')
-        .map((e) {
-          final raw = e['peers'];
-          if (raw is List) {
-            return Set<String>.from(raw.map((p) => p.toString()));
-          }
-          return <String>{};
-        });
+    return audioEvents.where((e) => e['type'] == 'talkingPeers').map((e) {
+      final raw = e['peers'];
+      if (raw is List) {
+        return Set<String>.from(raw.map((p) => p.toString()));
+      }
+      return <String>{};
+    });
   }
 
   /// Stream of local voice activity detection events.
@@ -380,8 +378,9 @@ class AudioService {
   /// surfacing a toast (see `_onSignalReport` in `FrequencySessionCubit`).
   Future<List<({String peerId, int rssi})>> getCurrentRssi() async {
     try {
-      final result =
-          await _methodChannel.invokeMethod<List<dynamic>>('getCurrentRssi');
+      final result = await _methodChannel.invokeMethod<List<dynamic>>(
+        'getCurrentRssi',
+      );
       if (result == null) return const [];
       return result
           .map((entry) {
@@ -453,7 +452,9 @@ class AudioService {
         currentBitrateBps: values[4]!,
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('Error getting link telemetry for $macAddress: $e');
+      if (kDebugMode) {
+        debugPrint('Error getting link telemetry for $macAddress: $e');
+      }
       return null;
     }
   }
@@ -532,7 +533,9 @@ class AudioService {
       });
       return result == true;
     } catch (e) {
-      if (kDebugMode) debugPrint('Error writing notification to $deviceAddress: $e');
+      if (kDebugMode) {
+        debugPrint('Error writing notification to $deviceAddress: $e');
+      }
       return false;
     }
   }
@@ -578,7 +581,9 @@ class AudioService {
   /// Safe to call when the transport is not running.
   Future<bool> stopVoiceTransport() async {
     try {
-      final result = await _methodChannel.invokeMethod<bool>('stopVoiceTransport');
+      final result = await _methodChannel.invokeMethod<bool>(
+        'stopVoiceTransport',
+      );
       return result == true;
     } catch (e) {
       if (kDebugMode) debugPrint('Error stopping voice transport: $e');
@@ -603,7 +608,9 @@ class AudioService {
           return Map<String, dynamic>.from(event as Map);
         })
         .handleError((error) {
-          if (kDebugMode) debugPrint('Control bytes event stream error: $error');
+          if (kDebugMode) {
+            debugPrint('Control bytes event stream error: $error');
+          }
           return <String, dynamic>{};
         });
     return _controlBytesStream!
@@ -661,7 +668,9 @@ class AudioService {
   /// Safe to call when not connected (the native side resolves it as a no-op).
   Future<bool> disconnectFromHost() async {
     try {
-      final result = await _methodChannel.invokeMethod<bool>('disconnectFromHost');
+      final result = await _methodChannel.invokeMethod<bool>(
+        'disconnectFromHost',
+      );
       return result == true;
     } catch (e) {
       if (kDebugMode) debugPrint('Error disconnecting from host: $e');

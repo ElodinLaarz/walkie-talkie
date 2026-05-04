@@ -224,18 +224,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     BitrateAdapter? bitrateAdapter,
     String Function()? mintSessionUuid,
     Duration joinAcceptedTimeout = defaultJoinAcceptedTimeout,
-  })  : _transport = transport,
-        _audio = audio,
-        _permissionWatcher = permissionWatcher,
-        _reconnectDelays = reconnectDelays,
-        _heartbeats = heartbeats ?? HeartbeatScheduler(),
-        _signalReporter = signalReporter ?? SignalReporter(),
-        _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
-        _linkQualityReporter = linkQualityReporter ?? LinkQualityReporter(),
-        _bitrateAdapter = bitrateAdapter ?? BitrateAdapter(),
-        _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
-        _joinAcceptedTimeout = joinAcceptedTimeout,
-        super(const SessionBooting());
+  }) : _transport = transport,
+       _audio = audio,
+       _permissionWatcher = permissionWatcher,
+       _reconnectDelays = reconnectDelays,
+       _heartbeats = heartbeats ?? HeartbeatScheduler(),
+       _signalReporter = signalReporter ?? SignalReporter(),
+       _weakSignalDetector = weakSignalDetector ?? WeakSignalDetector(),
+       _linkQualityReporter = linkQualityReporter ?? LinkQualityReporter(),
+       _bitrateAdapter = bitrateAdapter ?? BitrateAdapter(),
+       _mintSessionUuid = mintSessionUuid ?? generateUuidV4,
+       _joinAcceptedTimeout = joinAcceptedTimeout,
+       super(const SessionBooting());
 
   /// Reads the persisted display name; routes the user to Discovery if one
   /// exists, otherwise into Onboarding. Always exits Booting — even if the
@@ -254,8 +254,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // crashing on the next AudioRecord / GATT call. The watcher emits an
     // initial snapshot on subscription, so a fresh launch with already-
     // revoked perms is handled too.
-    _permissionSubscription =
-        _permissionWatcher?.watch().listen(_onPermissionsChanged);
+    _permissionSubscription = _permissionWatcher?.watch().listen(
+      _onPermissionsChanged,
+    );
 
     // Cache peerId to avoid async resolution in hot path (voice activity)
     try {
@@ -269,7 +270,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       persisted = await identityStore.getDisplayName();
     } catch (error, stackTrace) {
-      if (kDebugMode) debugPrint('Failed to load persisted display name: $error');
+      if (kDebugMode) {
+        debugPrint('Failed to load persisted display name: $error');
+      }
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
     }
     if (isClosed) return;
@@ -278,10 +281,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     } else {
       final recent = await _loadRecentFrequencies();
       if (isClosed) return;
-      emit(SessionDiscovery(
-        myName: persisted,
-        recentHostedFrequencies: recent,
-      ));
+      emit(
+        SessionDiscovery(myName: persisted, recentHostedFrequencies: recent),
+      );
     }
     // Defensive replay of the latest permission state. The watcher's
     // initial sample is emitted before bootstrap finishes (cubit is still
@@ -330,8 +332,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         if (m.peerId == current.hostPeerId && !current.roomIsHost) {
           unawaited(leaveRoom());
         } else {
-          final updated =
-              current.roster.where((p) => p.peerId != m.peerId).toList();
+          final updated = current.roster
+              .where((p) => p.peerId != m.peerId)
+              .toList();
           emit(current.copyWith(roster: updated));
           _transport?.forgetPeer(m.peerId);
           _heartbeats.forgetPeer(m.peerId);
@@ -343,8 +346,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // and clean up transport state, regardless of local role.
         final current = state;
         if (isClosed || current is! SessionRoom) return;
-        final updated =
-            current.roster.where((p) => p.peerId != m.target).toList();
+        final updated = current.roster
+            .where((p) => p.peerId != m.target)
+            .toList();
         emit(current.copyWith(roster: updated));
         _transport?.forgetPeer(m.target);
         _heartbeats.forgetPeer(m.target);
@@ -374,10 +378,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         if (m.newHostPeerId == _localPeerId) {
           unawaited(_promoteToHost(m.sessionUuid));
         } else {
-          emit(current.copyWith(
-            hostPeerId: m.newHostPeerId,
-            connectionPhase: ConnectionPhase.reconnecting,
-          ));
+          emit(
+            current.copyWith(
+              hostPeerId: m.newHostPeerId,
+              connectionPhase: ConnectionPhase.reconnecting,
+            ),
+          );
         }
       // These message types are handled by future issues
       // (voice-activity detection, join request flow). Silently drop.
@@ -420,9 +426,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       if (neighborId == current.hostPeerId) continue;
       final displayName = namesByPeerId[neighborId];
       if (displayName == null) continue;
-      _weakSignalEventsController.add(
-        (peerId: neighborId, displayName: displayName),
-      );
+      _weakSignalEventsController.add((
+        peerId: neighborId,
+        displayName: displayName,
+      ));
     }
   }
 
@@ -473,7 +480,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         peerId = await identityStore.getPeerId();
       } catch (error, stackTrace) {
-        if (kDebugMode) debugPrint('Failed to resolve peer id for signal report: $error');
+        if (kDebugMode) {
+          debugPrint('Failed to resolve peer id for signal report: $error');
+        }
         if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         _seq++;
         return;
@@ -580,7 +589,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           peerId = await identityStore.getPeerId();
           _localPeerId = peerId;
         } catch (error, stackTrace) {
-          if (kDebugMode) debugPrint('Failed to resolve peer id for link quality: $error');
+          if (kDebugMode) {
+            debugPrint('Failed to resolve peer id for link quality: $error');
+          }
           if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
           return;
         }
@@ -702,7 +713,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         hostPeerId = await identityStore.getPeerId();
         _localPeerId = hostPeerId;
       } catch (error, stackTrace) {
-        if (kDebugMode) debugPrint('Failed to resolve peer id for bitrate hint: $error');
+        if (kDebugMode) {
+          debugPrint('Failed to resolve peer id for bitrate hint: $error');
+        }
         if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         return;
       }
@@ -756,7 +769,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         peerId = await identityStore.getPeerId();
       } catch (error, stackTrace) {
-        if (kDebugMode) debugPrint('Failed to resolve peer id for heartbeat: $error');
+        if (kDebugMode) {
+          debugPrint('Failed to resolve peer id for heartbeat: $error');
+        }
         if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
         _seq++;
         return;
@@ -807,8 +822,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // production (we never receive our own messages back through the
       // wire), but the guard is cheap and removes the failure mode.
       if (peerId == current.hostPeerId) return;
-      final updated =
-          current.roster.where((p) => p.peerId != peerId).toList();
+      final updated = current.roster.where((p) => p.peerId != peerId).toList();
       if (updated.length == current.roster.length) return;
       emit(current.copyWith(roster: updated));
       _transport?.forgetPeer(peerId);
@@ -846,7 +860,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       peerId = await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      if (kDebugMode) debugPrint('Failed to resolve peer id for roster update: $error');
+      if (kDebugMode) {
+        debugPrint('Failed to resolve peer id for roster update: $error');
+      }
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return;
     }
@@ -875,7 +891,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       peerId = _localPeerId ?? await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      if (kDebugMode) debugPrint('Failed to resolve peerId for host transfer: $error');
+      if (kDebugMode) {
+        debugPrint('Failed to resolve peerId for host transfer: $error');
+      }
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return;
     }
@@ -929,25 +947,31 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         .where((p) => p.peerId != current.hostPeerId)
         .toList();
     if (!roster.any((p) => p.peerId == localPeerId)) {
-      roster.add(ProtocolPeer(peerId: localPeerId, displayName: current.myName));
+      roster.add(
+        ProtocolPeer(peerId: localPeerId, displayName: current.myName),
+      );
     }
     _sessionUuid = sessionUuid;
     _localPeerId = localPeerId;
-    emit(current.copyWith(
-      roomIsHost: true,
-      hostPeerId: localPeerId,
-      roster: roster,
-      macAddress: null,
-      sessionUuidLow8: null,
-      connectionPhase: ConnectionPhase.online,
-    ));
+    emit(
+      current.copyWith(
+        roomIsHost: true,
+        hostPeerId: localPeerId,
+        roster: roster,
+        macAddress: null,
+        sessionUuidLow8: null,
+        connectionPhase: ConnectionPhase.online,
+      ),
+    );
     // Start host BLE surfaces so remaining guests can reconnect.
     final audio = _audio;
     if (audio != null) {
-      unawaited(audio.startAdvertising(
-        sessionUuid: sessionUuid,
-        displayName: current.myName,
-      ));
+      unawaited(
+        audio.startAdvertising(
+          sessionUuid: sessionUuid,
+          displayName: current.myName,
+        ),
+      );
       unawaited(audio.startGattServer());
     }
   }
@@ -994,11 +1018,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // `catchError` swallows transport-level failures (e.g. a write that
     // throws on a closing GATT link) so an unawaited reject doesn't
     // bubble to the unhandled-async-error handler.
-    unawaited(t.send(msg).catchError((Object error, StackTrace stackTrace) {
-      if (kDebugMode) debugPrint('TalkingState send failed: $error');
-      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
-      return false;
-    }));
+    unawaited(
+      t.send(msg).catchError((Object error, StackTrace stackTrace) {
+        if (kDebugMode) debugPrint('TalkingState send failed: $error');
+        if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+        return false;
+      }),
+    );
   }
 
   /// Persists [name] and advances to Discovery. The state changes even if
@@ -1013,10 +1039,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
-    emit(SessionDiscovery(
-      myName: name,
-      recentHostedFrequencies: recent,
-    ));
+    emit(SessionDiscovery(myName: name, recentHostedFrequencies: recent));
   }
 
   /// Persists the new [name] without changing the current stage. Same
@@ -1038,10 +1061,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // Preserve the loaded recent-frequencies list across renames —
         // re-reading would be a wasted disk hit and would briefly flicker
         // the Recent section if persistence is slow.
-        emit(SessionDiscovery(
-          myName: name,
-          recentHostedFrequencies: discovery.recentHostedFrequencies,
-        ));
+        emit(
+          SessionDiscovery(
+            myName: name,
+            recentHostedFrequencies: discovery.recentHostedFrequencies,
+          ),
+        );
       case final SessionRoom room:
         emit(room.copyWith(myName: name));
       case SessionBooting():
@@ -1126,7 +1151,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           hostPeerId = await identityStore.getPeerId();
           _localPeerId = hostPeerId;
         } catch (error, stackTrace) {
-          if (kDebugMode) debugPrint('Failed to load peerId for host bootstrap: $error');
+          if (kDebugMode) {
+            debugPrint('Failed to load peerId for host bootstrap: $error');
+          }
           if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
           return;
         }
@@ -1172,15 +1199,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // happens in [leaveRoom] and [close].
       final audio = _audio;
       if (audio != null) {
-        unawaited(audio.startAdvertising(
-          sessionUuid: sessionUuid,
-          displayName: myName,
-        ));
+        unawaited(
+          audio.startAdvertising(sessionUuid: sessionUuid, displayName: myName),
+        );
         unawaited(audio.startGattServer());
       }
     } else {
       if (freq == null) {
-        if (kDebugMode) debugPrint('joinRoom guest path requires a freq; refusing to enter the room.');
+        if (kDebugMode) {
+          debugPrint(
+            'joinRoom guest path requires a freq; refusing to enter the room.',
+          );
+        }
         return;
       }
       room = SessionRoom(
@@ -1212,17 +1242,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // skipped when audio or transport is absent, same rationale as the
     // heartbeat skip above.
     if (!isHost && _transport != null && _audio != null) {
-      _signalReporter.start(
-        onTick: () => unawaited(_sendSignalReport()),
-      );
+      _signalReporter.start(onTick: () => unawaited(_sendSignalReport()));
       // Begin the link-quality plane on the guest side. Same gating as
       // the signal reporter — needs a transport to write to and an
       // audio service to poll telemetry from. The host doesn't run the
       // reporter (it consumes incoming `LinkQuality` reports instead;
       // see [_onLinkQuality]).
-      _linkQualityReporter.start(
-        onTick: () => unawaited(_sendLinkQuality()),
-      );
+      _linkQualityReporter.start(onTick: () => unawaited(_sendLinkQuality()));
     }
   }
 
@@ -1296,10 +1322,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _sessionUuid = null;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
-    emit(SessionDiscovery(
-      myName: current.myName,
-      recentHostedFrequencies: recent,
-    ));
+    emit(
+      SessionDiscovery(myName: current.myName, recentHostedFrequencies: recent),
+    );
   }
 
   /// Reacts to a [PermissionWatcher] emission. Three cases:
@@ -1345,10 +1370,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Already showing the denied screen — just refresh the missing list
     // (e.g. mic was re-granted but bluetooth still off).
     if (current is SessionPermissionDenied) {
-      emit(SessionPermissionDenied(
-        missing: missing,
-        myName: current.myName,
-      ));
+      emit(SessionPermissionDenied(missing: missing, myName: current.myName));
       return;
     }
     // Discovery or Room — tear down audio/BLE and surface the denied screen.
@@ -1426,10 +1448,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
     if (!identical(state, current)) return;
-    emit(SessionDiscovery(
-      myName: myName,
-      recentHostedFrequencies: recent,
-    ));
+    emit(SessionDiscovery(myName: myName, recentHostedFrequencies: recent));
   }
 
   /// Asks the [PermissionWatcher] to re-sample now. Wired to the "Retry"
@@ -1489,10 +1508,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final latest = state;
     if (latest is! SessionDiscovery) return;
-    emit(SessionDiscovery(
-      myName: latest.myName,
-      recentHostedFrequencies: refreshed,
-    ));
+    emit(
+      SessionDiscovery(
+        myName: latest.myName,
+        recentHostedFrequencies: refreshed,
+      ),
+    );
   }
 
   /// Removes [freq] from the persisted recents, then re-emits
@@ -1511,10 +1532,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final latest = state;
     if (latest is! SessionDiscovery) return;
-    emit(SessionDiscovery(
-      myName: latest.myName,
-      recentHostedFrequencies: refreshed,
-    ));
+    emit(
+      SessionDiscovery(
+        myName: latest.myName,
+        recentHostedFrequencies: refreshed,
+      ),
+    );
   }
 
   /// Pins or unpins [freq] in the persisted recents, then re-emits
@@ -1534,10 +1557,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final latest = state;
     if (latest is! SessionDiscovery) return;
-    emit(SessionDiscovery(
-      myName: latest.myName,
-      recentHostedFrequencies: refreshed,
-    ));
+    emit(
+      SessionDiscovery(
+        myName: latest.myName,
+        recentHostedFrequencies: refreshed,
+      ),
+    );
   }
 
   /// Apply a `JoinAccepted` from the host. Replaces the room's snapshot
@@ -1560,12 +1585,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _reconnectController = null;
     _joinAcceptedWatchdog?.cancel();
     _joinAcceptedWatchdog = null;
-    emit(current.copyWith(
-      hostPeerId: msg.hostPeerId,
-      roster: msg.roster,
-      mediaState: msg.mediaState,
-      connectionPhase: ConnectionPhase.online,
-    ));
+    emit(
+      current.copyWith(
+        hostPeerId: msg.hostPeerId,
+        roster: msg.roster,
+        mediaState: msg.mediaState,
+        connectionPhase: ConnectionPhase.online,
+      ),
+    );
   }
 
   /// Called by heartbeat detection when the guest hasn't heard from the host
@@ -1663,7 +1690,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // Callers from the room screen fire-and-forget, so an exception
       // here would surface as an unhandled async error. Log and bail —
       // the user re-tapping is a fine recovery path.
-      if (kDebugMode) debugPrint('Failed to resolve peer id for media command: $error');
+      if (kDebugMode) {
+        debugPrint('Failed to resolve peer id for media command: $error');
+      }
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       return;
     }
@@ -1733,7 +1762,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     try {
       peerId = await identityStore.getPeerId();
     } catch (error, stackTrace) {
-      if (kDebugMode) debugPrint('Failed to resolve peer id for mute broadcast: $error');
+      if (kDebugMode) {
+        debugPrint('Failed to resolve peer id for mute broadcast: $error');
+      }
       if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
       _seq++;
       return;

@@ -56,10 +56,10 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       and `deviceDiscovered` events drive the headset-routing manager.
       [audio_service.dart](lib/services/audio_service.dart) is the Dart
       side of that surface.
-    * Phase 2 (planned, see roadmap): the BLE control-plane bridge —
+    * Phase 2 ✅ done: the BLE control-plane bridge —
       Frequency-shaped methods like `startAdvertising`, `connectToHost`,
       and `setMuted`, plus events like `onPeerDiscovered` and
-      `onJoinAccepted`. Tracked under
+      `onJoinAccepted`. Implemented in
       [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
 4.  **Service Layer (Android Native — Kotlin):**
     * **Foreground Service**
@@ -68,9 +68,9 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
     * **BT headset routing** today
       ([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
       — pairs the user's headset and routes phone audio to it.
-    * **BLE Connection Manager** (Phase 2) — LE advertise (host), scan
-      (guest), GATT server / client, L2CAP CoC server / client. Not yet
-      implemented; tracked in the Phase 2 issues below.
+    * **BLE Connection Manager** (Phase 2 ✅ done) — LE advertise (host),
+      scan (guest), GATT server / client, L2CAP CoC server / client.
+      Implemented across [#37–#45](https://github.com/ElodinLaarz/walkie-talkie/issues/37).
     * **Audio Engine** (Phase 3) — mic capture (Oboe), Opus encode/decode,
       mix-minus. Not yet implemented.
 5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
@@ -199,12 +199,11 @@ graph TD
 
 ### Android Native (Kotlin / C++)
 
-The libraries / APIs below are the planned native surface for Phases 2-3
-(see roadmap). Today's native code under `android/app/src/main/kotlin/`
-is the headset-routing manager
-([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
-plus the foreground service shell — none of the BLE control / L2CAP / Opus
-pieces are wired up yet.
+The libraries / APIs below are the native surface for Phases 2-3
+(see roadmap). Phase 2 (BLE control plane) is complete; Phase 3
+(voice pipeline) building blocks have landed but the session-level
+wiring is still owed (tracked in
+[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246)).
 
 1.  **AndroidX Bluetooth APIs** *(Phase 2)* — `BluetoothLeAdvertiser`,
     `BluetoothLeScanner`, `BluetoothGattServer` / `BluetoothGatt`, and
@@ -236,7 +235,7 @@ UI screens, onboarding + permissions, BLoC state, Hive persistence
 (`peerId` + display name), wire-protocol Dart stubs (framing,
 sequence filter, message envelope, voice-frame), foreground service shell.
 
-### Phase 2 — Native BLE control plane (in flight)
+### Phase 2 — Native BLE control plane ✅ done
 
 End-to-end host advertise → guest connect → JoinAccepted snapshot, all on
 real radios.
@@ -251,17 +250,20 @@ real radios.
 * [#39](https://github.com/ElodinLaarz/walkie-talkie/issues/39) Host-side session bootstrap (mint `sessionUuid`, self-seed `JoinAccepted`).
 * [#40](https://github.com/ElodinLaarz/walkie-talkie/issues/40) Replace mock roster + media in the room screen with cubit state.
 
-### Phase 3 — Voice plane
+### Phase 3 — Voice plane (bricks landed, session wiring pending)
 
-Real audio between two phones.
+Individual building blocks are all closed; the session-level wiring that
+makes audio flow end-to-end is tracked in
+[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
 
-* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) Native L2CAP CoC server (host) + client (guest).
-* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) Native libopus encoder + decoder.
-* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) Real mix-minus across multiple peers.
-* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) Per-peer voice-frame seq tracking with stuck-producer prune.
-* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) Voice-activity detection + outbound `TalkingState` messages.
+* [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) ✅ Native L2CAP CoC server (host) + client (guest).
+* [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) ✅ Native libopus encoder + decoder.
+* [#48](https://github.com/ElodinLaarz/walkie-talkie/issues/48) ✅ Real mix-minus across multiple peers.
+* [#49](https://github.com/ElodinLaarz/walkie-talkie/issues/49) ✅ Per-peer voice-frame seq tracking with stuck-producer prune.
+* [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) ✅ Voice-activity detection + outbound `TalkingState` messages.
+* [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246) ⏳ Session-level wiring: mic→encode→send + receive→decode→playback.
 
-### Phase 4 — Reliability
+### Phase 4 — Reliability ✅ done
 
 * [#51](https://github.com/ElodinLaarz/walkie-talkie/issues/51) Heartbeats + dirty-disconnect detection.
 * [#53](https://github.com/ElodinLaarz/walkie-talkie/issues/53) `SignalReport` on a 10s timer (replaces the demo weak-signal toast).
@@ -269,7 +271,7 @@ Real audio between two phones.
 * [#56](https://github.com/ElodinLaarz/walkie-talkie/issues/56) Graceful auto-reconnect for transient drops (≤30s).
 * [#57](https://github.com/ElodinLaarz/walkie-talkie/issues/57) Permissions revocation handling (mic / BT revoked while in-room).
 
-### Phase 5 — Release polish
+### Phase 5 — Release polish ✅ done
 
 * [#34](https://github.com/ElodinLaarz/walkie-talkie/issues/34) Release signing config (replace debug-key fallback).
 * [#35](https://github.com/ElodinLaarz/walkie-talkie/issues/35) CI: build & run native `mixer_test` (and delete the checked-in binary).
