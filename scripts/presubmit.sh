@@ -28,12 +28,17 @@ for required in \
     test/cpp/ring_buffer_test.cpp \
     test/cpp/opus_codec_test.cpp \
     test/cpp/vad_detector_test.cpp \
+    test/cpp/peer_audio_manager_test.cpp \
     android/app/src/main/cpp/audio_mixer.cpp \
     android/app/src/main/cpp/talking_event_queue.h \
     android/app/src/main/cpp/ring_buffer.h \
     android/app/src/main/cpp/opus_codec.h \
     android/app/src/main/cpp/opus_codec.cpp \
-    android/app/src/main/cpp/vad_detector.h; do
+    android/app/src/main/cpp/vad_detector.h \
+    android/app/src/main/cpp/peer_audio_manager.cpp \
+    android/app/src/main/cpp/peer_audio_manager.h \
+    android/app/src/main/cpp/jitter_buffer.cpp \
+    android/app/src/main/cpp/jitter_buffer.h; do
   if [ ! -f "$required" ]; then
     echo "$required missing — failing fast"
     exit 1
@@ -115,3 +120,20 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     $(pkg-config --libs opus) \
     -o build/cpp_test/opus_codec_test
 build/cpp_test/opus_codec_test
+
+# peer_audio_manager_test exercises PeerAudioManager::onVoiceFramePushed —
+# the C++ half of the Kotlin/JNI seq-range-check path from issue #247.
+# Links audio_mixer, jitter_buffer, and opus_codec (for the per-peer encoder /
+# decoder that registerPeer() instantiates). Also requires libopus.
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    $(pkg-config --cflags opus) \
+    test/cpp/peer_audio_manager_test.cpp \
+    android/app/src/main/cpp/peer_audio_manager.cpp \
+    android/app/src/main/cpp/audio_mixer.cpp \
+    android/app/src/main/cpp/jitter_buffer.cpp \
+    android/app/src/main/cpp/opus_codec.cpp \
+    $(pkg-config --libs opus) \
+    -o build/cpp_test/peer_audio_manager_test
+build/cpp_test/peer_audio_manager_test
