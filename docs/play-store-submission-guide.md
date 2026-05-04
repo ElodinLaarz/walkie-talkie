@@ -30,6 +30,7 @@ items marked ⏳ require action inside the Play Console.
 | Target audience (13+) | ⏳ Play Console | See below |
 | Signed AAB upload to internal track | ⏳ First time | See below |
 | Closed testing track (12 testers × 14 days) | ⏳ Play Console | See below |
+| Production promotion (staged rollout) | ✅ Automated | `.github/workflows/play-store-promote.yml` |
 | Pre-launch report | ⏳ Auto after AAB upload | See below |
 | Promo video | Optional | — |
 
@@ -186,7 +187,27 @@ Review the report for:
 
 ## Step 9 — Promote to production
 
-After the 14-day closed testing window closes:
+After the 14-day closed testing window closes, use the automated workflow
+(recommended) or promote manually via Play Console.
+
+**Option A — GitHub Actions (recommended):**
+
+1. **GitHub → Actions → "Play Store — Promote to Production" → Run workflow**
+2. Enter the rollout fraction (default `0.1` = 10%; use `1.0` for full rollout)
+3. Click **Run workflow**
+
+The workflow calls `fastlane android promote_production` which promotes the
+current internal-track build — no AAB re-upload needed.
+
+**Option B — fastlane locally:**
+
+```bash
+export PLAY_STORE_JSON_KEY_PATH=/path/to/key.json
+bundle exec fastlane android promote_production              # 10% staged rollout
+bundle exec fastlane android promote_production rollout:1.0  # full rollout
+```
+
+**Option C — Play Console manually:**
 
 1. **Play Console → Testing → Internal testing → Promote release**
 2. Set rollout percentage (start at 10–20% for staged rollout)

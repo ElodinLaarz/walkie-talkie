@@ -92,4 +92,42 @@ platform :android do
     upload_metadata
     upload_images
   end
+
+  # Promote the current internal-track build to production with a staged rollout.
+  # Run after the 14-day closed-testing window required by Google Play for new
+  # personal-developer accounts (see docs/play-store-submission-guide.md § Step 9).
+  #
+  # This lane does NOT re-upload an AAB — it promotes whichever build is live
+  # on the internal track, so the binary is identical to what testers validated.
+  # Changelogs are uploaded so the production release notes are current.
+  #
+  # Run locally:
+  #   bundle exec fastlane android promote_production                   # 10% rollout
+  #   bundle exec fastlane android promote_production rollout:0.5       # 50% rollout
+  #   bundle exec fastlane android promote_production rollout:1.0       # full rollout
+  #
+  # Or via GitHub Actions:
+  #   Actions → "Play Store — Promote to Production" → Run workflow
+  #
+  # Secrets needed:
+  #   PLAY_STORE_JSON_KEY_PATH — service-account JSON key file path
+  desc "Promote internal-track build to production with staged rollout (no AAB re-upload)"
+  lane :promote_production do |options|
+    rollout_str = (options[:rollout] || ENV.fetch("ROLLOUT", "0.1")).to_s
+    unless rollout_str.match?(/\A(?:0(?:\.\d+)?|1(?:\.0+)?)\z/)
+      UI.user_error!("rollout must be a decimal between 0 and 1 (e.g. 0.1 for 10%); got: #{rollout_str}")
+    end
+    supply(
+      track:                   "internal",
+      track_promote_to:        "production",
+      rollout:                 rollout_str.to_f,
+      skip_upload_apk:         true,
+      skip_upload_aab:         true,
+      skip_upload_metadata:    true,
+      skip_upload_changelogs:  false,
+      skip_upload_images:      true,
+      skip_upload_screenshots: true,
+      metadata_path:           "fastlane/metadata/android",
+    )
+  end
 end

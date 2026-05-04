@@ -1,0 +1,70 @@
+name: Play Store — Promote to Production
+
+# Manually promote the current internal-track build to production with a
+# staged rollout. Run this after the 14-day closed-testing period required
+# by Google Play for new personal-developer accounts.
+#
+# This workflow does NOT build or re-upload an AAB — it promotes whichever
+# build is already live on the internal track, so the binary is identical to
+# what testers validated.
+#
+# Prerequisites:
+#   - PLAY_STORE_JSON_KEY_BASE64 secret set in repository settings.
+#   - At least one build on the internal testing track in Play Console.
+#   - 14-day closed-testing window completed (for new developer accounts).
+#
+# See docs/play-store-submission-guide.md § Step 9 for the full checklist.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollout_fraction:
+        description: "Staged rollout fraction (0.1 = 10%, 1.0 = full rollout)"
+        required: false
+        default: "0.1"
+
+jobs:
+  promote:
+    name: Promote internal → production
+    runs-on: ubuntu-latest
+    # Minimum permissions — the Play Store credential is a service-account
+    # key in a secret, not the GITHUB_TOKEN.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: ruby/setup-ruby@f02c009132dc7b50a5e286d2ec2394ab5d78172a # v1.306.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Validate rollout fraction
+        run: |
+          ROLLOUT="${{ github.event.inputs.rollout_fraction }}"
+          if ! echo "$ROLLOUT" | grep -qE '^(0(\.[0-9]+)?|1(\.0+)?)$'; then
+            echo "::error::rollout_fraction must be a decimal between 0 and 1 (got: $ROLLOUT)"
+            exit 1
+          fi
+          echo "::notice::Promoting to production at ${ROLLOUT} ($(echo "$ROLLOUT * 100" | bc | cut -d. -f1)% rollout)"
+
+      - name: Decode Play Store service-account key
+        env:
+          PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
+        run: |
+          if [ -z "$PLAY_STORE_JSON_KEY_BASE64" ]; then
+            echo "::error::PLAY_STORE_JSON_KEY_BASE64 secret not set — cannot promote"
+            exit 1
+          fi
+          echo "$PLAY_STORE_JSON_KEY_BASE64" | base64 -d > "${{ runner.temp }}/play-store-key.json"
+          echo "PLAY_STORE_JSON_KEY_PATH=${{ runner.temp }}/play-store-key.json" >> "$GITHUB_ENV"
+
+      - name: Promote to production via fastlane supply
+        env:
+          ROLLOUT: ${{ github.event.inputs.rollout_fraction }}
+        run: bundle exec fastlane android promote_production rollout:"$ROLLOUT"
+
+      - name: Clean up key
+        if: always()
+        run: rm -f "${{ runner.temp }}/play-store-key.json"
