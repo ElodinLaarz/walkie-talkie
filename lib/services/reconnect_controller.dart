@@ -25,8 +25,8 @@ class ReconnectController {
   bool _cancelled = false;
 
   ReconnectController({required AudioService audio, List<Duration>? delays})
-      : _audio = audio,
-        _delays = delays ?? ReconnectController.delays;
+    : _audio = audio,
+      _delays = delays ?? ReconnectController.delays;
 
   /// Attempt to reconnect to [macAddress], retrying up to [delays.length]
   /// times with exponential backoff. Returns `true` if the BLE connection is

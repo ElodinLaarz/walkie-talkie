@@ -9,19 +9,11 @@ import 'package:walkie_talkie/services/ble_control_transport.dart';
 
 // Helper: build a minimal JoinRequest for encoding/decoding tests.
 JoinRequest _joinRequest({String peerId = 'peer-a', int seq = 1}) =>
-    JoinRequest(
-      peerId: peerId,
-      seq: seq,
-      atMs: 1000,
-      displayName: 'Alice',
-    );
+    JoinRequest(peerId: peerId, seq: seq, atMs: 1000, displayName: 'Alice');
 
 // Helper: build a minimal Heartbeat.
-Heartbeat _heartbeat({String peerId = 'peer-a', int seq = 1}) => Heartbeat(
-      peerId: peerId,
-      seq: seq,
-      atMs: 1000,
-    );
+Heartbeat _heartbeat({String peerId = 'peer-a', int seq = 1}) =>
+    Heartbeat(peerId: peerId, seq: seq, atMs: 1000);
 
 // Helper: encode a message into fragments and inject them into the stream.
 void _injectMessage(
@@ -37,7 +29,7 @@ void _injectMessage(
 void main() {
   group('BleControlTransport', () {
     late StreamController<({String endpointId, Uint8List bytes})>
-        controlBytesController;
+    controlBytesController;
     late List<Uint8List> writtenBytes;
     late BleControlTransport transport;
 
@@ -56,111 +48,117 @@ void main() {
     });
 
     group('send', () {
-      test('encodes a single-fragment message and calls writeBytes once',
-          () async {
-        final msg = _heartbeat();
-        await transport.send(msg);
+      test(
+        'encodes a single-fragment message and calls writeBytes once',
+        () async {
+          final msg = _heartbeat();
+          await transport.send(msg);
 
-        expect(writtenBytes, hasLength(1));
-        // The fragment must decode back to the same message.
-        final reassembler = FragmentReassembler();
-        final json = reassembler.feed(writtenBytes.first);
-        expect(json, isNotNull);
-        final decoded = FrequencyMessage.decode(json!);
-        expect(decoded, isA<Heartbeat>());
-        expect(decoded.peerId, msg.peerId);
-        expect(decoded.seq, msg.seq);
-      });
+          expect(writtenBytes, hasLength(1));
+          // The fragment must decode back to the same message.
+          final reassembler = FragmentReassembler();
+          final json = reassembler.feed(writtenBytes.first);
+          expect(json, isNotNull);
+          final decoded = FrequencyMessage.decode(json!);
+          expect(decoded, isA<Heartbeat>());
+          expect(decoded.peerId, msg.peerId);
+          expect(decoded.seq, msg.seq);
+        },
+      );
 
-      test('serialises concurrent senders so fragments do not interleave',
-          () async {
-        // Two callers each push a multi-fragment message at the same
-        // time. Without the internal chain in BleControlTransport.send,
-        // their fragments could interleave inside the per-fragment
-        // `await _writeBytes(f)` loop and break reassembly at the
-        // receiver. The chain must keep all of msg-A's fragments
-        // contiguous before any of msg-B's land.
-        final roster = List.generate(
-          15,
-          (i) => ProtocolPeer(
-            peerId: 'peer-$i-very-long-uuid-string-here-abcdef',
-            displayName: 'User $i with a somewhat long display name',
-          ),
-        );
-        FrequencyMessage big(int seq) => JoinAccepted(
-              peerId: 'host-peer',
-              seq: seq,
-              atMs: 1000,
-              hostPeerId: 'host-peer',
-              roster: roster,
-            );
+      test(
+        'serialises concurrent senders so fragments do not interleave',
+        () async {
+          // Two callers each push a multi-fragment message at the same
+          // time. Without the internal chain in BleControlTransport.send,
+          // their fragments could interleave inside the per-fragment
+          // `await _writeBytes(f)` loop and break reassembly at the
+          // receiver. The chain must keep all of msg-A's fragments
+          // contiguous before any of msg-B's land.
+          final roster = List.generate(
+            15,
+            (i) => ProtocolPeer(
+              peerId: 'peer-$i-very-long-uuid-string-here-abcdef',
+              displayName: 'User $i with a somewhat long display name',
+            ),
+          );
+          FrequencyMessage big(int seq) => JoinAccepted(
+            peerId: 'host-peer',
+            seq: seq,
+            atMs: 1000,
+            hostPeerId: 'host-peer',
+            roster: roster,
+          );
 
-        // Use a writeBytes with a microtask yield to maximise the
-        // opportunity for interleaving — a buffer-only callback
-        // wouldn't yield and the bug would never surface.
-        final localWritten = <Uint8List>[];
-        final localTransport = BleControlTransport.forTest(
-          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
-              .empty(),
-          writeBytes: (bytes) async {
-            await Future<void>.delayed(Duration.zero);
-            localWritten.add(bytes);
-          },
-        );
-        addTearDown(localTransport.dispose);
+          // Use a writeBytes with a microtask yield to maximise the
+          // opportunity for interleaving — a buffer-only callback
+          // wouldn't yield and the bug would never surface.
+          final localWritten = <Uint8List>[];
+          final localTransport = BleControlTransport.forTest(
+            controlBytes:
+                const Stream<({String endpointId, Uint8List bytes})>.empty(),
+            writeBytes: (bytes) async {
+              await Future<void>.delayed(Duration.zero);
+              localWritten.add(bytes);
+            },
+          );
+          addTearDown(localTransport.dispose);
 
-        // Fire both sends without awaiting either — the transport must
-        // chain them under the hood.
-        final f1 = localTransport.send(big(1));
-        final f2 = localTransport.send(big(2));
-        await Future.wait([f1, f2]);
+          // Fire both sends without awaiting either — the transport must
+          // chain them under the hood.
+          final f1 = localTransport.send(big(1));
+          final f2 = localTransport.send(big(2));
+          await Future.wait([f1, f2]);
 
-        // Reassemble: a single FragmentReassembler fed all fragments in
-        // wire order should yield exactly two messages back-to-back, in
-        // the order send was called. If fragments interleaved, the
-        // reassembler would either return null (header mismatch) or
-        // splice the two — either way we wouldn't get two clean
-        // round-trips with seq 1 then seq 2.
-        final reassembler = FragmentReassembler();
-        final decoded = <FrequencyMessage>[];
-        for (final bytes in localWritten) {
-          final json = reassembler.feed(bytes);
-          if (json != null) decoded.add(FrequencyMessage.decode(json));
-        }
-        expect(decoded, hasLength(2));
-        expect(decoded[0].seq, 1);
-        expect(decoded[1].seq, 2);
-      });
+          // Reassemble: a single FragmentReassembler fed all fragments in
+          // wire order should yield exactly two messages back-to-back, in
+          // the order send was called. If fragments interleaved, the
+          // reassembler would either return null (header mismatch) or
+          // splice the two — either way we wouldn't get two clean
+          // round-trips with seq 1 then seq 2.
+          final reassembler = FragmentReassembler();
+          final decoded = <FrequencyMessage>[];
+          for (final bytes in localWritten) {
+            final json = reassembler.feed(bytes);
+            if (json != null) decoded.add(FrequencyMessage.decode(json));
+          }
+          expect(decoded, hasLength(2));
+          expect(decoded[0].seq, 1);
+          expect(decoded[1].seq, 2);
+        },
+      );
 
-      test('a failing send does not poison the chain for later callers',
-          () async {
-        // The first writeBytes throws; the second send must still
-        // reach the wire. If the chain didn't isolate per-call errors
-        // the second call's future would never resolve (it'd be
-        // chained onto a rejected future and the `then` would inherit
-        // the error).
-        var writeCount = 0;
-        final captured = <Uint8List>[];
-        final localTransport = BleControlTransport.forTest(
-          controlBytes: const Stream<({String endpointId, Uint8List bytes})>
-              .empty(),
-          writeBytes: (bytes) async {
-            writeCount++;
-            if (writeCount == 1) throw StateError('first write fails');
-            captured.add(bytes);
-          },
-        );
-        addTearDown(localTransport.dispose);
+      test(
+        'a failing send does not poison the chain for later callers',
+        () async {
+          // The first writeBytes throws; the second send must still
+          // reach the wire. If the chain didn't isolate per-call errors
+          // the second call's future would never resolve (it'd be
+          // chained onto a rejected future and the `then` would inherit
+          // the error).
+          var writeCount = 0;
+          final captured = <Uint8List>[];
+          final localTransport = BleControlTransport.forTest(
+            controlBytes:
+                const Stream<({String endpointId, Uint8List bytes})>.empty(),
+            writeBytes: (bytes) async {
+              writeCount++;
+              if (writeCount == 1) throw StateError('first write fails');
+              captured.add(bytes);
+            },
+          );
+          addTearDown(localTransport.dispose);
 
-        // The first send rejects; the second still completes true.
-        await expectLater(
-          localTransport.send(_heartbeat(seq: 1)),
-          throwsStateError,
-        );
-        final result = await localTransport.send(_heartbeat(seq: 2));
-        expect(result, isTrue);
-        expect(captured, hasLength(1));
-      });
+          // The first send rejects; the second still completes true.
+          await expectLater(
+            localTransport.send(_heartbeat(seq: 1)),
+            throwsStateError,
+          );
+          final result = await localTransport.send(_heartbeat(seq: 2));
+          expect(result, isTrue);
+          expect(captured, hasLength(1));
+        },
+      );
 
       test('writes multiple fragments for a large message', () async {
         // Build a roster big enough to force fragmentation (>243 bytes JSON).
@@ -316,7 +314,8 @@ void main() {
 
     group('MTU-aware send', () {
       // Custom transport per-test so each test can wire its own MTU oracle.
-      late StreamController<({String endpointId, Uint8List bytes})> mtuController;
+      late StreamController<({String endpointId, Uint8List bytes})>
+      mtuController;
       late List<Uint8List> mtuWritten;
 
       setUp(() {
@@ -328,81 +327,89 @@ void main() {
         await mtuController.close();
       });
 
-      test('does not consult the MTU oracle when no active endpoint is set',
-          () async {
-        var mtuCalls = 0;
-        final t = BleControlTransport.forTest(
-          controlBytes: mtuController.stream,
-          writeBytes: (bytes) async => mtuWritten.add(bytes),
-          getMtu: (_) async {
-            mtuCalls++;
-            return 100;
-          },
-        );
+      test(
+        'does not consult the MTU oracle when no active endpoint is set',
+        () async {
+          var mtuCalls = 0;
+          final t = BleControlTransport.forTest(
+            controlBytes: mtuController.stream,
+            writeBytes: (bytes) async => mtuWritten.add(bytes),
+            getMtu: (_) async {
+              mtuCalls++;
+              return 100;
+            },
+          );
 
-        await t.send(_heartbeat());
+          await t.send(_heartbeat());
 
-        // Without setActiveEndpoint, the oracle is never consulted and the
-        // encoder uses kMaxFragmentSize. Heartbeat is small enough to land
-        // in a single fragment regardless.
-        expect(mtuCalls, 0);
-        expect(mtuWritten, hasLength(1));
-        // The single fragment was sized against kMaxFragmentSize, not the
-        // smaller MTU 100.
-        expect(mtuWritten.first.length, lessThanOrEqualTo(kMaxFragmentSize));
-        t.dispose();
-      });
+          // Without setActiveEndpoint, the oracle is never consulted and the
+          // encoder uses kMaxFragmentSize. Heartbeat is small enough to land
+          // in a single fragment regardless.
+          expect(mtuCalls, 0);
+          expect(mtuWritten, hasLength(1));
+          // The single fragment was sized against kMaxFragmentSize, not the
+          // smaller MTU 100.
+          expect(mtuWritten.first.length, lessThanOrEqualTo(kMaxFragmentSize));
+          t.dispose();
+        },
+      );
 
-      test('queries MTU for the active endpoint and sizes fragments accordingly',
-          () async {
-        var queriedFor = <String>[];
-        final t = BleControlTransport.forTest(
-          controlBytes: mtuController.stream,
-          writeBytes: (bytes) async => mtuWritten.add(bytes),
-          getMtu: (endpointId) async {
-            queriedFor.add(endpointId);
-            return 100; // Force smaller fragments.
-          },
-        );
-        t.setActiveEndpoint('host-mac-1');
+      test(
+        'queries MTU for the active endpoint and sizes fragments accordingly',
+        () async {
+          var queriedFor = <String>[];
+          final t = BleControlTransport.forTest(
+            controlBytes: mtuController.stream,
+            writeBytes: (bytes) async => mtuWritten.add(bytes),
+            getMtu: (endpointId) async {
+              queriedFor.add(endpointId);
+              return 100; // Force smaller fragments.
+            },
+          );
+          t.setActiveEndpoint('host-mac-1');
 
-        final msg = JoinAccepted(
-          peerId: 'host',
-          seq: 1,
-          atMs: 1000,
-          hostPeerId: 'host',
-          roster: List.generate(
-            12,
-            (i) => ProtocolPeer(
-              peerId: 'p$i-long-uuid-string-padding-here',
-              displayName: 'User $i with a longer display name',
+          final msg = JoinAccepted(
+            peerId: 'host',
+            seq: 1,
+            atMs: 1000,
+            hostPeerId: 'host',
+            roster: List.generate(
+              12,
+              (i) => ProtocolPeer(
+                peerId: 'p$i-long-uuid-string-padding-here',
+                displayName: 'User $i with a longer display name',
+              ),
             ),
-          ),
-        );
+          );
 
-        await t.send(msg);
+          await t.send(msg);
 
-        expect(queriedFor, ['host-mac-1']);
-        // MTU 100 → fragment ceiling 97. Every fragment except the last
-        // must be exactly 97 bytes (header + payload).
-        expect(mtuWritten.length, greaterThan(1));
-        for (final f in mtuWritten.take(mtuWritten.length - 1)) {
-          expect(f.length, 97, reason: 'mid-stream fragment must be exactly mtu-3');
-        }
-        // Last fragment is the remainder; must be ≤ 97.
-        expect(mtuWritten.last.length, lessThanOrEqualTo(97));
+          expect(queriedFor, ['host-mac-1']);
+          // MTU 100 → fragment ceiling 97. Every fragment except the last
+          // must be exactly 97 bytes (header + payload).
+          expect(mtuWritten.length, greaterThan(1));
+          for (final f in mtuWritten.take(mtuWritten.length - 1)) {
+            expect(
+              f.length,
+              97,
+              reason: 'mid-stream fragment must be exactly mtu-3',
+            );
+          }
+          // Last fragment is the remainder; must be ≤ 97.
+          expect(mtuWritten.last.length, lessThanOrEqualTo(97));
 
-        // Reassemble end-to-end and verify identity.
-        final r = FragmentReassembler();
-        String? json;
-        for (final f in mtuWritten) {
-          json = r.feed(f);
-        }
-        expect(json, isNotNull);
-        final decoded = FrequencyMessage.decode(json!) as JoinAccepted;
-        expect(decoded.roster, hasLength(12));
-        t.dispose();
-      });
+          // Reassemble end-to-end and verify identity.
+          final r = FragmentReassembler();
+          String? json;
+          for (final f in mtuWritten) {
+            json = r.feed(f);
+          }
+          expect(json, isNotNull);
+          final decoded = FrequencyMessage.decode(json!) as JoinAccepted;
+          expect(decoded.roster, hasLength(12));
+          t.dispose();
+        },
+      );
 
       test('falls back to kMaxFragmentSize when oracle returns null', () async {
         final t = BleControlTransport.forTest(
@@ -500,123 +507,141 @@ void main() {
         t.dispose();
       });
 
-      test('clearing the active endpoint reverts to default fragmentation',
-          () async {
-        var calls = 0;
-        final t = BleControlTransport.forTest(
-          controlBytes: mtuController.stream,
-          writeBytes: (bytes) async => mtuWritten.add(bytes),
-          getMtu: (_) async {
-            calls++;
-            return 64;
-          },
-        );
+      test(
+        'clearing the active endpoint reverts to default fragmentation',
+        () async {
+          var calls = 0;
+          final t = BleControlTransport.forTest(
+            controlBytes: mtuController.stream,
+            writeBytes: (bytes) async => mtuWritten.add(bytes),
+            getMtu: (_) async {
+              calls++;
+              return 64;
+            },
+          );
 
-        t.setActiveEndpoint('host-mac-1');
-        await t.send(_heartbeat(seq: 1));
-        expect(calls, 1);
+          t.setActiveEndpoint('host-mac-1');
+          await t.send(_heartbeat(seq: 1));
+          expect(calls, 1);
 
-        t.setActiveEndpoint(null);
-        await t.send(_heartbeat(seq: 2));
-        // No further oracle calls after clearing the binding.
-        expect(calls, 1);
-        expect(t.activeEndpoint, isNull);
-        t.dispose();
-      });
+          t.setActiveEndpoint(null);
+          await t.send(_heartbeat(seq: 2));
+          // No further oracle calls after clearing the binding.
+          expect(calls, 1);
+          expect(t.activeEndpoint, isNull);
+          t.dispose();
+        },
+      );
     });
 
     group('forgetPeer', () {
-      test('resets the seq watermark so a reconnecting peer is accepted',
-          () async {
-        final emitted = <FrequencyMessage>[];
-        final sub = transport.incoming.listen(emitted.add);
+      test(
+        'resets the seq watermark so a reconnecting peer is accepted',
+        () async {
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
 
-        // Advance the watermark to seq=5.
-        for (var i = 1; i <= 5; i++) {
+          // Advance the watermark to seq=5.
+          for (var i = 1; i <= 5; i++) {
+            _injectMessage(
+              controlBytesController,
+              _heartbeat(peerId: 'peer-a', seq: i),
+            );
+          }
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(5));
+
+          // Forget the peer (simulating a reconnect).
+          transport.forgetPeer('peer-a');
+
+          // A fresh session starts at seq=1 — should be accepted.
           _injectMessage(
             controlBytesController,
-            _heartbeat(peerId: 'peer-a', seq: i),
+            _heartbeat(peerId: 'peer-a', seq: 1),
           );
-        }
-        await Future<void>.delayed(Duration.zero);
-        expect(emitted, hasLength(5));
+          await Future<void>.delayed(Duration.zero);
 
-        // Forget the peer (simulating a reconnect).
-        transport.forgetPeer('peer-a');
+          expect(emitted, hasLength(6));
+          await sub.cancel();
+        },
+      );
 
-        // A fresh session starts at seq=1 — should be accepted.
-        _injectMessage(
-          controlBytesController,
-          _heartbeat(peerId: 'peer-a', seq: 1),
-        );
-        await Future<void>.delayed(Duration.zero);
+      test(
+        'forgetAllPeers clears every peer\'s watermark + reassembler',
+        () async {
+          // Wipe-the-slate-clean variant for the leaveRoom path: held-over
+          // watermarks from an old session must not silently swallow `seq=1`
+          // of the next session.
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
 
-        expect(emitted, hasLength(6));
-        await sub.cancel();
-      });
+          // Advance watermarks for two distinct peers.
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 5),
+          );
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-b', seq: 3),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(2));
 
-      test('forgetAllPeers clears every peer\'s watermark + reassembler',
-          () async {
-        // Wipe-the-slate-clean variant for the leaveRoom path: held-over
-        // watermarks from an old session must not silently swallow `seq=1`
-        // of the next session.
-        final emitted = <FrequencyMessage>[];
-        final sub = transport.incoming.listen(emitted.add);
+          transport.forgetAllPeers();
 
-        // Advance watermarks for two distinct peers.
-        _injectMessage(controlBytesController,
-            _heartbeat(peerId: 'peer-a', seq: 5));
-        _injectMessage(controlBytesController,
-            _heartbeat(peerId: 'peer-b', seq: 3));
-        await Future<void>.delayed(Duration.zero);
-        expect(emitted, hasLength(2));
+          // Both peers' fresh sessions start at seq=1; both should land.
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 1),
+          );
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-b', seq: 1),
+          );
+          await Future<void>.delayed(Duration.zero);
 
-        transport.forgetAllPeers();
+          expect(emitted, hasLength(4));
+          await sub.cancel();
+        },
+      );
 
-        // Both peers' fresh sessions start at seq=1; both should land.
-        _injectMessage(controlBytesController,
-            _heartbeat(peerId: 'peer-a', seq: 1));
-        _injectMessage(controlBytesController,
-            _heartbeat(peerId: 'peer-b', seq: 1));
-        await Future<void>.delayed(Duration.zero);
+      test(
+        'cleans up the reassembler via endpointId mapping on reconnect',
+        () async {
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
 
-        expect(emitted, hasLength(4));
-        await sub.cancel();
-      });
+          // Feed a fragment that does NOT complete a message — leaves state in
+          // the reassembler for 'ep-1'.
+          final partialFragments = encodeFragments(_joinRequest().encode());
+          // Only inject the first fragment so reassembler has pending state.
+          controlBytesController.add((
+            endpointId: 'ep-1',
+            bytes: partialFragments.first,
+          ));
+          await Future<void>.delayed(Duration.zero);
 
-      test('cleans up the reassembler via endpointId mapping on reconnect',
-          () async {
-        final emitted = <FrequencyMessage>[];
-        final sub = transport.incoming.listen(emitted.add);
+          // First we need a complete message to build the peerId→endpointId map.
+          _injectMessage(controlBytesController, _heartbeat(seq: 1));
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(1));
 
-        // Feed a fragment that does NOT complete a message — leaves state in
-        // the reassembler for 'ep-1'.
-        final partialFragments = encodeFragments(_joinRequest().encode());
-        // Only inject the first fragment so reassembler has pending state.
-        controlBytesController
-            .add((endpointId: 'ep-1', bytes: partialFragments.first));
-        await Future<void>.delayed(Duration.zero);
+          // After forgetPeer, the reassembler for 'ep-1' is cleared. A new
+          // fragment starting from idx=0 must be accepted (not treated as a
+          // continuation of the earlier partial message).
+          transport.forgetPeer('peer-a');
 
-        // First we need a complete message to build the peerId→endpointId map.
-        _injectMessage(controlBytesController, _heartbeat(seq: 1));
-        await Future<void>.delayed(Duration.zero);
-        expect(emitted, hasLength(1));
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 1),
+          );
+          await Future<void>.delayed(Duration.zero);
 
-        // After forgetPeer, the reassembler for 'ep-1' is cleared. A new
-        // fragment starting from idx=0 must be accepted (not treated as a
-        // continuation of the earlier partial message).
-        transport.forgetPeer('peer-a');
-
-        _injectMessage(
-          controlBytesController,
-          _heartbeat(peerId: 'peer-a', seq: 1),
-        );
-        await Future<void>.delayed(Duration.zero);
-
-        // seq=1 from 'peer-a' is accepted again after forgetPeer.
-        expect(emitted, hasLength(2));
-        await sub.cancel();
-      });
+          // seq=1 from 'peer-a' is accepted again after forgetPeer.
+          expect(emitted, hasLength(2));
+          await sub.cancel();
+        },
+      );
     });
   });
 }

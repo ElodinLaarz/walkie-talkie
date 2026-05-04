@@ -8,15 +8,14 @@ LinkQuality _lq({
   required double lossPct,
   int jitterMs = 60,
   double underrunsPerSec = 0.0,
-}) =>
-    LinkQuality(
-      peerId: peerId,
-      seq: 1,
-      atMs: atMs,
-      lossPct: lossPct,
-      jitterMs: jitterMs,
-      underrunsPerSec: underrunsPerSec,
-    );
+}) => LinkQuality(
+  peerId: peerId,
+  seq: 1,
+  atMs: atMs,
+  lossPct: lossPct,
+  jitterMs: jitterMs,
+  underrunsPerSec: underrunsPerSec,
+);
 
 /// Test shorthand — the adapter takes a separate `nowMs` (host-local
 /// receipt clock); these tests were written before that split, and the
@@ -39,8 +38,7 @@ void main() {
       expect(BitrateLevel.high.bps, 24000);
     });
 
-    test('nearest snaps to the closest operating point, ties favour lower',
-        () {
+    test('nearest snaps to the closest operating point, ties favour lower', () {
       expect(BitrateLevel.nearest(8000), BitrateLevel.low);
       expect(BitrateLevel.nearest(16000), BitrateLevel.mid);
       expect(BitrateLevel.nearest(24000), BitrateLevel.high);
@@ -71,34 +69,36 @@ void main() {
       final a = BitrateAdapter();
       final out = _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 20.0));
       expect(out, isNull);
-      expect(a.levelFor('g1'), BitrateLevel.mid,
-          reason: 'default seed is Mid');
-    });
-
-    test('>12 % sustained for 4 s steps from default Mid all the way to Low',
-        () {
-      final a = BitrateAdapter();
-      // Two consecutive bad samples — the second must be ≥ 4 s after the
-      // first to trip. Sample-count alone is not the criterion; wall-time
-      // dwell is.
-      final first = _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 20.0));
-      expect(first, isNull, reason: 'first bad sample seeds dwell');
-      final second = _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0));
-      expect(second, BitrateLevel.low);
-      expect(a.levelFor('g1'), BitrateLevel.low);
+      expect(a.levelFor('g1'), BitrateLevel.mid, reason: 'default seed is Mid');
     });
 
     test(
-        '>12 % at exactly 3.999 s does not trip; one more ms over the boundary does',
-        () {
-      final a = BitrateAdapter();
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 20.0));
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 3999, lossPct: 20.0)), isNull);
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0)),
-        BitrateLevel.low,
-      );
-    });
+      '>12 % sustained for 4 s steps from default Mid all the way to Low',
+      () {
+        final a = BitrateAdapter();
+        // Two consecutive bad samples — the second must be ≥ 4 s after the
+        // first to trip. Sample-count alone is not the criterion; wall-time
+        // dwell is.
+        final first = _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 20.0));
+        expect(first, isNull, reason: 'first bad sample seeds dwell');
+        final second = _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0));
+        expect(second, BitrateLevel.low);
+        expect(a.levelFor('g1'), BitrateLevel.low);
+      },
+    );
+
+    test(
+      '>12 % at exactly 3.999 s does not trip; one more ms over the boundary does',
+      () {
+        final a = BitrateAdapter();
+        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 20.0));
+        expect(_feed(a, _lq(peerId: 'g1', atMs: 3999, lossPct: 20.0)), isNull);
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0)),
+          BitrateLevel.low,
+        );
+      },
+    );
 
     test('>5 % (but ≤12 %) sustained 4 s drops only one notch from High', () {
       final a = BitrateAdapter();
@@ -140,13 +140,10 @@ void main() {
       // direction change — pending dwell resets to the new direction.
       final a = BitrateAdapter();
       a.seed('g1', BitrateLevel.high);
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 7.0));   // wantsDownMid
+      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 7.0)); // wantsDownMid
       _feed(a, _lq(peerId: 'g1', atMs: 1000, lossPct: 20.0)); // wantsDownLow
       // Only 3 s of "down to low" dwell so far — no trip yet.
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0)),
-        isNull,
-      );
+      expect(_feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 20.0)), isNull);
       // 4 s + 1 ms of contiguous "down to low" dwell from atMs=1000 → trips.
       final trip = _feed(a, _lq(peerId: 'g1', atMs: 5001, lossPct: 20.0));
       expect(trip, BitrateLevel.low);
@@ -154,55 +151,43 @@ void main() {
   });
 
   group('BitrateAdapter upstep behaviour', () {
-    test('clean link from Low climbs Low → Mid after 30 s, then Mid → High',
-        () {
-      final a = BitrateAdapter();
-      a.seed('g1', BitrateLevel.low);
-      // First clean sample seeds the dwell.
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0)), isNull);
-      // 29 s in — not yet 30 s.
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 29000, lossPct: 0.0)),
-        isNull,
-      );
-      // 30 s — first upstep.
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 30000, lossPct: 0.0)),
-        BitrateLevel.mid,
-      );
-      // After a step, dwell resets — another 30 s of clean to step again.
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 59000, lossPct: 0.0)),
-        isNull,
-      );
-      expect(
-        _feed(a, _lq(peerId: 'g1', atMs: 60001, lossPct: 0.0)),
-        BitrateLevel.high,
-      );
-    });
+    test(
+      'clean link from Low climbs Low → Mid after 30 s, then Mid → High',
+      () {
+        final a = BitrateAdapter();
+        a.seed('g1', BitrateLevel.low);
+        // First clean sample seeds the dwell.
+        expect(_feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0)), isNull);
+        // 29 s in — not yet 30 s.
+        expect(_feed(a, _lq(peerId: 'g1', atMs: 29000, lossPct: 0.0)), isNull);
+        // 30 s — first upstep.
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 30000, lossPct: 0.0)),
+          BitrateLevel.mid,
+        );
+        // After a step, dwell resets — another 30 s of clean to step again.
+        expect(_feed(a, _lq(peerId: 'g1', atMs: 59000, lossPct: 0.0)), isNull);
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 60001, lossPct: 0.0)),
+          BitrateLevel.high,
+        );
+      },
+    );
 
     test('upstep blocked when underruns/sec exceeds the clean ceiling', () {
       // lossPct = 0, but underruns > 0.1 / s — not clean enough.
       final a = BitrateAdapter();
       a.seed('g1', BitrateLevel.mid);
-      _feed(a, _lq(
-        peerId: 'g1',
-        atMs: 0,
-        lossPct: 0.0,
-        underrunsPerSec: 0.5,
-      ));
-      final out = _feed(a, _lq(
-        peerId: 'g1',
-        atMs: 60000,
-        lossPct: 0.0,
-        underrunsPerSec: 0.5,
-      ));
+      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0, underrunsPerSec: 0.5));
+      final out = _feed(
+        a,
+        _lq(peerId: 'g1', atMs: 60000, lossPct: 0.0, underrunsPerSec: 0.5),
+      );
       expect(out, isNull);
       expect(a.levelFor('g1'), BitrateLevel.mid);
     });
 
-    test('upstep blocked when lossPct is in the dead zone (≥1 % but ≤5 %)',
-        () {
+    test('upstep blocked when lossPct is in the dead zone (≥1 % but ≤5 %)', () {
       // 3 % is neither bad enough to trigger a downstep nor clean enough
       // to count toward the 30 s upstep dwell.
       final a = BitrateAdapter();
@@ -213,8 +198,7 @@ void main() {
       expect(a.levelFor('g1'), BitrateLevel.mid);
     });
 
-    test('Already at High — upstep is a no-op even after a long clean run',
-        () {
+    test('Already at High — upstep is a no-op even after a long clean run', () {
       final a = BitrateAdapter();
       a.seed('g1', BitrateLevel.high);
       _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0));
@@ -226,43 +210,54 @@ void main() {
 
   group('Issue acceptance: thresholds → BitrateHint schedule', () {
     test(
-        '24 → 16 → 24: bad uplink trips down to Mid, recovery climbs back to High',
-        () {
-      // Mirrors the two-device acceptance scenario in the issue:
-      //  * Inject ~10 % loss → within 4 s the encoder shifts to 16 kbps.
-      //  * Lift the drop → returns to 24 kbps within 30 s of clean samples.
-      final a = BitrateAdapter();
-      a.seed('g1', BitrateLevel.high);
-      // 10 % is in the >5 % band — should drop one notch (not all the
-      // way to low).
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 10.0));
-      final downstep = _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 10.0));
-      expect(downstep, BitrateLevel.mid);
+      '24 → 16 → 24: bad uplink trips down to Mid, recovery climbs back to High',
+      () {
+        // Mirrors the two-device acceptance scenario in the issue:
+        //  * Inject ~10 % loss → within 4 s the encoder shifts to 16 kbps.
+        //  * Lift the drop → returns to 24 kbps within 30 s of clean samples.
+        final a = BitrateAdapter();
+        a.seed('g1', BitrateLevel.high);
+        // 10 % is in the >5 % band — should drop one notch (not all the
+        // way to low).
+        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 10.0));
+        final downstep = _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 10.0));
+        expect(downstep, BitrateLevel.mid);
 
-      // Drop is lifted at atMs = 5000. 30 s of clean later, we step back
-      // up. Need a sample to seed the upstep dwell (5000) and one to
-      // confirm at 35001.
-      _feed(a, _lq(peerId: 'g1', atMs: 5000, lossPct: 0.0));
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 35001, lossPct: 0.0)),
-          BitrateLevel.high);
-    });
+        // Drop is lifted at atMs = 5000. 30 s of clean later, we step back
+        // up. Need a sample to seed the upstep dwell (5000) and one to
+        // confirm at 35001.
+        _feed(a, _lq(peerId: 'g1', atMs: 5000, lossPct: 0.0));
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 35001, lossPct: 0.0)),
+          BitrateLevel.high,
+        );
+      },
+    );
 
-    test('24 → 8 → 16 → 24: catastrophic loss bypasses Mid, then climbs back',
-        () {
-      // Heavy loss (>12 %) goes straight to Low. From Low, a 30 s clean
-      // run climbs to Mid; another 30 s climbs to High.
-      final a = BitrateAdapter();
-      a.seed('g1', BitrateLevel.high);
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 25.0));
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 25.0)),
-          BitrateLevel.low);
+    test(
+      '24 → 8 → 16 → 24: catastrophic loss bypasses Mid, then climbs back',
+      () {
+        // Heavy loss (>12 %) goes straight to Low. From Low, a 30 s clean
+        // run climbs to Mid; another 30 s climbs to High.
+        final a = BitrateAdapter();
+        a.seed('g1', BitrateLevel.high);
+        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 25.0));
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 25.0)),
+          BitrateLevel.low,
+        );
 
-      _feed(a, _lq(peerId: 'g1', atMs: 5000, lossPct: 0.0));
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 35000, lossPct: 0.0)),
-          BitrateLevel.mid);
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 65000, lossPct: 0.0)),
-          BitrateLevel.high);
-    });
+        _feed(a, _lq(peerId: 'g1', atMs: 5000, lossPct: 0.0));
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 35000, lossPct: 0.0)),
+          BitrateLevel.mid,
+        );
+        expect(
+          _feed(a, _lq(peerId: 'g1', atMs: 65000, lossPct: 0.0)),
+          BitrateLevel.high,
+        );
+      },
+    );
   });
 
   group('BitrateAdapter dwell vs. sender clock', () {
@@ -272,47 +267,46 @@ void main() {
     // the future on its very first bad sample — which is not how the
     // 4 s sustained-loss rule is supposed to work.
     test(
-        'sender atMs jumping ahead does NOT short-circuit the 4 s downstep dwell',
-        () {
-      final a = BitrateAdapter();
-      // Sample 1 at host-local nowMs=0; sample's atMs is 0 too.
-      a.feed(
-        _lq(peerId: 'g1', atMs: 0, lossPct: 20.0),
-        nowMs: 0,
-      );
-      // Sample 2: sender claims atMs=10_000 (10 s in the future) but
-      // host clock has only advanced 1 s. Dwell should follow the host
-      // clock — no trip yet.
-      final out = a.feed(
-        _lq(peerId: 'g1', atMs: 10000, lossPct: 20.0),
-        nowMs: 1000,
-      );
-      expect(out, isNull,
-          reason: 'sender clock skew must not satisfy the 4 s dwell');
-      // After the host clock has actually advanced 4 s, the trip fires.
-      final trip = a.feed(
-        _lq(peerId: 'g1', atMs: 11000, lossPct: 20.0),
-        nowMs: 4000,
-      );
-      expect(trip, BitrateLevel.low);
-    });
+      'sender atMs jumping ahead does NOT short-circuit the 4 s downstep dwell',
+      () {
+        final a = BitrateAdapter();
+        // Sample 1 at host-local nowMs=0; sample's atMs is 0 too.
+        a.feed(_lq(peerId: 'g1', atMs: 0, lossPct: 20.0), nowMs: 0);
+        // Sample 2: sender claims atMs=10_000 (10 s in the future) but
+        // host clock has only advanced 1 s. Dwell should follow the host
+        // clock — no trip yet.
+        final out = a.feed(
+          _lq(peerId: 'g1', atMs: 10000, lossPct: 20.0),
+          nowMs: 1000,
+        );
+        expect(
+          out,
+          isNull,
+          reason: 'sender clock skew must not satisfy the 4 s dwell',
+        );
+        // After the host clock has actually advanced 4 s, the trip fires.
+        final trip = a.feed(
+          _lq(peerId: 'g1', atMs: 11000, lossPct: 20.0),
+          nowMs: 4000,
+        );
+        expect(trip, BitrateLevel.low);
+      },
+    );
 
     test(
-        'sender atMs lagging behind does NOT block a downstep that the host clock has earned',
-        () {
-      final a = BitrateAdapter();
-      a.feed(
-        _lq(peerId: 'g1', atMs: 100000, lossPct: 20.0),
-        nowMs: 0,
-      );
-      // Sender claims atMs=100_000 (the past, vs. itself) — irrelevant.
-      // Host has advanced 4 s since the seed; the trip should fire.
-      final trip = a.feed(
-        _lq(peerId: 'g1', atMs: 100100, lossPct: 20.0),
-        nowMs: 4000,
-      );
-      expect(trip, BitrateLevel.low);
-    });
+      'sender atMs lagging behind does NOT block a downstep that the host clock has earned',
+      () {
+        final a = BitrateAdapter();
+        a.feed(_lq(peerId: 'g1', atMs: 100000, lossPct: 20.0), nowMs: 0);
+        // Sender claims atMs=100_000 (the past, vs. itself) — irrelevant.
+        // Host has advanced 4 s since the seed; the trip should fire.
+        final trip = a.feed(
+          _lq(peerId: 'g1', atMs: 100100, lossPct: 20.0),
+          nowMs: 4000,
+        );
+        expect(trip, BitrateLevel.low);
+      },
+    );
   });
 
   group('BitrateAdapter per-peer isolation', () {
@@ -324,12 +318,16 @@ void main() {
       _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 25.0));
       _feed(a, _lq(peerId: 'g2', atMs: 0, lossPct: 0.0));
       // 4 s later — g1 trips down, g2 not yet.
-      expect(_feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 25.0)),
-          BitrateLevel.low);
+      expect(
+        _feed(a, _lq(peerId: 'g1', atMs: 4000, lossPct: 25.0)),
+        BitrateLevel.low,
+      );
       expect(_feed(a, _lq(peerId: 'g2', atMs: 4000, lossPct: 0.0)), isNull);
       // 30 s — g2 finally trips up.
-      expect(_feed(a, _lq(peerId: 'g2', atMs: 30000, lossPct: 0.0)),
-          BitrateLevel.mid);
+      expect(
+        _feed(a, _lq(peerId: 'g2', atMs: 30000, lossPct: 0.0)),
+        BitrateLevel.mid,
+      );
       // g1 stayed at low through this — g2's clean samples didn't help it.
       expect(a.levelFor('g1'), BitrateLevel.low);
     });
@@ -353,11 +351,12 @@ void main() {
     });
 
     test(
-        'unseen peer auto-seeds at Mid on first feed, retains state across feeds',
-        () {
-      final a = BitrateAdapter();
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0));
-      expect(a.levelFor('g1'), BitrateLevel.mid);
-    });
+      'unseen peer auto-seeds at Mid on first feed, retains state across feeds',
+      () {
+        final a = BitrateAdapter();
+        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0));
+        expect(a.levelFor('g1'), BitrateLevel.mid);
+      },
+    );
   });
 }

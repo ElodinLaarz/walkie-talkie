@@ -8,12 +8,7 @@ SignalReport _report({
   int atMs = 0,
   required List<NeighborSignal> neighbors,
 }) =>
-    SignalReport(
-      peerId: reporter,
-      seq: seq,
-      atMs: atMs,
-      neighbors: neighbors,
-    );
+    SignalReport(peerId: reporter, seq: seq, atMs: atMs, neighbors: neighbors);
 
 NeighborSignal _n(String peerId, int rssi) =>
     NeighborSignal(peerId: peerId, rssi: rssi);
@@ -33,22 +28,18 @@ void main() {
   group('WeakSignalDetector.onReport — threshold gate', () {
     test('one weak report does not trip', () {
       final d = WeakSignalDetector();
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 1,
-        neighbors: [_n('peer-a', -85)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 1, neighbors: [_n('peer-a', -85)]),
+      );
       expect(fired, isEmpty);
     });
 
     test('two consecutive weak reports trip', () {
       final d = WeakSignalDetector();
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -90)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -90)]),
+      );
       expect(fired, ['a']);
     });
 
@@ -58,22 +49,18 @@ void main() {
       // guards against a "≤" off-by-one slipping in.
       final d = WeakSignalDetector();
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -80)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -80)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -80)]),
+      );
       expect(fired, isEmpty);
     });
 
     test('boundary: -81 IS weak', () {
       final d = WeakSignalDetector();
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -81)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -81)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -81)]),
+      );
       expect(fired, ['a']);
     });
 
@@ -81,11 +68,9 @@ void main() {
       final d = WeakSignalDetector();
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
       d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -50)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 3,
-        neighbors: [_n('a', -85)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]),
+      );
       // Counter reset on the strong reading; only one weak in a row again.
       expect(fired, isEmpty);
     });
@@ -97,41 +82,47 @@ void main() {
       final d = WeakSignalDetector();
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
       d.onReport(_report(reporter: 'g1', seq: 2, neighbors: const []));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 3,
-        neighbors: [_n('a', -85)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]),
+      );
       expect(fired, ['a']);
     });
 
     test('per-neighbor independence on the same report', () {
       final d = WeakSignalDetector();
-      d.onReport(_report(
-        reporter: 'g1',
-        seq: 1,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
+      d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 1,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
+      final fired = d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 2,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
       expect(fired, unorderedEquals(['a', 'b']));
     });
 
     test('per-neighbor independence: one trips, one stays strong', () {
       final d = WeakSignalDetector();
-      d.onReport(_report(
-        reporter: 'g1',
-        seq: 1,
-        neighbors: [_n('a', -85), _n('b', -50)],
-      ));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -85), _n('b', -50)],
-      ));
+      d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 1,
+          neighbors: [_n('a', -85), _n('b', -50)],
+        ),
+      );
+      final fired = d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 2,
+          neighbors: [_n('a', -85), _n('b', -50)],
+        ),
+      );
       expect(fired, ['a']);
     });
   });
@@ -142,23 +133,18 @@ void main() {
       final d = WeakSignalDetector(clock: () => fakeNow);
 
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
-      var fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -85)],
-      ));
+      var fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
+      );
       expect(fired, ['a']);
 
       fakeNow = fakeNow.add(const Duration(seconds: 30));
       // Two more weak reports — would trip again if not for the rate-limit.
       d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
-      fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 4,
-        neighbors: [_n('a', -85)],
-      ));
-      expect(fired, isEmpty,
-          reason: '30 s < 60 s rate-limit window');
+      fired = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]),
+      );
+      expect(fired, isEmpty, reason: '30 s < 60 s rate-limit window');
     });
 
     test('trip again after 60 s elapses', () {
@@ -174,13 +160,10 @@ void main() {
       // boundary: a single report at T0 + 60s should fire because the
       // gate is `<` (strict), so 60s ≥ 60s passes.
       fakeNow = fakeNow.add(const Duration(seconds: 60));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 3,
-        neighbors: [_n('a', -85)],
-      ));
-      expect(fired, ['a'],
-          reason: '60 s ≥ 60 s rate-limit window (inclusive)');
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]),
+      );
+      expect(fired, ['a'], reason: '60 s ≥ 60 s rate-limit window (inclusive)');
     });
 
     test('within 30 s after a trip, further weak reports are suppressed', () {
@@ -191,20 +174,26 @@ void main() {
       final d = WeakSignalDetector(clock: () => fakeNow);
 
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
-      var fired =
-          d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]));
+      var fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
+      );
       expect(fired, ['a']);
 
       fakeNow = fakeNow.add(const Duration(seconds: 30));
-      fired =
-          d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
+      fired = d.onReport(
+        _report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]),
+      );
       expect(fired, isEmpty);
 
       fakeNow = fakeNow.add(const Duration(seconds: 29));
-      fired =
-          d.onReport(_report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]));
-      expect(fired, isEmpty,
-          reason: 'still inside the 60 s window (59 s elapsed)');
+      fired = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]),
+      );
+      expect(
+        fired,
+        isEmpty,
+        reason: 'still inside the 60 s window (59 s elapsed)',
+      );
     });
 
     test('rate-limit is per-neighbor', () {
@@ -220,11 +209,9 @@ void main() {
       // even though 'a' is still inside its 60 s window.
       fakeNow = fakeNow.add(const Duration(seconds: 5));
       d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('b', -85)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 4,
-        neighbors: [_n('b', -85)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('b', -85)]),
+      );
       expect(fired, ['b']);
     });
   });
@@ -236,11 +223,13 @@ void main() {
       d.forgetPeer('a');
       // Without forget, the next weak would trip. After forget, we need
       // two more consecutive weak reports.
-      var fired =
-          d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]));
+      var fired = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
+      );
       expect(fired, isEmpty);
-      fired =
-          d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
+      fired = d.onReport(
+        _report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]),
+      );
       expect(fired, ['a']);
     });
 
@@ -253,39 +242,45 @@ void main() {
       // succeed immediately rather than waiting out the cooldown.
       d.forgetPeer('a');
       d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
-      final fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 4,
-        neighbors: [_n('a', -85)],
-      ));
+      final fired = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]),
+      );
       expect(fired, ['a']);
     });
 
     test('clear wipes every neighbor', () {
       var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
       final d = WeakSignalDetector(clock: () => fakeNow);
-      d.onReport(_report(
-        reporter: 'g1',
-        seq: 1,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
-      d.onReport(_report(
-        reporter: 'g1',
-        seq: 2,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
+      d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 1,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
+      d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 2,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
       d.clear();
-      var fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 3,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
+      var fired = d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 3,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
       expect(fired, isEmpty, reason: 'counters reset by clear');
-      fired = d.onReport(_report(
-        reporter: 'g1',
-        seq: 4,
-        neighbors: [_n('a', -85), _n('b', -85)],
-      ));
+      fired = d.onReport(
+        _report(
+          reporter: 'g1',
+          seq: 4,
+          neighbors: [_n('a', -85), _n('b', -85)],
+        ),
+      );
       expect(fired, unorderedEquals(['a', 'b']));
     });
   });

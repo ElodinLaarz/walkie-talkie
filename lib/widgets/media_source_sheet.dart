@@ -5,50 +5,45 @@ import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
 
 /// Available media sources the host can switch to.
-enum MediaSource {
-  youtubeMusic,
-  podcasts,
-  spotify,
-  pocketCasts,
-}
+enum MediaSource { youtubeMusic, podcasts, spotify, pocketCasts }
 
 extension MediaSourceExtension on MediaSource {
   String get label => switch (this) {
-        MediaSource.youtubeMusic => 'YouTube Music',
-        MediaSource.podcasts => 'Podcasts',
-        MediaSource.spotify => 'Spotify',
-        MediaSource.pocketCasts => 'Pocket Casts',
-      };
+    MediaSource.youtubeMusic => 'YouTube Music',
+    MediaSource.podcasts => 'Podcasts',
+    MediaSource.spotify => 'Spotify',
+    MediaSource.pocketCasts => 'Pocket Casts',
+  };
 
   /// Stable identifier used on the wire. The first two values intentionally
   /// match the strings the existing protocol already sends ('YouTube Music',
   /// 'Podcasts') for backward compat; new sources use snake_case.
   String get wireKey => switch (this) {
-        MediaSource.youtubeMusic => 'YouTube Music',
-        MediaSource.podcasts => 'Podcasts',
-        MediaSource.spotify => 'spotify',
-        MediaSource.pocketCasts => 'pocket_casts',
-      };
+    MediaSource.youtubeMusic => 'YouTube Music',
+    MediaSource.podcasts => 'Podcasts',
+    MediaSource.spotify => 'spotify',
+    MediaSource.pocketCasts => 'pocket_casts',
+  };
 
   IconData get icon => switch (this) {
-        MediaSource.youtubeMusic => Icons.music_note,
-        MediaSource.podcasts => Icons.podcasts,
-        MediaSource.spotify => Icons.queue_music,
-        MediaSource.pocketCasts => Icons.radio,
-      };
+    MediaSource.youtubeMusic => Icons.music_note,
+    MediaSource.podcasts => Icons.podcasts,
+    MediaSource.spotify => Icons.queue_music,
+    MediaSource.pocketCasts => Icons.radio,
+  };
 
   String get subtitle => switch (this) {
-        MediaSource.youtubeMusic => 'Music and playlists',
-        MediaSource.podcasts => 'Episodes and shows',
-        MediaSource.spotify => 'Music and podcasts',
-        MediaSource.pocketCasts => 'Podcast episodes',
-      };
+    MediaSource.youtubeMusic => 'Music and playlists',
+    MediaSource.podcasts => 'Episodes and shows',
+    MediaSource.spotify => 'Music and podcasts',
+    MediaSource.pocketCasts => 'Podcast episodes',
+  };
 
   bool get isPodcast => switch (this) {
-        MediaSource.podcasts => true,
-        MediaSource.pocketCasts => true,
-        _ => false,
-      };
+    MediaSource.podcasts => true,
+    MediaSource.pocketCasts => true,
+    _ => false,
+  };
 
   /// Deep-link URI for launching the streaming app, or null when no canonical
   /// App Link exists (e.g. the generic "Podcasts" source — Google Podcasts is
@@ -60,11 +55,11 @@ extension MediaSourceExtension on MediaSource {
   /// Android the fallback mode may still open a browser — a `true` result does
   /// not guarantee the native app launched.
   Uri? get appUri => switch (this) {
-        MediaSource.youtubeMusic => Uri.parse('https://music.youtube.com/'),
-        MediaSource.podcasts => null,
-        MediaSource.spotify => Uri.parse('https://open.spotify.com/'),
-        MediaSource.pocketCasts => Uri.parse('https://pca.st/'),
-      };
+    MediaSource.youtubeMusic => Uri.parse('https://music.youtube.com/'),
+    MediaSource.podcasts => null,
+    MediaSource.spotify => Uri.parse('https://open.spotify.com/'),
+    MediaSource.pocketCasts => Uri.parse('https://pca.st/'),
+  };
 
   static MediaSource fromWireKey(String key) {
     for (final s in MediaSource.values) {
@@ -97,10 +92,7 @@ Future<bool> launchSourceApp(MediaSource source) async {
 class MediaSourceSheet extends StatelessWidget {
   final String current;
 
-  const MediaSourceSheet({
-    super.key,
-    required this.current,
-  });
+  const MediaSourceSheet({super.key, required this.current});
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +131,11 @@ class MediaSourceSheet extends StatelessWidget {
                     ),
                     Text(
                       'Change the shared media source for this room',
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: c.ink3,
+                      ),
                     ),
                   ],
                 ),
@@ -238,7 +234,11 @@ class _SourceRow extends StatelessWidget {
                       ),
                       Text(
                         source.subtitle,
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink3,
+                        ),
                       ),
                     ],
                   ),

@@ -10,7 +10,11 @@ void main() {
     final payload = Uint8List.fromList([0x01, 0x02, 0x03, 0x04]);
 
     test('encode produces an 8-byte header + payload', () {
-      final frame = VoiceFrame(seq: seq, senderTsMs: senderTsMs, payload: payload);
+      final frame = VoiceFrame(
+        seq: seq,
+        senderTsMs: senderTsMs,
+        payload: payload,
+      );
       final encoded = frame.encode();
 
       expect(encoded.length, kVoiceHeaderSize + payload.length);
@@ -27,7 +31,11 @@ void main() {
     });
 
     test('decode round-trips through encode', () {
-      final original = VoiceFrame(seq: seq, senderTsMs: senderTsMs, payload: payload);
+      final original = VoiceFrame(
+        seq: seq,
+        senderTsMs: senderTsMs,
+        payload: payload,
+      );
       final decoded = VoiceFrame.decode(original.encode());
 
       expect(decoded.seq, original.seq);
@@ -65,29 +73,56 @@ void main() {
       );
     });
 
-    test('decode throws FormatException for header-only packet (no payload)', () {
-      final headerOnly = Uint8List(kVoiceHeaderSize);
-      expect(
-        () => VoiceFrame.decode(headerOnly),
-        throwsA(isA<FormatException>()),
-      );
-    });
+    test(
+      'decode throws FormatException for header-only packet (no payload)',
+      () {
+        final headerOnly = Uint8List(kVoiceHeaderSize);
+        expect(
+          () => VoiceFrame.decode(headerOnly),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
 
     test('equality: same fields → equal', () {
-      final a = VoiceFrame(seq: 1, senderTsMs: 100, payload: Uint8List.fromList([0x01]));
-      final b = VoiceFrame(seq: 1, senderTsMs: 100, payload: Uint8List.fromList([0x01]));
+      final a = VoiceFrame(
+        seq: 1,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x01]),
+      );
+      final b = VoiceFrame(
+        seq: 1,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x01]),
+      );
       expect(a, equals(b));
     });
 
     test('equality: different seq → not equal', () {
-      final a = VoiceFrame(seq: 1, senderTsMs: 100, payload: Uint8List.fromList([0x01]));
-      final b = VoiceFrame(seq: 2, senderTsMs: 100, payload: Uint8List.fromList([0x01]));
+      final a = VoiceFrame(
+        seq: 1,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x01]),
+      );
+      final b = VoiceFrame(
+        seq: 2,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x01]),
+      );
       expect(a, isNot(equals(b)));
     });
 
     test('equality: different payload → not equal', () {
-      final a = VoiceFrame(seq: 1, senderTsMs: 100, payload: Uint8List.fromList([0x01]));
-      final b = VoiceFrame(seq: 1, senderTsMs: 100, payload: Uint8List.fromList([0x02]));
+      final a = VoiceFrame(
+        seq: 1,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x01]),
+      );
+      final b = VoiceFrame(
+        seq: 1,
+        senderTsMs: 100,
+        payload: Uint8List.fromList([0x02]),
+      );
       expect(a, isNot(equals(b)));
     });
 

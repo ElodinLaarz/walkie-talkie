@@ -73,7 +73,11 @@ String formatTime(int s) {
 
 /// Map a "hue" 0..360 plus lightness/chroma to a Flutter Color via HSL.
 /// Used to mirror oklch(0.92 0.06 hue) avatar tints.
-Color hueColor(double hue, {double lightness = 0.88, double saturation = 0.32}) {
+Color hueColor(
+  double hue, {
+  double lightness = 0.88,
+  double saturation = 0.32,
+}) {
   return HSLColor.fromAHSL(1.0, hue, saturation, lightness).toColor();
 }
 

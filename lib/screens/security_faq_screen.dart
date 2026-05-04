@@ -139,53 +139,53 @@ class _FaqItemState extends State<_FaqItem> {
             expanded: _expanded,
             child: InkWell(
               onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.question,
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: c.ink,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.question,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: c.ink,
+                            ),
                           ),
                         ),
-                      ),
-                      Icon(
-                        _expanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        size: 18,
-                        color: c.ink2,
+                        Icon(
+                          _expanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          size: 18,
+                          color: c.ink2,
+                        ),
+                      ],
+                    ),
+                    if (_expanded) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        widget.answer,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: c.ink2,
+                          height: 1.55,
+                        ),
                       ),
                     ],
-                  ),
-                  if (_expanded) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      widget.answer,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: c.ink2,
-                        height: 1.55,
-                      ),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 

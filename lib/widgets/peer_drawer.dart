@@ -85,7 +85,11 @@ class _PeerDrawerState extends State<PeerDrawer> {
                             widget.person.btDevice,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: c.ink3,
+                            ),
                           ),
                         ),
                       ],
@@ -106,7 +110,9 @@ class _PeerDrawerState extends State<PeerDrawer> {
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(border: Border(top: BorderSide(color: c.line))),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: c.line)),
+            ),
             child: Row(
               children: [
                 Expanded(
@@ -124,7 +130,11 @@ class _PeerDrawerState extends State<PeerDrawer> {
                       ),
                       Text(
                         'Only you stop hearing them',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink3,
+                        ),
                       ),
                     ],
                   ),
@@ -143,7 +153,9 @@ class _PeerDrawerState extends State<PeerDrawer> {
           ),
           Container(
             padding: const EdgeInsets.fromLTRB(0, 14, 0, 6),
-            decoration: BoxDecoration(border: Border(top: BorderSide(color: c.line))),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: c.line)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -191,7 +203,9 @@ class _PeerDrawerState extends State<PeerDrawer> {
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.only(top: 14),
-              decoration: BoxDecoration(border: Border(top: BorderSide(color: c.line))),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: c.line)),
+              ),
               child: Column(
                 children: [
                   FreqButton(
@@ -204,7 +218,11 @@ class _PeerDrawerState extends State<PeerDrawer> {
                   const SizedBox(height: 8),
                   Text(
                     'As host, only you can remove people.',
-                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      color: c.ink3,
+                    ),
                   ),
                 ],
               ),
@@ -214,7 +232,9 @@ class _PeerDrawerState extends State<PeerDrawer> {
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.only(top: 14),
-              decoration: BoxDecoration(border: Border(top: BorderSide(color: c.line))),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: c.line)),
+              ),
               child: FreqButton(
                 label: 'Block & Report',
                 icon: Icons.flag_outlined,

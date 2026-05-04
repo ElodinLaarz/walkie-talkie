@@ -62,22 +62,24 @@ void main() {
       expect(await SqfliteRecentFrequenciesStore().getRecent(), isEmpty);
     });
 
-    test('copies displayName + peerId from a legacy Hive identity box',
-        () async {
-      // Seed a legacy Hive box.
-      Hive.init(hiveDir.path);
-      final box = await Hive.openBox<String>('identity');
-      await box.put('displayName', 'Maya');
-      await box.put('peerId', 'fake-peer-id-1234');
-      await box.close();
-      await Hive.close();
+    test(
+      'copies displayName + peerId from a legacy Hive identity box',
+      () async {
+        // Seed a legacy Hive box.
+        Hive.init(hiveDir.path);
+        final box = await Hive.openBox<String>('identity');
+        await box.put('displayName', 'Maya');
+        await box.put('peerId', 'fake-peer-id-1234');
+        await box.close();
+        await Hive.close();
 
-      await migrateHiveToSqliteIfNeeded(hiveInit: initHiveAtTempDir);
+        await migrateHiveToSqliteIfNeeded(hiveInit: initHiveAtTempDir);
 
-      final identity = SqfliteIdentityStore();
-      expect(await identity.getDisplayName(), 'Maya');
-      expect(await identity.getPeerId(), 'fake-peer-id-1234');
-    });
+        final identity = SqfliteIdentityStore();
+        expect(await identity.getDisplayName(), 'Maya');
+        expect(await identity.getPeerId(), 'fake-peer-id-1234');
+      },
+    );
 
     test('copies recents preserving most-recent-first order', () async {
       Hive.init(hiveDir.path);

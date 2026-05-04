@@ -8,14 +8,13 @@ LinkTelemetrySnapshot _snap({
   int target = 3,
   int current = 3,
   int bps = 16000,
-}) =>
-    LinkTelemetrySnapshot(
-      underrunCount: underrun,
-      lateFrameCount: late,
-      targetDepthFrames: target,
-      currentDepthFrames: current,
-      currentBitrateBps: bps,
-    );
+}) => LinkTelemetrySnapshot(
+  underrunCount: underrun,
+  lateFrameCount: late,
+  targetDepthFrames: target,
+  currentDepthFrames: current,
+  currentBitrateBps: bps,
+);
 
 void main() {
   group('LinkQualityReporter defaults', () {
@@ -39,10 +38,10 @@ void main() {
   });
 
   group('LinkQualityReporter.start / stop', () {
-    test('start fires onTick periodically, stop cancels the timer',
-        () async {
-      final reporter =
-          LinkQualityReporter(interval: const Duration(milliseconds: 10));
+    test('start fires onTick periodically, stop cancels the timer', () async {
+      final reporter = LinkQualityReporter(
+        interval: const Duration(milliseconds: 10),
+      );
       var ticks = 0;
       reporter.start(onTick: () => ticks++);
       await Future<void>.delayed(const Duration(milliseconds: 35));
@@ -54,8 +53,9 @@ void main() {
     });
 
     test('isRunning toggles on start / stop', () {
-      final reporter =
-          LinkQualityReporter(interval: const Duration(seconds: 1));
+      final reporter = LinkQualityReporter(
+        interval: const Duration(seconds: 1),
+      );
       expect(reporter.isRunning, isFalse);
       reporter.start(onTick: () {});
       expect(reporter.isRunning, isTrue);
@@ -63,10 +63,10 @@ void main() {
       expect(reporter.isRunning, isFalse);
     });
 
-    test('start while running cancels the previous timer + callback',
-        () async {
-      final reporter =
-          LinkQualityReporter(interval: const Duration(milliseconds: 10));
+    test('start while running cancels the previous timer + callback', () async {
+      final reporter = LinkQualityReporter(
+        interval: const Duration(milliseconds: 10),
+      );
       var ticks1 = 0;
       reporter.start(onTick: () => ticks1++);
       var ticks2 = 0;
@@ -86,20 +86,22 @@ void main() {
   });
 
   group('computeLinkQuality', () {
-    test('clean window: 0 % loss, 0 underruns/s, jitter from current depth',
-        () {
-      final prev = _snap(underrun: 5, late: 2, current: 3);
-      final curr = _snap(underrun: 5, late: 2, current: 4);
-      final out = computeLinkQuality(
-        previous: prev,
-        current: curr,
-        elapsed: const Duration(seconds: 2),
-      );
-      expect(out.lossPct, 0.0);
-      expect(out.underrunsPerSec, 0.0);
-      // 4 frames * 20 ms.
-      expect(out.jitterMs, 80);
-    });
+    test(
+      'clean window: 0 % loss, 0 underruns/s, jitter from current depth',
+      () {
+        final prev = _snap(underrun: 5, late: 2, current: 3);
+        final curr = _snap(underrun: 5, late: 2, current: 4);
+        final out = computeLinkQuality(
+          previous: prev,
+          current: curr,
+          elapsed: const Duration(seconds: 2),
+        );
+        expect(out.lossPct, 0.0);
+        expect(out.underrunsPerSec, 0.0);
+        // 4 frames * 20 ms.
+        expect(out.jitterMs, 80);
+      },
+    );
 
     test('lossPct: lateDelta / expected * 100', () {
       // 2 s window → 100 expected frames (one Opus frame per 20 ms).
@@ -167,10 +169,12 @@ void main() {
         current: curr,
         elapsed: const Duration(microseconds: 500),
       );
-      expect(out.underrunsPerSec.isFinite, isTrue,
-          reason: 'must not divide by zero');
-      expect(out.lossPct.isFinite, isTrue,
-          reason: 'must not divide by zero');
+      expect(
+        out.underrunsPerSec.isFinite,
+        isTrue,
+        reason: 'must not divide by zero',
+      );
+      expect(out.lossPct.isFinite, isTrue, reason: 'must not divide by zero');
       expect(out.lossPct, lessThanOrEqualTo(100.0));
     });
 

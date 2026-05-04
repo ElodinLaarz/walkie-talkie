@@ -8,10 +8,7 @@ import 'frequency_atoms.dart';
 class InviteSheet extends StatefulWidget {
   final String freq;
 
-  const InviteSheet({
-    super.key,
-    required this.freq,
-  });
+  const InviteSheet({super.key, required this.freq});
 
   @override
   State<InviteSheet> createState() => _InviteSheetState();
@@ -89,7 +86,8 @@ class _InviteSheetState extends State<InviteSheet> {
               ),
               itemCount: 81,
               itemBuilder: (_, i) {
-                final on = ((i * 37 + 7) % 3) == 0 ||
+                final on =
+                    ((i * 37 + 7) % 3) == 0 ||
                     [0, 1, 7, 8, 9, 17, 63, 64, 65, 71, 72].contains(i);
                 return Container(
                   decoration: BoxDecoration(

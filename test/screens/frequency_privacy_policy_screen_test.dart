@@ -15,20 +15,20 @@ Widget _wrap(Widget child) {
 
 void main() {
   group('FrequencyPrivacyPolicyScreen', () {
-    testWidgets('renders headline, eyebrow, and last-updated stamp',
-        (tester) async {
-      await tester
-          .pumpWidget(_wrap(const FrequencyPrivacyPolicyScreen()));
+    testWidgets('renders headline, eyebrow, and last-updated stamp', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const FrequencyPrivacyPolicyScreen()));
 
       expect(find.text('Privacy policy'), findsOneWidget);
       expect(find.text('POLICY'), findsOneWidget);
       expect(find.textContaining('Last updated'), findsOneWidget);
     });
 
-    testWidgets('renders all required Play Console policy sections',
-        (tester) async {
-      await tester
-          .pumpWidget(_wrap(const FrequencyPrivacyPolicyScreen()));
+    testWidgets('renders all required Play Console policy sections', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const FrequencyPrivacyPolicyScreen()));
 
       // Scroll through to make sure every section is built.
       final list = find.byType(ListView);
@@ -50,28 +50,40 @@ void main() {
         'Data retention and deletion',
         'Contact',
       ]) {
-        expect(find.text(title), findsOneWidget,
-            reason: 'Missing required policy section: $title');
+        expect(
+          find.text(title),
+          findsOneWidget,
+          reason: 'Missing required policy section: $title',
+        );
       }
     });
 
     testWidgets('close button pops the screen', (tester) async {
-      await tester.pumpWidget(_wrap(Builder(builder: (context) {
-        return Scaffold(
-          body: Center(
-            child: Builder(builder: (innerContext) {
-              return ElevatedButton(
-                onPressed: () => Navigator.of(innerContext).push(
-                  MaterialPageRoute(
-                    builder: (_) => const FrequencyPrivacyPolicyScreen(),
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Center(
+                  child: Builder(
+                    builder: (innerContext) {
+                      return ElevatedButton(
+                        onPressed: () => Navigator.of(innerContext).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const FrequencyPrivacyPolicyScreen(),
+                          ),
+                        ),
+                        child: const Text('open'),
+                      );
+                    },
                   ),
                 ),
-                child: const Text('open'),
               );
-            }),
+            },
           ),
-        );
-      })));
+        ),
+      );
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();

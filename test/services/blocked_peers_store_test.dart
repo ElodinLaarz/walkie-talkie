@@ -123,10 +123,7 @@ void main() {
         store.block('peer-C'),
         store.block('peer-D'),
       ]);
-      expect(
-        await store.getAll(),
-        {'peer-A', 'peer-B', 'peer-C', 'peer-D'},
-      );
+      expect(await store.getAll(), {'peer-A', 'peer-B', 'peer-C', 'peer-D'});
     });
 
     test('concurrent block / unblock of the same peer leaves a deterministic '

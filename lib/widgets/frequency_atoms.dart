@@ -103,7 +103,8 @@ class PulseDot extends StatefulWidget {
   State<PulseDot> createState() => _PulseDotState();
 }
 
-class _PulseDotState extends State<PulseDot> with SingleTickerProviderStateMixin {
+class _PulseDotState extends State<PulseDot>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1800),
@@ -143,10 +144,7 @@ class _PulseDotState extends State<PulseDot> with SingleTickerProviderStateMixin
               Container(
                 width: widget.size,
                 height: widget.size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color,
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
               ),
             ],
           );
@@ -178,8 +176,9 @@ class FreqAvatar extends StatelessWidget {
     final statusParts = <String>[];
     if (talking) statusParts.add('talking');
     if (muted) statusParts.add('muted');
-    final statusSuffix =
-        statusParts.isEmpty ? '' : ', ${statusParts.join(', ')}';
+    final statusSuffix = statusParts.isEmpty
+        ? ''
+        : ', ${statusParts.join(', ')}';
     return Semantics(
       label: '${person.name}$statusSuffix',
       image: true,
@@ -247,7 +246,8 @@ class _TalkRing extends StatefulWidget {
   State<_TalkRing> createState() => _TalkRingState();
 }
 
-class _TalkRingState extends State<_TalkRing> with SingleTickerProviderStateMixin {
+class _TalkRingState extends State<_TalkRing>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1400),
@@ -303,7 +303,10 @@ class _VuMeterState extends State<VuMeter> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
     if (widget.active) _ctrl.repeat();
   }
 
@@ -452,33 +455,33 @@ class FreqSwitch extends StatelessWidget {
               color: value ? c.accent : c.line2,
               borderRadius: BorderRadius.circular(999),
             ),
-          child: AnimatedAlign(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Container(
-                width: 16,
-                height: 16,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 2,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
+            child: AnimatedAlign(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 2,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 

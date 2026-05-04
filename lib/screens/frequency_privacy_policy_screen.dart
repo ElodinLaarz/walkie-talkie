@@ -73,10 +73,7 @@ class _Header extends StatelessWidget {
         const SizedBox(height: 10),
         Text(
           l10n.privacyPolicyLastUpdated,
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: c.ink3),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: c.ink3),
         ),
       ],
     );
@@ -92,57 +89,39 @@ class _Body extends StatelessWidget {
     final sections = <_Section>[
       _Section(
         title: l10n.privacyPolicySectionTldrTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionTldrBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionTldrBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionAudioTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionAudioBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionAudioBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionBluetoothTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionBluetoothBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionBluetoothBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionStorageTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionStorageBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionStorageBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionCrashTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionCrashBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionCrashBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionPermissionsTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionPermissionsBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionPermissionsBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionChildrenTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionChildrenBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionChildrenBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionDeletionTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionDeletionBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionDeletionBody],
       ),
       _Section(
         title: l10n.privacyPolicySectionContactTitle,
-        paragraphs: [
-          l10n.privacyPolicySectionContactBody,
-        ],
+        paragraphs: [l10n.privacyPolicySectionContactBody],
       ),
     ];
     return Column(
@@ -189,10 +168,9 @@ class _SectionView extends StatelessWidget {
             if (i > 0) const SizedBox(height: 8),
             Text(
               section.paragraphs[i],
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: c.ink2,
-                    height: 1.5,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: c.ink2, height: 1.5),
             ),
           ],
         ],

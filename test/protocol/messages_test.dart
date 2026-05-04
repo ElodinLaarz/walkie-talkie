@@ -48,18 +48,15 @@ void main() {
     });
 
     test('decode rejects messages with missing or non-int v', () {
-      final missingV =
-          '{"kind":"ping","peerId":"p1","seq":1,"atMs":0}';
-      final stringV =
-          '{"kind":"ping","peerId":"p1","seq":1,"atMs":0,"v":"1"}';
+      final missingV = '{"kind":"ping","peerId":"p1","seq":1,"atMs":0}';
+      final stringV = '{"kind":"ping","peerId":"p1","seq":1,"atMs":0,"v":"1"}';
       expect(() => FrequencyMessage.decode(missingV), throwsFormatException);
       expect(() => FrequencyMessage.decode(stringV), throwsFormatException);
     });
 
     test('decode rejects messages with missing or non-string kind', () {
       final missingKind = '{"peerId":"p1","seq":1,"atMs":0,"v":1}';
-      final intKind =
-          '{"kind":42,"peerId":"p1","seq":1,"atMs":0,"v":1}';
+      final intKind = '{"kind":42,"peerId":"p1","seq":1,"atMs":0,"v":1}';
       expect(() => FrequencyMessage.decode(missingKind), throwsFormatException);
       expect(() => FrequencyMessage.decode(intKind), throwsFormatException);
     });
@@ -110,7 +107,10 @@ void main() {
         roster: const [
           ProtocolPeer(peerId: 'p-host', displayName: 'You', muted: false),
           ProtocolPeer(
-              peerId: 'p-guest', displayName: 'Maya', btDevice: 'AirPods Pro'),
+            peerId: 'p-guest',
+            displayName: 'Maya',
+            btDevice: 'AirPods Pro',
+          ),
         ],
         mediaState: const MediaState(
           source: 'YouTube Music',
@@ -125,32 +125,34 @@ void main() {
       expect(round.mediaState?.trackIdx, 2);
     });
 
-    test('JoinAccepted carries voicePsm when set, omits it on the wire when null',
-        () {
-      // Set: 129 = 0x81, the lowest valid odd dynamic LE-CoC PSM.
-      final withPsm = JoinAccepted(
-        peerId: 'p-host',
-        seq: 7,
-        atMs: 1234,
-        hostPeerId: 'p-host',
-        roster: const [],
-        voicePsm: 129,
-      );
-      final round = _roundTrip(withPsm);
-      expect(round.voicePsm, 129);
+    test(
+      'JoinAccepted carries voicePsm when set, omits it on the wire when null',
+      () {
+        // Set: 129 = 0x81, the lowest valid odd dynamic LE-CoC PSM.
+        final withPsm = JoinAccepted(
+          peerId: 'p-host',
+          seq: 7,
+          atMs: 1234,
+          hostPeerId: 'p-host',
+          roster: const [],
+          voicePsm: 129,
+        );
+        final round = _roundTrip(withPsm);
+        expect(round.voicePsm, 129);
 
-      // Null: field is absent on the wire, parses back to null.
-      final withoutPsm = JoinAccepted(
-        peerId: 'p-host',
-        seq: 7,
-        atMs: 1234,
-        hostPeerId: 'p-host',
-        roster: const [],
-      );
-      final json = jsonDecode(withoutPsm.encode()) as Map<String, dynamic>;
-      expect(json.containsKey('voicePsm'), isFalse);
-      expect(_roundTrip(withoutPsm).voicePsm, isNull);
-    });
+        // Null: field is absent on the wire, parses back to null.
+        final withoutPsm = JoinAccepted(
+          peerId: 'p-host',
+          seq: 7,
+          atMs: 1234,
+          hostPeerId: 'p-host',
+          roster: const [],
+        );
+        final json = jsonDecode(withoutPsm.encode()) as Map<String, dynamic>;
+        expect(json.containsKey('voicePsm'), isFalse);
+        expect(_roundTrip(withoutPsm).voicePsm, isNull);
+      },
+    );
 
     test('JoinAccepted rejects invalid voicePsm values', () {
       const base =
@@ -163,8 +165,14 @@ void main() {
       final floatPsm = base.replaceFirst('}', ',"voicePsm":129.0}');
 
       expect(() => FrequencyMessage.decode(evenPsm), throwsFormatException);
-      expect(() => FrequencyMessage.decode(outOfRangeLow), throwsFormatException);
-      expect(() => FrequencyMessage.decode(outOfRangeHigh), throwsFormatException);
+      expect(
+        () => FrequencyMessage.decode(outOfRangeLow),
+        throwsFormatException,
+      );
+      expect(
+        () => FrequencyMessage.decode(outOfRangeHigh),
+        throwsFormatException,
+      );
       expect(() => FrequencyMessage.decode(stringPsm), throwsFormatException);
       expect(() => FrequencyMessage.decode(floatPsm), throwsFormatException);
     });
@@ -191,7 +199,11 @@ void main() {
 
     test('RemovePeer carries target', () {
       const msg = RemovePeer(
-          peerId: 'p-host', seq: 1, atMs: 0, target: 'p-rude-guest');
+        peerId: 'p-host',
+        seq: 1,
+        atMs: 0,
+        target: 'p-rude-guest',
+      );
       final round = _roundTrip(msg);
       expect(round.target, 'p-rude-guest');
     });
@@ -203,7 +215,12 @@ void main() {
         atMs: 0,
         roster: const [
           ProtocolPeer(peerId: 'a', displayName: 'A'),
-          ProtocolPeer(peerId: 'b', displayName: 'B', muted: true, talking: true),
+          ProtocolPeer(
+            peerId: 'b',
+            displayName: 'B',
+            muted: true,
+            talking: true,
+          ),
         ],
       );
       final round = _roundTrip(msg);
@@ -257,11 +274,14 @@ void main() {
       expect(round.positionMs, 91500);
     });
 
-    test('queue_play decoded without trackIdx is rejected as FormatException', () {
-      final wire =
-          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"queue_play","source":"YouTube Music"}';
-      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
-    });
+    test(
+      'queue_play decoded without trackIdx is rejected as FormatException',
+      () {
+        final wire =
+            '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"queue_play","source":"YouTube Music"}';
+        expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+      },
+    );
 
     test('seek decoded without positionMs is rejected as FormatException', () {
       final wire =
@@ -361,10 +381,15 @@ void main() {
           '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":-1,"underrunsPerSec":0.1}';
       final negativeUnderruns =
           '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":40,"underrunsPerSec":-0.5}';
-      expect(() => FrequencyMessage.decode(negativeLoss), throwsFormatException);
+      expect(
+        () => FrequencyMessage.decode(negativeLoss),
+        throwsFormatException,
+      );
       expect(() => FrequencyMessage.decode(overLoss), throwsFormatException);
       expect(
-          () => FrequencyMessage.decode(negativeJitter), throwsFormatException);
+        () => FrequencyMessage.decode(negativeJitter),
+        throwsFormatException,
+      );
       expect(
         () => FrequencyMessage.decode(negativeUnderruns),
         throwsFormatException,
@@ -448,21 +473,21 @@ void main() {
     // becomes non-exhaustive and the analyzer fails. That's the whole point
     // of using sealed for the protocol.
     String describe(FrequencyMessage m) => switch (m) {
-          JoinRequest() => 'join_request',
-          JoinAccepted() => 'join_accepted',
-          JoinDenied() => 'join_denied',
-          Leave() => 'leave',
-          RemovePeer() => 'remove_peer',
-          RosterUpdate() => 'roster_update',
-          TalkingState() => 'talking',
-          MuteState() => 'mute',
-          MediaCommand() => 'media',
-          SignalReport() => 'signal_report',
-          LinkQuality() => 'link_quality',
-          BitrateHint() => 'bitrate_hint',
-          Heartbeat() => 'ping',
-          HostTransfer() => 'host_transfer',
-        };
+      JoinRequest() => 'join_request',
+      JoinAccepted() => 'join_accepted',
+      JoinDenied() => 'join_denied',
+      Leave() => 'leave',
+      RemovePeer() => 'remove_peer',
+      RosterUpdate() => 'roster_update',
+      TalkingState() => 'talking',
+      MuteState() => 'mute',
+      MediaCommand() => 'media',
+      SignalReport() => 'signal_report',
+      LinkQuality() => 'link_quality',
+      BitrateHint() => 'bitrate_hint',
+      Heartbeat() => 'ping',
+      HostTransfer() => 'host_transfer',
+    };
 
     test('every kind has a branch', () {
       const samples = <FrequencyMessage>[

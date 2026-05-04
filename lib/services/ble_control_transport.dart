@@ -50,7 +50,7 @@ class BleControlTransport {
       StreamController<FrequencyMessage>.broadcast();
 
   late final StreamSubscription<({String endpointId, Uint8List bytes})>
-      _subscription;
+  _subscription;
 
   /// Endpoint the next [send] should size against. The cubit sets this
   /// to the host's BT MAC once a guest has connected; the host has no
@@ -82,8 +82,8 @@ class BleControlTransport {
   Stream<FrequencyMessage> get incoming => _incoming.stream;
 
   BleControlTransport(AudioService audio)
-      : _writeBytes = audio.writeControlBytes,
-        _getMtu = audio.getNegotiatedMtu {
+    : _writeBytes = audio.writeControlBytes,
+      _getMtu = audio.getNegotiatedMtu {
     _subscription = audio.controlBytes.listen(_onControlBytes);
   }
 
@@ -98,8 +98,8 @@ class BleControlTransport {
     required Stream<({String endpointId, Uint8List bytes})> controlBytes,
     required Future<void> Function(Uint8List bytes) writeBytes,
     Future<int?> Function(String endpointId)? getMtu,
-  })  : _writeBytes = writeBytes,
-        _getMtu = getMtu {
+  }) : _writeBytes = writeBytes,
+       _getMtu = getMtu {
     _subscription = controlBytes.listen(_onControlBytes);
   }
 

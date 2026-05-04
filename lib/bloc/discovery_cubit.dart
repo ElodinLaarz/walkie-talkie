@@ -24,8 +24,8 @@ class DiscoveryCubit extends Cubit<DiscoveryState> {
       final sessions = state is DiscoveryScanning
           ? (state as DiscoveryScanning).sessions
           : (state is DiscoveryStopped
-              ? (state as DiscoveryStopped).sessions
-              : const <DiscoveredSession>[]);
+                ? (state as DiscoveryStopped).sessions
+                : const <DiscoveredSession>[]);
       emit(DiscoveryStopped(sessions: sessions));
     }
   }

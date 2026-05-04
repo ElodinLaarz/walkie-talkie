@@ -8,8 +8,10 @@ class QueueSheet extends StatelessWidget {
   final MediaSourceLib lib;
   final int currentIdx;
   final ValueChanged<int> onPlay;
+
   /// Host-only: opens the source picker to switch the shared media source.
   final VoidCallback? onChangeSource;
+
   /// Host-only: launches the active streaming app so the host can pick music.
   /// Null when the current source has no canonical app (e.g. generic Podcasts)
   /// or when lib.name is empty (initial state before the first host snapshot).
@@ -66,7 +68,11 @@ class QueueSheet extends StatelessWidget {
                         ),
                         Text(
                           'From ${lib.name} · everyone can reorder',
-                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: c.ink3,
+                          ),
                         ),
                       ],
                     ),
@@ -106,62 +112,75 @@ class QueueSheet extends StatelessWidget {
                       child: InkWell(
                         onTap: () => onPlay(i),
                         child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            top: i == 0 ? BorderSide.none : BorderSide(color: c.line),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              top: i == 0
+                                  ? BorderSide.none
+                                  : BorderSide(color: c.line),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 28,
+                                child: Center(
+                                  child: current
+                                      ? VuMeter(color: c.accent)
+                                      : Text(
+                                          (i + 1).toString().padLeft(2, '0'),
+                                          style: kMonoStyle.copyWith(
+                                            fontSize: 12,
+                                            color: c.ink3,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      t.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 14,
+                                        fontWeight: current
+                                            ? FontWeight.w600
+                                            : FontWeight.w500,
+                                        color: c.ink,
+                                      ),
+                                    ),
+                                    Text(
+                                      t.artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 12,
+                                        color: c.ink3,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                formatTime(t.durationSeconds),
+                                style: kMonoStyle.copyWith(
+                                  fontSize: 12,
+                                  color: c.ink3,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 28,
-                              child: Center(
-                                child: current
-                                    ? VuMeter(color: c.accent)
-                                    : Text(
-                                        (i + 1).toString().padLeft(2, '0'),
-                                        style: kMonoStyle.copyWith(fontSize: 12, color: c.ink3),
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    t.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 14,
-                                      fontWeight: current ? FontWeight.w600 : FontWeight.w500,
-                                      color: c.ink,
-                                    ),
-                                  ),
-                                  Text(
-                                    t.artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 12,
-                                      color: c.ink3,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              formatTime(t.durationSeconds),
-                              style: kMonoStyle.copyWith(fontSize: 12, color: c.ink3),
-                            ),
-                          ],
-                        ),
-                      ),
                       ),
                     );
                   },

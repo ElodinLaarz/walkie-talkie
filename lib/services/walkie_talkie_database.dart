@@ -47,8 +47,8 @@ class WalkieTalkieDatabase {
   static Future<Database> _openInternal() async {
     try {
       final factory = _factoryOverride ?? databaseFactory;
-      final dbPath = _pathOverride ??
-          p.join(await factory.getDatabasesPath(), _dbName);
+      final dbPath =
+          _pathOverride ?? p.join(await factory.getDatabasesPath(), _dbName);
       final db = await factory.openDatabase(
         dbPath,
         options: OpenDatabaseOptions(

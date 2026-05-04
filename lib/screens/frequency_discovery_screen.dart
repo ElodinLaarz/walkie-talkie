@@ -56,20 +56,20 @@ class DiscoveryResult {
     this.macAddress,
     this.sessionUuidLow8,
     this.hostSessionUuid,
-  })  : assert(
-          !isHost || (macAddress == null && sessionUuidLow8 == null),
-          'host DiscoveryResult must have null macAddress + sessionUuidLow8 — '
-          'the local user IS the host, there is no remote to dial',
-        ),
-        assert(
-          isHost || (macAddress != null && sessionUuidLow8 != null),
-          'guest DiscoveryResult must carry both macAddress and sessionUuidLow8 — '
-          'the GATT-client transport reads both off the room state to dial the host',
-        ),
-        assert(
-          hostSessionUuid == null || isHost,
-          'hostSessionUuid is only meaningful on the host (Resume) path',
-        );
+  }) : assert(
+         !isHost || (macAddress == null && sessionUuidLow8 == null),
+         'host DiscoveryResult must have null macAddress + sessionUuidLow8 — '
+         'the local user IS the host, there is no remote to dial',
+       ),
+       assert(
+         isHost || (macAddress != null && sessionUuidLow8 != null),
+         'guest DiscoveryResult must carry both macAddress and sessionUuidLow8 — '
+         'the GATT-client transport reads both off the room state to dial the host',
+       ),
+       assert(
+         hostSessionUuid == null || isHost,
+         'hostSessionUuid is only meaningful on the host (Resume) path',
+       );
 }
 
 /// Discovery — find & join a Frequency.
@@ -119,7 +119,8 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   });
 
   @override
-  State<FrequencyDiscoveryScreen> createState() => _FrequencyDiscoveryScreenState();
+  State<FrequencyDiscoveryScreen> createState() =>
+      _FrequencyDiscoveryScreenState();
 }
 
 class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
@@ -132,7 +133,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   void initState() {
     super.initState();
     _newFreq = FrequencySession.randomMhzDisplay(Random());
-    
+
     // Start scanning automatically when entering the screen.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -166,14 +167,15 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               left: const FrequencyWordmark(),
               right: [
                 _BluetoothChip(onToggle: _toggleScan),
-                _IdentityChip(
-                  name: widget.myName,
-                  onTap: _openRenameSheet,
-                ),
+                _IdentityChip(name: widget.myName, onTap: _openRenameSheet),
                 Tooltip(
                   message: l10n.settingsTooltip,
                   child: IconButton(
-                    icon: Icon(Icons.settings_outlined, size: 20, color: c.ink2),
+                    icon: Icon(
+                      Icons.settings_outlined,
+                      size: 20,
+                      color: c.ink2,
+                    ),
                     onPressed: _openSettings,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(
@@ -269,7 +271,8 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
         final scanning = state is DiscoveryScanning;
-        final hasResults = (state is DiscoveryScanning && state.sessions.isNotEmpty) ||
+        final hasResults =
+            (state is DiscoveryScanning && state.sessions.isNotEmpty) ||
             (state is DiscoveryStopped && state.sessions.isNotEmpty);
 
         return Padding(
@@ -281,8 +284,8 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                 scanning
                     ? l10n.discoveryHeroEyebrowScanning
                     : (hasResults
-                        ? l10n.discoveryHeroEyebrowPaused
-                        : l10n.discoveryHeroEyebrowEmpty),
+                          ? l10n.discoveryHeroEyebrowPaused
+                          : l10n.discoveryHeroEyebrowEmpty),
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 12,
@@ -299,7 +302,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               const SizedBox(height: 10),
               Text(
                 l10n.discoveryHeroBody,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: c.ink2),
               ),
             ],
           ),
@@ -321,12 +326,17 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
             block: true,
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,
-            onPressed: () => widget.onPick(DiscoveryResult(freq: _newFreq, isHost: true)),
+            onPressed: () =>
+                widget.onPick(DiscoveryResult(freq: _newFreq, isHost: true)),
           ),
           const SizedBox(height: 10),
           Text.rich(
             TextSpan(
-              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: c.ink3,
+              ),
               children: styledTemplate(
                 template: l10n.discoveryNewFreqHint,
                 value: '$_newFreq MHz',
@@ -422,32 +432,34 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               first: i == 0,
               accent: c.accentSoft,
               accentInk: c.accentInk,
-              onResume: () => widget.onPick(DiscoveryResult(
-                freq: widget.recentHostedFrequencies[i].freq,
-                isHost: true,
-                // Plumb the persisted sessionUuid through so the cubit's
-                // host path reuses it instead of minting a fresh one
-                // (#219). Null for legacy rows recorded before v4 of the
-                // db schema; cubit falls back to minting in that case.
-                hostSessionUuid:
-                    widget.recentHostedFrequencies[i].sessionUuid,
-              )),
+              onResume: () => widget.onPick(
+                DiscoveryResult(
+                  freq: widget.recentHostedFrequencies[i].freq,
+                  isHost: true,
+                  // Plumb the persisted sessionUuid through so the cubit's
+                  // host path reuses it instead of minting a fresh one
+                  // (#219). Null for legacy rows recorded before v4 of the
+                  // db schema; cubit falls back to minting in that case.
+                  hostSessionUuid:
+                      widget.recentHostedFrequencies[i].sessionUuid,
+                ),
+              ),
               onRename: widget.onSetRecentNickname == null
                   ? null
                   : () => _openRecentNicknameSheet(
-                        widget.recentHostedFrequencies[i],
-                      ),
+                      widget.recentHostedFrequencies[i],
+                    ),
               onTogglePin: widget.onSetRecentPinned == null
                   ? null
                   : () => widget.onSetRecentPinned!(
-                        widget.recentHostedFrequencies[i].freq,
-                        !widget.recentHostedFrequencies[i].pinned,
-                      ),
+                      widget.recentHostedFrequencies[i].freq,
+                      !widget.recentHostedFrequencies[i].pinned,
+                    ),
               onDelete: widget.onDeleteRecent == null
                   ? null
                   : () => _confirmAndDeleteRecent(
-                        widget.recentHostedFrequencies[i],
-                      ),
+                      widget.recentHostedFrequencies[i],
+                    ),
             ),
         ],
       ),
@@ -510,12 +522,12 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
       builder: (context, state) {
         final sessions = state is DiscoveryScanning
             ? state.sessions
-            : (state is DiscoveryStopped ? state.sessions : const <DiscoveredSession>[]);
+            : (state is DiscoveryStopped
+                  ? state.sessions
+                  : const <DiscoveredSession>[]);
 
         if (sessions.isEmpty) {
-          return _EmptyState(
-            onShowExplainer: _openExplainer,
-          );
+          return _EmptyState(onShowExplainer: _openExplainer);
         }
 
         return FreqCard(
@@ -528,15 +540,18 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                   s: sessions[i],
                   first: i == 0,
                   selected: _selectedId == sessions[i].sessionUuidLow8,
-                  onPick: () => setState(() => _selectedId = sessions[i].sessionUuidLow8),
+                  onPick: () =>
+                      setState(() => _selectedId = sessions[i].sessionUuidLow8),
                   onJoin: () {
                     final session = sessions[i];
-                    widget.onPick(DiscoveryResult(
-                      freq: session.mhzDisplay,
-                      isHost: false,
-                      macAddress: session.macAddress,
-                      sessionUuidLow8: session.sessionUuidLow8,
-                    ));
+                    widget.onPick(
+                      DiscoveryResult(
+                        freq: session.mhzDisplay,
+                        isHost: false,
+                        macAddress: session.macAddress,
+                        sessionUuidLow8: session.sessionUuidLow8,
+                      ),
+                    );
                   },
                 ),
             ],
@@ -549,9 +564,8 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   Future<void> _openExplainer() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FrequencyExplainerScreen(
-          onDone: () => Navigator.of(context).pop(),
-        ),
+        builder: (_) =>
+            FrequencyExplainerScreen(onDone: () => Navigator.of(context).pop()),
       ),
     );
   }
@@ -576,18 +590,14 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
 
   Future<void> _openPrivacyPolicy() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const FrequencyPrivacyPolicyScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const FrequencyPrivacyPolicyScreen()),
     );
   }
 
   Future<void> _openSecurityFaq() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const SecurityFaqScreen(),
-      ),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SecurityFaqScreen()));
   }
 
   void _openLicenses() {
@@ -714,11 +724,7 @@ class _NearbyRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
-                child: Icon(
-                  Icons.radio,
-                  size: 16,
-                  color: c.accentInk,
-                ),
+                child: Icon(Icons.radio, size: 16, color: c.accentInk),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -726,7 +732,9 @@ class _NearbyRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      s.hostName.isEmpty ? l10n.discoveryUnknownHost : s.hostName,
+                      s.hostName.isEmpty
+                          ? l10n.discoveryUnknownHost
+                          : s.hostName,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 14,
@@ -759,7 +767,10 @@ class _NearbyRow extends StatelessWidget {
                 FreqButton(
                   accent: true,
                   label: l10n.discoveryTuneIn,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   fontSize: 13,
                   onPressed: onJoin,
                 ),
@@ -771,7 +782,6 @@ class _NearbyRow extends StatelessWidget {
     );
   }
 }
-
 
 /// One row in the "Recent" card — a single tappable hit-target that
 /// re-hosts the freq when activated. Mirrors `_NearbyRow`'s visual
@@ -905,8 +915,10 @@ class _RecentRow extends StatelessWidget {
               FreqButton(
                 accent: true,
                 label: l10n.discoveryRecentRowResume,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
                 fontSize: 13,
                 onPressed: onResume,
               ),
@@ -1035,8 +1047,9 @@ class _RecentNicknameSheet extends StatefulWidget {
 }
 
 class _RecentNicknameSheetState extends State<_RecentNicknameSheet> {
-  late final TextEditingController _ctrl =
-      TextEditingController(text: widget.entry.nickname ?? '');
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.entry.nickname ?? '',
+  );
 
   @override
   void dispose() {
@@ -1239,8 +1252,9 @@ class _RenameSheet extends StatefulWidget {
 }
 
 class _RenameSheetState extends State<_RenameSheet> {
-  late final TextEditingController _ctrl =
-      TextEditingController(text: widget.initial);
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.initial,
+  );
 
   @override
   void dispose() {
@@ -1351,11 +1365,7 @@ class _EmptyState extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             alignment: Alignment.center,
-            child: Icon(
-              Icons.search_off,
-              size: 28,
-              color: c.ink3,
-            ),
+            child: Icon(Icons.search_off, size: 28, color: c.ink3),
           ),
           const SizedBox(height: 16),
           Text(
@@ -1383,8 +1393,7 @@ class _EmptyState extends StatelessWidget {
           TextButton(
             onPressed: onShowExplainer,
             style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               foregroundColor: c.accent,
             ),
             child: Text(

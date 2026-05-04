@@ -52,15 +52,18 @@ void main() {
 
     resultsController.add(sessions);
     await Future.delayed(Duration.zero);
-    
+
     expect(cubit.state, DiscoveryScanning(sessions: sessions));
   });
 
-  test('startDiscovery handles startScan failure with explicit failure state', () async {
-    when(mockService.startScan()).thenThrow(Exception('permission denied'));
-    await cubit.startDiscovery();
-    expect(cubit.state, const DiscoveryStopped());
-  });
+  test(
+    'startDiscovery handles startScan failure with explicit failure state',
+    () async {
+      when(mockService.startScan()).thenThrow(Exception('permission denied'));
+      await cubit.startDiscovery();
+      expect(cubit.state, const DiscoveryStopped());
+    },
+  );
 
   test('stopDiscovery clears sessions when paused', () async {
     await cubit.startDiscovery();
@@ -77,7 +80,7 @@ void main() {
     ];
     resultsController.add(sessions);
     await Future.delayed(Duration.zero);
-    
+
     await cubit.stopDiscovery();
     expect(cubit.state, const DiscoveryStopped()); // empty sessions expected
   });

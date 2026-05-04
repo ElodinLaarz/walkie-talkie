@@ -18,7 +18,7 @@ class DiscoveryService {
   Stream<List<DiscoveredSession>> get results => _resultsController.stream;
 
   final Map<String, ({DiscoveredSession session, DateTime lastSeen})>
-      _discovered = {};
+  _discovered = {};
   StreamSubscription? _scanSubscription;
 
   /// Starts scanning for Frequency advertisements.
@@ -51,8 +51,10 @@ class DiscoveryService {
       for (ScanResult r in results) {
         final session = parseResult(r);
         if (session != null) {
-          _discovered[session.sessionUuidLow8] =
-              (session: session, lastSeen: DateTime.now());
+          _discovered[session.sessionUuidLow8] = (
+            session: session,
+            lastSeen: DateTime.now(),
+          );
         }
       }
       // Emit unconditionally so the freshness window prunes stale entries
@@ -83,9 +85,7 @@ class DiscoveryService {
   void _emit() {
     final cutoff = DateTime.now().subtract(freshnessWindow);
     _discovered.removeWhere((_, entry) => entry.lastSeen.isBefore(cutoff));
-    _resultsController.add(
-      _discovered.values.map((e) => e.session).toList(),
-    );
+    _resultsController.add(_discovered.values.map((e) => e.session).toList());
   }
 
   @visibleForTesting

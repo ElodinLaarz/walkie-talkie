@@ -42,16 +42,18 @@ void main() {
       expect(await store.getRecent(), ['88.7', '100.1', '92.4']);
     });
 
-    test('re-recording an existing freq de-dupes and moves it to the front',
-        () async {
-      // Without dedupe, hosting the same channel twice would crowd out
-      // older entries with copies of itself.
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('92.4');
-      await store.record('100.1');
-      await store.record('92.4');
-      expect(await store.getRecent(), ['92.4', '100.1']);
-    });
+    test(
+      're-recording an existing freq de-dupes and moves it to the front',
+      () async {
+        // Without dedupe, hosting the same channel twice would crowd out
+        // older entries with copies of itself.
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('92.4');
+        await store.record('100.1');
+        await store.record('92.4');
+        expect(await store.getRecent(), ['92.4', '100.1']);
+      },
+    );
 
     test('caps the list at maxEntries (older entries roll off)', () async {
       final store = SqfliteRecentFrequenciesStore();
@@ -81,15 +83,17 @@ void main() {
       expect(await store.getRecent(), ['92.4']);
     });
 
-    test('persists across new SqfliteRecentFrequenciesStore instances',
-        () async {
-      final first = SqfliteRecentFrequenciesStore();
-      await first.record('92.4');
-      await first.record('100.1');
+    test(
+      'persists across new SqfliteRecentFrequenciesStore instances',
+      () async {
+        final first = SqfliteRecentFrequenciesStore();
+        await first.record('92.4');
+        await first.record('100.1');
 
-      final second = SqfliteRecentFrequenciesStore();
-      expect(await second.getRecent(), ['100.1', '92.4']);
-    });
+        final second = SqfliteRecentFrequenciesStore();
+        expect(await second.getRecent(), ['100.1', '92.4']);
+      },
+    );
 
     test('clear empties the list', () async {
       final store = SqfliteRecentFrequenciesStore();
@@ -101,17 +105,19 @@ void main() {
 
     // ── delete (#221) ───────────────────────────────────────────────────
 
-    test('delete removes the specified entry and leaves others intact',
-        () async {
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('92.4');
-      await store.record('100.1');
-      await store.record('88.7');
-      await store.delete('100.1');
-      final recent = await store.getRecent();
-      expect(recent, ['88.7', '92.4']);
-      expect(recent, isNot(contains('100.1')));
-    });
+    test(
+      'delete removes the specified entry and leaves others intact',
+      () async {
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('92.4');
+        await store.record('100.1');
+        await store.record('88.7');
+        await store.delete('100.1');
+        final recent = await store.getRecent();
+        expect(recent, ['88.7', '92.4']);
+        expect(recent, isNot(contains('100.1')));
+      },
+    );
 
     test('delete on a pinned entry removes it', () async {
       final store = SqfliteRecentFrequenciesStore();
@@ -185,15 +191,17 @@ void main() {
       );
     });
 
-    test('setNickname trims and round-trips through getRecentDetailed',
-        () async {
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('92.4');
-      await store.setNickname('92.4', '  Family channel  ');
+    test(
+      'setNickname trims and round-trips through getRecentDetailed',
+      () async {
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('92.4');
+        await store.setNickname('92.4', '  Family channel  ');
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.nickname, 'Family channel');
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.nickname, 'Family channel');
+      },
+    );
 
     test('setNickname with null clears an existing nickname', () async {
       final store = SqfliteRecentFrequenciesStore();
@@ -235,32 +243,36 @@ void main() {
       expect(detailed.single.nickname, 'Family channel');
     });
 
-    test('setPinned floats a pinned row to the top of getRecentDetailed',
-        () async {
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('100.1');
-      await store.record('92.4');
-      await store.record('88.7');
-      // Without the pin, ordering is recorded_at DESC: 88.7, 92.4, 100.1.
-      await store.setPinned('100.1', true);
+    test(
+      'setPinned floats a pinned row to the top of getRecentDetailed',
+      () async {
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('100.1');
+        await store.record('92.4');
+        await store.record('88.7');
+        // Without the pin, ordering is recorded_at DESC: 88.7, 92.4, 100.1.
+        await store.setPinned('100.1', true);
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.first.freq, '100.1');
-      expect(detailed.first.pinned, isTrue);
-      // Unpinned rows retain their relative recorded_at DESC ordering.
-      expect(detailed.skip(1).map((e) => e.freq).toList(), ['88.7', '92.4']);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.first.freq, '100.1');
+        expect(detailed.first.pinned, isTrue);
+        // Unpinned rows retain their relative recorded_at DESC ordering.
+        expect(detailed.skip(1).map((e) => e.freq).toList(), ['88.7', '92.4']);
+      },
+    );
 
-    test('setPinned(false) demotes a row back into the unpinned group',
-        () async {
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('92.4');
-      await store.setPinned('92.4', true);
-      await store.setPinned('92.4', false);
+    test(
+      'setPinned(false) demotes a row back into the unpinned group',
+      () async {
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('92.4');
+        await store.setPinned('92.4', true);
+        await store.setPinned('92.4', false);
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.pinned, isFalse);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.pinned, isFalse);
+      },
+    );
 
     test('record preserves an existing pinned flag when re-hosted', () async {
       final store = SqfliteRecentFrequenciesStore();
@@ -272,33 +284,35 @@ void main() {
       expect(detailed.single.pinned, isTrue);
     });
 
-    test('unpinning re-applies the cap so the unpinned bucket stays bounded',
-        () async {
-      // The cap is on UNPINNED rows only, so a pinned row "borrows" a
-      // slot. Unpinning it can push the unpinned count past `maxEntries`
-      // — `_doSetPinned(false)` must drop the oldest unpinned to stay
-      // bounded, otherwise the on-disk row count drifts upward whenever
-      // a user pins-then-unpins.
-      final store = SqfliteRecentFrequenciesStore();
-      await store.record('70.0');
-      await store.setPinned('70.0', true);
-      // Fill the unpinned bucket to the cap with newer records.
-      for (var i = 0; i < RecentFrequenciesStore.maxEntries; i++) {
-        await store.record('${88 + i}.0');
-      }
-      // Pre-condition: maxEntries unpinned + 1 pinned = maxEntries + 1.
-      var detailed = await store.getRecentDetailed();
-      expect(detailed.length, RecentFrequenciesStore.maxEntries + 1);
+    test(
+      'unpinning re-applies the cap so the unpinned bucket stays bounded',
+      () async {
+        // The cap is on UNPINNED rows only, so a pinned row "borrows" a
+        // slot. Unpinning it can push the unpinned count past `maxEntries`
+        // — `_doSetPinned(false)` must drop the oldest unpinned to stay
+        // bounded, otherwise the on-disk row count drifts upward whenever
+        // a user pins-then-unpins.
+        final store = SqfliteRecentFrequenciesStore();
+        await store.record('70.0');
+        await store.setPinned('70.0', true);
+        // Fill the unpinned bucket to the cap with newer records.
+        for (var i = 0; i < RecentFrequenciesStore.maxEntries; i++) {
+          await store.record('${88 + i}.0');
+        }
+        // Pre-condition: maxEntries unpinned + 1 pinned = maxEntries + 1.
+        var detailed = await store.getRecentDetailed();
+        expect(detailed.length, RecentFrequenciesStore.maxEntries + 1);
 
-      // Unpin 70.0. It's the oldest unpinned now, so it itself should
-      // roll off the bottom of the unpinned bucket.
-      await store.setPinned('70.0', false);
+        // Unpin 70.0. It's the oldest unpinned now, so it itself should
+        // roll off the bottom of the unpinned bucket.
+        await store.setPinned('70.0', false);
 
-      detailed = await store.getRecentDetailed();
-      expect(detailed.length, RecentFrequenciesStore.maxEntries);
-      expect(detailed.every((e) => !e.pinned), isTrue);
-      expect(detailed.any((e) => e.freq == '70.0'), isFalse);
-    });
+        detailed = await store.getRecentDetailed();
+        expect(detailed.length, RecentFrequenciesStore.maxEntries);
+        expect(detailed.every((e) => !e.pinned), isTrue);
+        expect(detailed.any((e) => e.freq == '70.0'), isFalse);
+      },
+    );
 
     test('pinned entries are exempt from the rolling cap', () async {
       // Otherwise a user-curated pin would silently roll off as soon as
@@ -320,8 +334,7 @@ void main() {
       expect(unpinned.length, RecentFrequenciesStore.maxEntries);
     });
 
-    test('getRecent projects getRecentDetailed onto its freq column',
-        () async {
+    test('getRecent projects getRecentDetailed onto its freq column', () async {
       final store = SqfliteRecentFrequenciesStore();
       await store.record('100.1');
       await store.record('92.4');
@@ -339,19 +352,21 @@ void main() {
 
     // ── sessionUuid (#219) ──────────────────────────────────────────
 
-    test('record(sessionUuid: ...) round-trips through getRecentDetailed',
-        () async {
-      // The Resume path on Discovery reads sessionUuid off the
-      // RecentFrequency record so it can reconstitute the same room
-      // instead of minting a fresh UUID.
-      final store = SqfliteRecentFrequenciesStore();
-      const uuid = '00000000-0000-4000-8000-0000000000a3';
-      await store.record('104.3', sessionUuid: uuid);
+    test(
+      'record(sessionUuid: ...) round-trips through getRecentDetailed',
+      () async {
+        // The Resume path on Discovery reads sessionUuid off the
+        // RecentFrequency record so it can reconstitute the same room
+        // instead of minting a fresh UUID.
+        final store = SqfliteRecentFrequenciesStore();
+        const uuid = '00000000-0000-4000-8000-0000000000a3';
+        await store.record('104.3', sessionUuid: uuid);
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.freq, '104.3');
-      expect(detailed.single.sessionUuid, uuid);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.freq, '104.3');
+        expect(detailed.single.sessionUuid, uuid);
+      },
+    );
 
     test('record without a sessionUuid leaves the column NULL', () async {
       // Pre-#219 callers and any future caller without a uuid handy.
@@ -364,10 +379,8 @@ void main() {
       expect(detailed.single.sessionUuid, isNull);
     });
 
-    test(
-        'record with empty / whitespace-only sessionUuid normalizes to null '
-        'and does NOT clobber a stored uuid',
-        () async {
+    test('record with empty / whitespace-only sessionUuid normalizes to null '
+        'and does NOT clobber a stored uuid', () async {
       // Without the write-side normalization, an empty string would be
       // non-null to COALESCE and overwrite a valid stored uuid — Resume
       // would then dial a blank session and silently fall back to mint.
@@ -382,10 +395,8 @@ void main() {
       expect(detailed.single.sessionUuid, uuid);
     });
 
-    test(
-        'record with empty sessionUuid on a fresh row leaves the column NULL '
-        '(not the literal empty string)',
-        () async {
+    test('record with empty sessionUuid on a fresh row leaves the column NULL '
+        '(not the literal empty string)', () async {
       // The other half of the normalization: a fresh row with an empty
       // incoming uuid must not be written as `''` and round-trip as
       // null on read, since that would make `setNickname`-style updates
@@ -398,56 +409,59 @@ void main() {
     });
 
     test(
-        're-recording the same freq with a new uuid overwrites the stored uuid',
-        () async {
-      // The most-recent host's sessionUuid is what Resume should target.
-      // If a user re-hosts the same freq from a different session, the
-      // stored uuid must move forward; otherwise Resume would dial a stale
-      // session that is no longer being advertised.
-      final store = SqfliteRecentFrequenciesStore();
-      const uuidA = '00000000-0000-4000-8000-0000000000a3';
-      const uuidB = '11111111-1111-4111-8111-1111111111a3';
-      await store.record('104.3', sessionUuid: uuidA);
-      await store.record('104.3', sessionUuid: uuidB);
+      're-recording the same freq with a new uuid overwrites the stored uuid',
+      () async {
+        // The most-recent host's sessionUuid is what Resume should target.
+        // If a user re-hosts the same freq from a different session, the
+        // stored uuid must move forward; otherwise Resume would dial a stale
+        // session that is no longer being advertised.
+        final store = SqfliteRecentFrequenciesStore();
+        const uuidA = '00000000-0000-4000-8000-0000000000a3';
+        const uuidB = '11111111-1111-4111-8111-1111111111a3';
+        await store.record('104.3', sessionUuid: uuidA);
+        await store.record('104.3', sessionUuid: uuidB);
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed, hasLength(1));
-      expect(detailed.single.sessionUuid, uuidB);
-    });
-
-    test(
-        're-recording with null does NOT clobber an already-stored uuid',
-        () async {
-      // COALESCE rule: a null incoming uuid means "I don't have one to
-      // contribute," not "clear the field." Important for migration —
-      // legacy callers that pass no uuid must not silently strip a uuid
-      // that a post-#219 caller already persisted.
-      final store = SqfliteRecentFrequenciesStore();
-      const uuid = '00000000-0000-4000-8000-0000000000a3';
-      await store.record('104.3', sessionUuid: uuid);
-      await store.record('104.3'); // legacy-style, no uuid
-
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.sessionUuid, uuid);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed, hasLength(1));
+        expect(detailed.single.sessionUuid, uuidB);
+      },
+    );
 
     test(
-        're-recording preserves nickname + pinned alongside the uuid update',
-        () async {
-      // Existing #125 invariant (record preserves user-curated metadata)
-      // continues to hold when the sessionUuid is being updated.
-      final store = SqfliteRecentFrequenciesStore();
-      const uuid = '00000000-0000-4000-8000-0000000000a3';
-      await store.record('104.3');
-      await store.setNickname('104.3', 'Family channel');
-      await store.setPinned('104.3', true);
-      await store.record('104.3', sessionUuid: uuid);
+      're-recording with null does NOT clobber an already-stored uuid',
+      () async {
+        // COALESCE rule: a null incoming uuid means "I don't have one to
+        // contribute," not "clear the field." Important for migration —
+        // legacy callers that pass no uuid must not silently strip a uuid
+        // that a post-#219 caller already persisted.
+        final store = SqfliteRecentFrequenciesStore();
+        const uuid = '00000000-0000-4000-8000-0000000000a3';
+        await store.record('104.3', sessionUuid: uuid);
+        await store.record('104.3'); // legacy-style, no uuid
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.nickname, 'Family channel');
-      expect(detailed.single.pinned, isTrue);
-      expect(detailed.single.sessionUuid, uuid);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.sessionUuid, uuid);
+      },
+    );
+
+    test(
+      're-recording preserves nickname + pinned alongside the uuid update',
+      () async {
+        // Existing #125 invariant (record preserves user-curated metadata)
+        // continues to hold when the sessionUuid is being updated.
+        final store = SqfliteRecentFrequenciesStore();
+        const uuid = '00000000-0000-4000-8000-0000000000a3';
+        await store.record('104.3');
+        await store.setNickname('104.3', 'Family channel');
+        await store.setPinned('104.3', true);
+        await store.record('104.3', sessionUuid: uuid);
+
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.nickname, 'Family channel');
+        expect(detailed.single.pinned, isTrue);
+        expect(detailed.single.sessionUuid, uuid);
+      },
+    );
 
     test('sessionUuid persists across new store instances', () async {
       // Same persistence guarantee as nickname + pinned — a fresh store
@@ -462,8 +476,7 @@ void main() {
       expect(detailed.single.sessionUuid, uuid);
     });
 
-    test('nickname + pinned both persist across new store instances',
-        () async {
+    test('nickname + pinned both persist across new store instances', () async {
       final first = SqfliteRecentFrequenciesStore();
       await first.record('92.4');
       await first.setNickname('92.4', 'Family channel');
@@ -542,77 +555,85 @@ void main() {
       await v3.close();
     }
 
-    test('opens a v3 install, runs the upgrade, surfaces session_uuid as NULL',
-        () async {
-      // Pre-existing legacy row gets a NULL session_uuid post-upgrade
-      // (the cubit's host path will mint a fresh uuid for it on Resume,
-      // matching pre-#219 behaviour until the user re-hosts).
-      await seedV3Database(row: {
-        'freq': '92.4',
-        'recorded_at': 12345,
-        'nickname': 'Family channel',
-        'pinned': 1,
-      });
+    test(
+      'opens a v3 install, runs the upgrade, surfaces session_uuid as NULL',
+      () async {
+        // Pre-existing legacy row gets a NULL session_uuid post-upgrade
+        // (the cubit's host path will mint a fresh uuid for it on Resume,
+        // matching pre-#219 behaviour until the user re-hosts).
+        await seedV3Database(
+          row: {
+            'freq': '92.4',
+            'recorded_at': 12345,
+            'nickname': 'Family channel',
+            'pinned': 1,
+          },
+        );
 
-      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
-        databaseFactoryFfi,
-        path: dbPath,
-      );
-      final store = SqfliteRecentFrequenciesStore();
-      final detailed = await store.getRecentDetailed();
+        WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+          databaseFactoryFfi,
+          path: dbPath,
+        );
+        final store = SqfliteRecentFrequenciesStore();
+        final detailed = await store.getRecentDetailed();
 
-      expect(detailed, hasLength(1));
-      expect(detailed.single.freq, '92.4');
-      expect(detailed.single.nickname, 'Family channel');
-      expect(detailed.single.pinned, isTrue);
-      expect(
-        detailed.single.sessionUuid,
-        isNull,
-        reason: 'pre-#219 row carries no uuid; expected NULL post-upgrade',
-      );
-    });
+        expect(detailed, hasLength(1));
+        expect(detailed.single.freq, '92.4');
+        expect(detailed.single.nickname, 'Family channel');
+        expect(detailed.single.pinned, isTrue);
+        expect(
+          detailed.single.sessionUuid,
+          isNull,
+          reason: 'pre-#219 row carries no uuid; expected NULL post-upgrade',
+        );
+      },
+    );
 
-    test('post-upgrade record() can write into the new session_uuid column',
-        () async {
-      // Catches a migration that adds the column but somehow doesn't
-      // make it writable (typo'd ALTER, missing default, etc).
-      await seedV3Database();
+    test(
+      'post-upgrade record() can write into the new session_uuid column',
+      () async {
+        // Catches a migration that adds the column but somehow doesn't
+        // make it writable (typo'd ALTER, missing default, etc).
+        await seedV3Database();
 
-      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
-        databaseFactoryFfi,
-        path: dbPath,
-      );
-      final store = SqfliteRecentFrequenciesStore();
-      const uuid = '00000000-0000-4000-8000-0000000000a3';
-      await store.record('104.3', sessionUuid: uuid);
+        WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+          databaseFactoryFfi,
+          path: dbPath,
+        );
+        final store = SqfliteRecentFrequenciesStore();
+        const uuid = '00000000-0000-4000-8000-0000000000a3';
+        await store.record('104.3', sessionUuid: uuid);
 
-      final detailed = await store.getRecentDetailed();
-      expect(detailed.single.sessionUuid, uuid);
-    });
+        final detailed = await store.getRecentDetailed();
+        expect(detailed.single.sessionUuid, uuid);
+      },
+    );
 
-    test('upgrade is idempotent — already-upgraded install opens cleanly',
-        () async {
-      // First open: triggers v3 → v4 upgrade.
-      await seedV3Database();
-      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
-        databaseFactoryFfi,
-        path: dbPath,
-      );
-      final first = SqfliteRecentFrequenciesStore();
-      await first.record('92.4');
-      await WalkieTalkieDatabase.resetForTesting();
+    test(
+      'upgrade is idempotent — already-upgraded install opens cleanly',
+      () async {
+        // First open: triggers v3 → v4 upgrade.
+        await seedV3Database();
+        WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+          databaseFactoryFfi,
+          path: dbPath,
+        );
+        final first = SqfliteRecentFrequenciesStore();
+        await first.record('92.4');
+        await WalkieTalkieDatabase.resetForTesting();
 
-      // Second open: already at v4. The migration's `PRAGMA table_info`
-      // guard skips the ALTER, so this must not throw "duplicate column".
-      WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
-        databaseFactoryFfi,
-        path: dbPath,
-      );
-      final second = SqfliteRecentFrequenciesStore();
-      final detailed = await second.getRecentDetailed();
-      expect(detailed, hasLength(1));
-      expect(detailed.single.freq, '92.4');
-    });
+        // Second open: already at v4. The migration's `PRAGMA table_info`
+        // guard skips the ALTER, so this must not throw "duplicate column".
+        WalkieTalkieDatabase.overrideDatabaseFactoryForTesting(
+          databaseFactoryFfi,
+          path: dbPath,
+        );
+        final second = SqfliteRecentFrequenciesStore();
+        final detailed = await second.getRecentDetailed();
+        expect(detailed, hasLength(1));
+        expect(detailed.single.freq, '92.4');
+      },
+    );
   });
 
   group('RecentFrequency value type', () {

@@ -27,7 +27,8 @@ class FrequencyOnboardingScreen extends StatefulWidget {
   });
 
   @override
-  State<FrequencyOnboardingScreen> createState() => _FrequencyOnboardingScreenState();
+  State<FrequencyOnboardingScreen> createState() =>
+      _FrequencyOnboardingScreenState();
 }
 
 class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
@@ -174,7 +175,9 @@ class _Welcome extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             l10n.onboardingWelcomeBody,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const Spacer(),
           PrimaryButton(
@@ -232,11 +235,16 @@ class _Permissions extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(l10n.onboardingPermissionsHeadline, style: Theme.of(context).textTheme.headlineMedium),
+          Text(
+            l10n.onboardingPermissionsHeadline,
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
           const SizedBox(height: 8),
           Text(
             l10n.onboardingPermissionsBody,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const SizedBox(height: 24),
           _PermRow(
@@ -295,7 +303,8 @@ class _PermRow extends StatelessWidget {
     final c = FrequencyTheme.of(context).colors;
     final l10n = AppLocalizations.of(context);
     final granted = status == OnboardingPermissionStatus.granted;
-    final permanentlyDenied = status == OnboardingPermissionStatus.permanentlyDenied;
+    final permanentlyDenied =
+        status == OnboardingPermissionStatus.permanentlyDenied;
     final effectiveDesc = permanentlyDenied
         ? l10n.permissionBlockedDescription
         : desc;
@@ -317,8 +326,8 @@ class _PermRow extends StatelessWidget {
               color: granted
                   ? c.accentInk
                   : permanentlyDenied
-                      ? c.danger
-                      : c.ink2,
+                  ? c.danger
+                  : c.ink2,
             ),
           ),
           const SizedBox(width: 12),
@@ -421,7 +430,9 @@ class _NamePickerState extends State<_NamePicker> {
           const SizedBox(height: 8),
           Text(
             l10n.onboardingHandleBody,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: c.ink2),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: c.ink2),
           ),
           const SizedBox(height: 28),
           FreqCard(
@@ -478,7 +489,11 @@ class _NamePickerState extends State<_NamePicker> {
             padding: const EdgeInsets.only(left: 4),
             child: Text(
               l10n.onboardingHandleFootnote,
-              style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                color: c.ink3,
+              ),
             ),
           ),
           const Spacer(),

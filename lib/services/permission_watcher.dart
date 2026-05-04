@@ -173,9 +173,11 @@ class DefaultPermissionWatcher
     if (_lifecycleState != AppLifecycleState.resumed) return;
     if (_backgroundCheckInFlight) return;
     _backgroundCheckInFlight = true;
-    unawaited(_sampleAndEmit().whenComplete(() {
-      _backgroundCheckInFlight = false;
-    }));
+    unawaited(
+      _sampleAndEmit().whenComplete(() {
+        _backgroundCheckInFlight = false;
+      }),
+    );
   }
 
   /// Read the current platform-side permission state, de-dup against the

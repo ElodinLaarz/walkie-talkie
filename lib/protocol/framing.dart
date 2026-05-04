@@ -117,10 +117,9 @@ List<Uint8List> encodeFragments(
   final fragments = <Uint8List>[];
   for (int i = 0; i < fragmentCount; i++) {
     final start = i * fragmentPayloadSize;
-    final end =
-        (start + fragmentPayloadSize) < totalLen
-            ? start + fragmentPayloadSize
-            : totalLen;
+    final end = (start + fragmentPayloadSize) < totalLen
+        ? start + fragmentPayloadSize
+        : totalLen;
     final payloadLen = end - start;
 
     final fragment = Uint8List(kFragmentHeaderSize + payloadLen)
@@ -269,9 +268,7 @@ class FragmentReassembler {
       );
     }
     if (payloadLen > 0) {
-      _buffer.add(
-        Uint8List.sublistView(fragment, kFragmentHeaderSize),
-      );
+      _buffer.add(Uint8List.sublistView(fragment, kFragmentHeaderSize));
     }
     _nextIdx++;
 

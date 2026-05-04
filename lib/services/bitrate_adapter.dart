@@ -117,11 +117,9 @@ class BitrateAdapter {
   final Duration _downHold;
   final Duration _upHold;
 
-  BitrateAdapter({
-    Duration? downHold,
-    Duration? upHold,
-  })  : _downHold = downHold ?? downHoldMid,
-        _upHold = upHold ?? BitrateAdapter.upHold;
+  BitrateAdapter({Duration? downHold, Duration? upHold})
+    : _downHold = downHold ?? downHoldMid,
+      _upHold = upHold ?? BitrateAdapter.upHold;
 
   /// Per-peer current level + the timestamp of the first contiguous sample
   /// satisfying a candidate transition. `pendingSinceMs` is null when no
@@ -163,7 +161,8 @@ class BitrateAdapter {
 
     final wantsDownLow = sample.lossPct > dropToLowLossPct;
     final wantsDownMid = !wantsDownLow && sample.lossPct > dropToMidLossPct;
-    final wantsUp = sample.lossPct < cleanLossPct &&
+    final wantsUp =
+        sample.lossPct < cleanLossPct &&
         sample.underrunsPerSec < cleanUnderrunsPerSec;
 
     // Categorise the sample's preferred direction. A sample that's
@@ -183,8 +182,7 @@ class BitrateAdapter {
 
     // The pending direction tracks what we're currently building dwell
     // for. A sample that disagrees with the pending direction resets it.
-    if (direction == _Direction.none ||
-        state.pendingDirection != direction) {
+    if (direction == _Direction.none || state.pendingDirection != direction) {
       state.pendingDirection = direction;
       state.pendingSinceMs = direction == _Direction.none ? null : nowMs;
       return null;
@@ -278,8 +276,8 @@ class _PeerAdapterState {
   int? pendingSinceMs;
 
   _PeerAdapterState({required this.level})
-      : pendingDirection = _Direction.none,
-        pendingSinceMs = null;
+    : pendingDirection = _Direction.none,
+      pendingSinceMs = null;
 }
 
 enum _Direction { none, downToLow, downToMid, up }

@@ -16,13 +16,18 @@ Widget _wrap(Widget child) {
 
 void main() {
   group('FrequencyPermissionDeniedScreen', () {
-    testWidgets('renders both denied perms when both are missing',
-        (tester) async {
-      await tester.pumpWidget(_wrap(FrequencyPermissionDeniedScreen(
-        missing: const [AppPermission.microphone, AppPermission.bluetooth],
-        onOpenSettings: () async {},
-        onRetry: () async {},
-      )));
+    testWidgets('renders both denied perms when both are missing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyPermissionDeniedScreen(
+            missing: const [AppPermission.microphone, AppPermission.bluetooth],
+            onOpenSettings: () async {},
+            onRetry: () async {},
+          ),
+        ),
+      );
 
       expect(find.text('Permissions revoked'), findsOneWidget);
       expect(find.text('Microphone'), findsOneWidget);
@@ -36,45 +41,53 @@ void main() {
       expect(find.text('Retry'), findsOneWidget);
     });
 
-    testWidgets('shows mic-only copy when only microphone is denied',
-        (tester) async {
-      await tester.pumpWidget(_wrap(FrequencyPermissionDeniedScreen(
-        missing: const [AppPermission.microphone],
-        onOpenSettings: () async {},
-        onRetry: () async {},
-      )));
+    testWidgets('shows mic-only copy when only microphone is denied', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyPermissionDeniedScreen(
+            missing: const [AppPermission.microphone],
+            onOpenSettings: () async {},
+            onRetry: () async {},
+          ),
+        ),
+      );
       expect(find.text('Microphone'), findsOneWidget);
       expect(find.text('Bluetooth nearby devices'), findsNothing);
-      expect(
-        find.textContaining('needs the microphone'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('needs the microphone'), findsOneWidget);
     });
 
-    testWidgets('shows bluetooth-only copy when only bluetooth is denied',
-        (tester) async {
-      await tester.pumpWidget(_wrap(FrequencyPermissionDeniedScreen(
-        missing: const [AppPermission.bluetooth],
-        onOpenSettings: () async {},
-        onRetry: () async {},
-      )));
+    testWidgets('shows bluetooth-only copy when only bluetooth is denied', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyPermissionDeniedScreen(
+            missing: const [AppPermission.bluetooth],
+            onOpenSettings: () async {},
+            onRetry: () async {},
+          ),
+        ),
+      );
       expect(find.text('Bluetooth nearby devices'), findsOneWidget);
       expect(find.text('Microphone'), findsNothing);
-      expect(
-        find.textContaining('needs Bluetooth'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('needs Bluetooth'), findsOneWidget);
     });
 
     testWidgets('Open settings button invokes the callback', (tester) async {
       var openCalls = 0;
-      await tester.pumpWidget(_wrap(FrequencyPermissionDeniedScreen(
-        missing: const [AppPermission.microphone],
-        onOpenSettings: () async {
-          openCalls++;
-        },
-        onRetry: () async {},
-      )));
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyPermissionDeniedScreen(
+            missing: const [AppPermission.microphone],
+            onOpenSettings: () async {
+              openCalls++;
+            },
+            onRetry: () async {},
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open settings'));
       await tester.pump();
@@ -83,13 +96,17 @@ void main() {
 
     testWidgets('Retry button invokes the callback', (tester) async {
       var retryCalls = 0;
-      await tester.pumpWidget(_wrap(FrequencyPermissionDeniedScreen(
-        missing: const [AppPermission.microphone],
-        onOpenSettings: () async {},
-        onRetry: () async {
-          retryCalls++;
-        },
-      )));
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyPermissionDeniedScreen(
+            missing: const [AppPermission.microphone],
+            onOpenSettings: () async {},
+            onRetry: () async {
+              retryCalls++;
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Retry'));
       await tester.pump();

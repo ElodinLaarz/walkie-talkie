@@ -38,9 +38,7 @@ Future<void> migrateHiveToSqliteIfNeeded({
   try {
     await (hiveInit ?? Hive.initFlutter)();
   } catch (e, st) {
-    debugPrint(
-      'Hive→sqflite: Hive init failed; nothing to migrate: $e\n$st',
-    );
+    debugPrint('Hive→sqflite: Hive init failed; nothing to migrate: $e\n$st');
     await _writeMarker(db);
     return;
   }
@@ -69,11 +67,10 @@ Future<void> migrateHiveToSqliteIfNeeded({
 }
 
 Future<void> _writeMarker(Database db) {
-  return db.insert(
-    'kv',
-    {'key': _markerKey, 'value': 'done'},
-    conflictAlgorithm: ConflictAlgorithm.replace,
-  );
+  return db.insert('kv', {
+    'key': _markerKey,
+    'value': 'done',
+  }, conflictAlgorithm: ConflictAlgorithm.replace);
 }
 
 const String _markerKey = 'migrated_from_hive_v1';
@@ -85,18 +82,16 @@ Future<void> _migrateIdentity(Database db) async {
     final displayName = box.get(_displayNameKey);
     final peerId = box.get(_peerIdKey);
     if (displayName != null && displayName.trim().isNotEmpty) {
-      await db.insert(
-        'kv',
-        {'key': 'displayName', 'value': displayName.trim()},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('kv', {
+        'key': 'displayName',
+        'value': displayName.trim(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     if (peerId != null && peerId.isNotEmpty) {
-      await db.insert(
-        'kv',
-        {'key': 'peerId', 'value': peerId},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('kv', {
+        'key': 'peerId',
+        'value': peerId,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   } finally {
     await box.close();
@@ -122,11 +117,10 @@ Future<void> _migrateRecents(Database db) async {
       await db.transaction((txn) async {
         for (final freq in entries.reversed) {
           ts += 1;
-          await txn.insert(
-            'recent_frequencies',
-            {'freq': freq, 'recorded_at': ts},
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          await txn.insert('recent_frequencies', {
+            'freq': freq,
+            'recorded_at': ts,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       });
     }

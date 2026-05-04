@@ -48,8 +48,13 @@ void main() {
 
       expect(find.text('Is my voice encrypted?'), findsOneWidget);
       expect(
-          find.text('Can someone eavesdrop on my conversation?'), findsOneWidget);
-      expect(find.text('Does the app record or store my voice?'), findsOneWidget);
+        find.text('Can someone eavesdrop on my conversation?'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Does the app record or store my voice?'),
+        findsOneWidget,
+      );
       expect(find.text('What data leaves my device?'), findsOneWidget);
       expect(find.text('What about future versions?'), findsOneWidget);
     });
@@ -57,7 +62,10 @@ void main() {
     testWidgets('answers are hidden by default', (tester) async {
       await tester.pumpWidget(_wrap(const SecurityFaqScreen()));
 
-      expect(find.textContaining('not enforce Bluetooth pairing'), findsNothing);
+      expect(
+        find.textContaining('not enforce Bluetooth pairing'),
+        findsNothing,
+      );
     });
 
     testWidgets('tapping a question expands its answer', (tester) async {
@@ -66,7 +74,10 @@ void main() {
       await tester.tap(find.text('Is my voice encrypted?'));
       await tester.pump();
 
-      expect(find.textContaining('not enforce Bluetooth pairing'), findsOneWidget);
+      expect(
+        find.textContaining('not enforce Bluetooth pairing'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('tapping expanded question collapses it', (tester) async {
@@ -74,28 +85,42 @@ void main() {
 
       await tester.tap(find.text('Is my voice encrypted?'));
       await tester.pump();
-      expect(find.textContaining('not enforce Bluetooth pairing'), findsOneWidget);
+      expect(
+        find.textContaining('not enforce Bluetooth pairing'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Is my voice encrypted?'));
       await tester.pump();
-      expect(find.textContaining('not enforce Bluetooth pairing'), findsNothing);
+      expect(
+        find.textContaining('not enforce Bluetooth pairing'),
+        findsNothing,
+      );
     });
 
     testWidgets('close button pops the screen', (tester) async {
-      await tester.pumpWidget(_wrap(Builder(builder: (context) {
-        return Scaffold(
-          body: Builder(builder: (innerContext) {
-            return ElevatedButton(
-              onPressed: () => Navigator.of(innerContext).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SecurityFaqScreen(),
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Builder(
+                  builder: (innerContext) {
+                    return ElevatedButton(
+                      onPressed: () => Navigator.of(innerContext).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SecurityFaqScreen(),
+                        ),
+                      ),
+                      child: const Text('open'),
+                    );
+                  },
                 ),
-              ),
-              child: const Text('open'),
-            );
-          }),
-        );
-      })));
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -109,20 +134,28 @@ void main() {
     });
 
     testWidgets('"Got it" button pops the screen', (tester) async {
-      await tester.pumpWidget(_wrap(Builder(builder: (context) {
-        return Scaffold(
-          body: Builder(builder: (innerContext) {
-            return ElevatedButton(
-              onPressed: () => Navigator.of(innerContext).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SecurityFaqScreen(),
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Builder(
+                  builder: (innerContext) {
+                    return ElevatedButton(
+                      onPressed: () => Navigator.of(innerContext).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SecurityFaqScreen(),
+                        ),
+                      ),
+                      child: const Text('open'),
+                    );
+                  },
                 ),
-              ),
-              child: const Text('open'),
-            );
-          }),
-        );
-      })));
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -165,9 +198,9 @@ void main() {
     // the async initState chain (Future.wait + PackageInfo) resolves.
     // pumpAndSettle drains all pending futures and frames so the body renders.
     testWidgets('Privacy section shows Security FAQ link', (tester) async {
-      await tester.pumpWidget(_wrap(
-        FrequencySettingsScreen(settingsStore: _FakeSettingsStore()),
-      ));
+      await tester.pumpWidget(
+        _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+      );
       await tester.pumpAndSettle();
 
       // The Privacy section may be below the fold — scroll down to find it.
@@ -179,11 +212,12 @@ void main() {
       expect(find.text('Privacy & Security FAQ'), findsOneWidget);
     });
 
-    testWidgets('tapping Security FAQ link opens SecurityFaqScreen',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        FrequencySettingsScreen(settingsStore: _FakeSettingsStore()),
-      ));
+    testWidgets('tapping Security FAQ link opens SecurityFaqScreen', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+      );
       await tester.pumpAndSettle();
 
       await tester.dragUntilVisible(

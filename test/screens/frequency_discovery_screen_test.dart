@@ -63,73 +63,88 @@ void main() {
   });
 
   group('FrequencyDiscoveryScreen', () {
-    testWidgets('renders the persisted name as initials in the chrome',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Devon',
-          onPick: (_) {},
-          onRename: (_) {},
+    testWidgets('renders the persisted name as initials in the chrome', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Devon',
+            onPick: (_) {},
+            onRename: (_) {},
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       expect(find.text('DE'), findsOneWidget);
     });
 
-    testWidgets('tapping the identity chip opens a rename sheet seeded with the current name',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Maya',
-          onPick: (_) {},
-          onRename: (_) {},
-        ),
-      ));
-      await tester.pump();
+    testWidgets(
+      'tapping the identity chip opens a rename sheet seeded with the current name',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+            ),
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(find.text('MA'));
-      await tester.pump(_settleWindow);
+        await tester.tap(find.text('MA'));
+        await tester.pump(_settleWindow);
 
-      expect(find.text('Your handle'), findsOneWidget);
-      expect(find.widgetWithText(TextField, 'Maya'), findsOneWidget);
-    });
+        expect(find.text('Your handle'), findsOneWidget);
+        expect(find.widgetWithText(TextField, 'Maya'), findsOneWidget);
+      },
+    );
 
-    testWidgets('saving a new name in the sheet calls onRename with the trimmed value',
-        (tester) async {
-      String? renamed;
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Maya',
-          onPick: (_) {},
-          onRename: (name) => renamed = name,
-        ),
-      ));
-      await tester.pump();
+    testWidgets(
+      'saving a new name in the sheet calls onRename with the trimmed value',
+      (tester) async {
+        String? renamed;
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (name) => renamed = name,
+            ),
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(find.text('MA'));
-      await tester.pump(_settleWindow);
+        await tester.tap(find.text('MA'));
+        await tester.pump(_settleWindow);
 
-      await tester.enterText(find.byType(TextField), '  Priya  ');
-      // Submit through the IME `done` action (wired to the same _submit() as
-      // the Save button). Avoids the test-environment quirk where the Save
-      // button can sit below the simulated keyboard inset.
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      await tester.pump(_settleWindow);
+        await tester.enterText(find.byType(TextField), '  Priya  ');
+        // Submit through the IME `done` action (wired to the same _submit() as
+        // the Save button). Avoids the test-environment quirk where the Save
+        // button can sit below the simulated keyboard inset.
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+        await tester.pump(_settleWindow);
 
-      expect(renamed, 'Priya');
-    });
+        expect(renamed, 'Priya');
+      },
+    );
 
-    testWidgets('saving the same name does not invoke onRename', (tester) async {
+    testWidgets('saving the same name does not invoke onRename', (
+      tester,
+    ) async {
       var renameCount = 0;
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Maya',
-          onPick: (_) {},
-          onRename: (_) => renameCount++,
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (_) => renameCount++,
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       await tester.tap(find.text('MA'));
@@ -141,16 +156,19 @@ void main() {
       expect(renameCount, 0);
     });
 
-    testWidgets('Save is disabled when the name field is cleared',
-        (tester) async {
+    testWidgets('Save is disabled when the name field is cleared', (
+      tester,
+    ) async {
       String? renamed;
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Maya',
-          onPick: (_) {},
-          onRename: (name) => renamed = name,
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (_) {},
+            onRename: (name) => renamed = name,
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       await tester.tap(find.text('MA'));
@@ -164,16 +182,19 @@ void main() {
       expect(renamed, isNull);
     });
 
-    testWidgets('Start a new Frequency fires onPick with isHost: true',
-        (tester) async {
+    testWidgets('Start a new Frequency fires onPick with isHost: true', (
+      tester,
+    ) async {
       DiscoveryResult? picked;
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          myName: 'Maya',
-          onPick: (r) => picked = r,
-          onRename: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            myName: 'Maya',
+            onPick: (r) => picked = r,
+            onRename: (_) {},
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       await tester.tap(find.text('Start a new Frequency'));
@@ -196,50 +217,66 @@ void main() {
         // a fresh State and a new initState() / _newFreq draw from the RNG.
         for (var i = 0; i < 20; i++) {
           DiscoveryResult? picked;
-          await tester.pumpWidget(_wrap(
-            FrequencyDiscoveryScreen(
-              key: ValueKey(i),
-              myName: 'Maya',
-              onPick: (r) => picked = r,
-              onRename: (_) {},
+          await tester.pumpWidget(
+            _wrap(
+              FrequencyDiscoveryScreen(
+                key: ValueKey(i),
+                myName: 'Maya',
+                onPick: (r) => picked = r,
+                onRename: (_) {},
+              ),
             ),
-          ));
+          );
           await tester.pump();
           await tester.tap(find.text('Start a new Frequency'));
           await tester.pump();
 
           expect(picked, isNotNull);
           final freq = double.parse(picked!.freq);
-          expect(freq, greaterThanOrEqualTo(minFreq),
-              reason: 'freq $freq below $minFreq');
-          expect(freq, lessThanOrEqualTo(maxFreq),
-              reason: 'freq $freq above $maxFreq');
+          expect(
+            freq,
+            greaterThanOrEqualTo(minFreq),
+            reason: 'freq $freq below $minFreq',
+          );
+          expect(
+            freq,
+            lessThanOrEqualTo(maxFreq),
+            reason: 'freq $freq above $maxFreq',
+          );
           // All values must end in exactly one decimal digit (0.1 MHz precision).
-          expect(picked!.freq, matches(r'^\d+\.\d$'),
-              reason: 'freq ${picked!.freq} lacks single-decimal precision');
+          expect(
+            picked!.freq,
+            matches(r'^\d+\.\d$'),
+            reason: 'freq ${picked!.freq} lacks single-decimal precision',
+          );
           if (!picked!.freq.endsWith('.1')) sawNonDotOne = true;
         }
 
         // Regression guard: old 20-bucket logic always produced `*.1`.
         // With 200 buckets, 90% of values don't end in .1, so 20 draws almost
         // certainly include at least one non-.1 value.
-        expect(sawNonDotOne, isTrue,
-            reason:
-                'all samples ended in .1 — old 20-bucket logic may have regressed');
+        expect(
+          sawNonDotOne,
+          isTrue,
+          reason:
+              'all samples ended in .1 — old 20-bucket logic may have regressed',
+        );
       },
     );
 
     testWidgets(
       'omits the Recent section when there are no persisted frequencies',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            // recentHostedFrequencies defaults to empty.
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              // recentHostedFrequencies defaults to empty.
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         expect(find.text('RECENT'), findsNothing);
@@ -247,10 +284,11 @@ void main() {
       },
     );
 
-    testWidgets(
-      'renders a Resume row per persisted recent frequency',
-      (tester) async {
-        await tester.pumpWidget(_wrap(
+    testWidgets('renders a Resume row per persisted recent frequency', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
           FrequencyDiscoveryScreen(
             myName: 'Maya',
             onPick: (_) {},
@@ -260,35 +298,37 @@ void main() {
               RecentFrequency(freq: '92.4'),
             ],
           ),
-        ));
-        await tester.pump();
+        ),
+      );
+      await tester.pump();
 
-        expect(find.text('RECENT'), findsOneWidget);
-        // One Resume button per row.
-        expect(find.text('Resume'), findsNWidgets(2));
-        // Each row's freq is rendered inside a Text.rich span ("Host on X MHz"),
-        // so match by substring. Use "Host on" prefix to avoid matching the
-        // "Start new" hint which may also contain the frequency.
-        expect(find.textContaining('Host on 100.1'), findsOneWidget);
-        expect(find.textContaining('Host on 92.4'), findsOneWidget);
-      },
-    );
+      expect(find.text('RECENT'), findsOneWidget);
+      // One Resume button per row.
+      expect(find.text('Resume'), findsNWidgets(2));
+      // Each row's freq is rendered inside a Text.rich span ("Host on X MHz"),
+      // so match by substring. Use "Host on" prefix to avoid matching the
+      // "Start new" hint which may also contain the frequency.
+      expect(find.textContaining('Host on 100.1'), findsOneWidget);
+      expect(find.textContaining('Host on 92.4'), findsOneWidget);
+    });
 
     testWidgets(
       'tapping a Resume row fires onPick with isHost: true and that freq',
       (tester) async {
         DiscoveryResult? picked;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (r) => picked = r,
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1'),
-              RecentFrequency(freq: '92.4'),
-            ],
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (r) => picked = r,
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1'),
+                RecentFrequency(freq: '92.4'),
+              ],
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // Tap the second row's Resume button.
@@ -309,16 +349,18 @@ void main() {
         // makes Resume actually rejoin the same room.
         const uuid = '00000000-0000-4000-8000-0000000000a3';
         DiscoveryResult? picked;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (r) => picked = r,
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '104.3', sessionUuid: uuid),
-            ],
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (r) => picked = r,
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '104.3', sessionUuid: uuid),
+              ],
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.text('Resume'));
@@ -340,16 +382,16 @@ void main() {
         // fresh," which preserves pre-fix behaviour for legacy rows until
         // the user re-hosts.
         DiscoveryResult? picked;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (r) => picked = r,
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '92.4'),
-            ],
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (r) => picked = r,
+              onRename: (_) {},
+              recentHostedFrequencies: const [RecentFrequency(freq: '92.4')],
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.text('Resume'));
@@ -363,17 +405,19 @@ void main() {
     testWidgets(
       'renders nickname instead of default title when one is set on a recent',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1', nickname: 'Family channel'),
-              RecentFrequency(freq: '92.4'),
-            ],
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1', nickname: 'Family channel'),
+                RecentFrequency(freq: '92.4'),
+              ],
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // The nickname replaces the default 'Your channel' title for the
@@ -387,10 +431,11 @@ void main() {
       },
     );
 
-    testWidgets(
-      'renders the PINNED badge on rows that are pinned',
-      (tester) async {
-        await tester.pumpWidget(_wrap(
+    testWidgets('renders the PINNED badge on rows that are pinned', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
           FrequencyDiscoveryScreen(
             myName: 'Maya',
             onPick: (_) {},
@@ -400,30 +445,29 @@ void main() {
               RecentFrequency(freq: '92.4'),
             ],
           ),
-        ));
-        await tester.pump();
+        ),
+      );
+      await tester.pump();
 
-        expect(find.text('PINNED'), findsOneWidget);
-      },
-    );
+      expect(find.text('PINNED'), findsOneWidget);
+    });
 
     testWidgets(
       'opening the recent overflow menu and tapping Pin fires onSetRecentPinned',
       (tester) async {
         ({String freq, bool pinned})? pinned;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1'),
-            ],
-            onSetRecentNickname: (_, _) {},
-            onSetRecentPinned: (freq, p) =>
-                pinned = (freq: freq, pinned: p),
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [RecentFrequency(freq: '100.1')],
+              onSetRecentNickname: (_, _) {},
+              onSetRecentPinned: (freq, p) => pinned = (freq: freq, pinned: p),
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -448,19 +492,20 @@ void main() {
       'opening the recent overflow menu on a pinned row shows Unpin and fires onSetRecentPinned(false)',
       (tester) async {
         ({String freq, bool pinned})? pinned;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1', pinned: true),
-            ],
-            onSetRecentNickname: (_, _) {},
-            onSetRecentPinned: (freq, p) =>
-                pinned = (freq: freq, pinned: p),
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1', pinned: true),
+              ],
+              onSetRecentNickname: (_, _) {},
+              onSetRecentPinned: (freq, p) => pinned = (freq: freq, pinned: p),
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -488,19 +533,19 @@ void main() {
       'opening Rename and saving a nickname fires onSetRecentNickname with the trimmed value',
       (tester) async {
         ({String freq, String? nickname})? saved;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1'),
-            ],
-            onSetRecentNickname: (freq, n) =>
-                saved = (freq: freq, nickname: n),
-            onSetRecentPinned: (_, _) {},
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [RecentFrequency(freq: '100.1')],
+              onSetRecentNickname: (freq, n) =>
+                  saved = (freq: freq, nickname: n),
+              onSetRecentPinned: (_, _) {},
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -527,19 +572,21 @@ void main() {
       'submitting an empty nickname clears the existing one (passes null)',
       (tester) async {
         ({String freq, String? nickname})? saved;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1', nickname: 'Family channel'),
-            ],
-            onSetRecentNickname: (freq, n) =>
-                saved = (freq: freq, nickname: n),
-            onSetRecentPinned: (_, _) {},
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1', nickname: 'Family channel'),
+              ],
+              onSetRecentNickname: (freq, n) =>
+                  saved = (freq: freq, nickname: n),
+              onSetRecentPinned: (_, _) {},
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -562,18 +609,18 @@ void main() {
     testWidgets(
       'overflow menu is omitted when both nickname / pin callbacks are null',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1'),
-            ],
-            // Both nickname/pin handlers omitted — back-compat path for
-            // embeddings that don't wire the persistence layer.
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [RecentFrequency(freq: '100.1')],
+              // Both nickname/pin handlers omitted — back-compat path for
+              // embeddings that don't wire the persistence layer.
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         expect(find.byTooltip('Recent options'), findsNothing);
@@ -584,13 +631,15 @@ void main() {
       'tapping the footer Privacy link pushes the privacy policy screen, '
       'and the close button pops back to Discovery',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // The link sits below the footer copy, so scroll the discovery
@@ -630,13 +679,15 @@ void main() {
     testWidgets(
       'tapping the footer Licenses link pushes Flutter\'s LicensePage with our title',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         final list = find.byType(ListView);
@@ -664,19 +715,19 @@ void main() {
       'Delete item in recent overflow menu fires onDeleteRecent with the freq (#221)',
       (tester) async {
         String? deleted;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1'),
-            ],
-            onSetRecentNickname: (_, _) {},
-            onSetRecentPinned: (_, _) {},
-            onDeleteRecent: (freq) => deleted = freq,
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [RecentFrequency(freq: '100.1')],
+              onSetRecentNickname: (_, _) {},
+              onSetRecentPinned: (_, _) {},
+              onDeleteRecent: (freq) => deleted = freq,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -695,19 +746,21 @@ void main() {
       'Delete on a pinned row shows a confirmation dialog before firing (#221)',
       (tester) async {
         String? deleted;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1', pinned: true),
-            ],
-            onSetRecentNickname: (_, _) {},
-            onSetRecentPinned: (_, _) {},
-            onDeleteRecent: (freq) => deleted = freq,
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1', pinned: true),
+              ],
+              onSetRecentNickname: (_, _) {},
+              onSetRecentPinned: (_, _) {},
+              onDeleteRecent: (freq) => deleted = freq,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -731,19 +784,21 @@ void main() {
       'cancelling the pinned-delete confirmation does not fire onDeleteRecent (#221)',
       (tester) async {
         String? deleted;
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
-            recentHostedFrequencies: const [
-              RecentFrequency(freq: '100.1', pinned: true),
-            ],
-            onSetRecentNickname: (_, _) {},
-            onSetRecentPinned: (_, _) {},
-            onDeleteRecent: (freq) => deleted = freq,
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+              recentHostedFrequencies: const [
+                RecentFrequency(freq: '100.1', pinned: true),
+              ],
+              onSetRecentNickname: (_, _) {},
+              onSetRecentPinned: (_, _) {},
+              onDeleteRecent: (freq) => deleted = freq,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -763,13 +818,15 @@ void main() {
       'tapping the footer Security FAQ link pushes SecurityFaqScreen, '
       'and the close button pops back to Discovery',
       (tester) async {
-        await tester.pumpWidget(_wrap(
-          FrequencyDiscoveryScreen(
-            myName: 'Maya',
-            onPick: (_) {},
-            onRename: (_) {},
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyDiscoveryScreen(
+              myName: 'Maya',
+              onPick: (_) {},
+              onRename: (_) {},
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         final list = find.byType(ListView);
@@ -844,20 +901,26 @@ void main() {
   });
 
   group('Bluetooth chip', () {
-    testWidgets('renders chip in idle state when discovery is not scanning',
-        (tester) async {
-      await tester.pumpWidget(_wrap(FrequencyDiscoveryScreen(
-        onPick: (_) {},
-        myName: 'Mo Ali',
-        onRename: (_) {},
-      )));
+    testWidgets('renders chip in idle state when discovery is not scanning', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+        ),
+      );
       await tester.pump();
       // Chip is present and tappable.
       expect(find.byKey(discoveryBluetoothChipKey), findsOneWidget);
     });
 
-    testWidgets('chip renders with live styling when discovery is scanning',
-        (tester) async {
+    testWidgets('chip renders with live styling when discovery is scanning', (
+      tester,
+    ) async {
       final mockCubit = MockDiscoveryCubit();
       when(() => mockCubit.state).thenReturn(const DiscoveryScanning());
       when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
@@ -865,14 +928,16 @@ void main() {
       when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
       when(() => mockCubit.close()).thenAnswer((_) async {});
 
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          onPick: (_) {},
-          myName: 'Mo Ali',
-          onRename: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+          cubit: mockCubit,
         ),
-        cubit: mockCubit,
-      ));
+      );
       await tester.pump();
       expect(find.byKey(discoveryBluetoothChipKey), findsOneWidget);
       // PulseDot is visible inside the chip (not relying on the nearby indicator).
@@ -893,14 +958,16 @@ void main() {
       when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
       when(() => mockCubit.close()).thenAnswer((_) async {});
 
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          onPick: (_) {},
-          myName: 'Mo Ali',
-          onRename: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+          cubit: mockCubit,
         ),
-        cubit: mockCubit,
-      ));
+      );
       await tester.pump();
       clearInteractions(mockCubit);
       await tester.tap(find.byKey(discoveryBluetoothChipKey));
@@ -916,14 +983,16 @@ void main() {
       when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
       when(() => mockCubit.close()).thenAnswer((_) async {});
 
-      await tester.pumpWidget(_wrap(
-        FrequencyDiscoveryScreen(
-          onPick: (_) {},
-          myName: 'Mo Ali',
-          onRename: (_) {},
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+          cubit: mockCubit,
         ),
-        cubit: mockCubit,
-      ));
+      );
       await tester.pump();
       clearInteractions(mockCubit);
       await tester.tap(find.byKey(discoveryBluetoothChipKey));

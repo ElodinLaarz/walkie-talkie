@@ -6,9 +6,7 @@ import 'package:walkie_talkie/widgets/output_sheet.dart';
 Widget _wrap(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(),
-    home: Scaffold(
-      body: SingleChildScrollView(child: child),
-    ),
+    home: Scaffold(body: SingleChildScrollView(child: child)),
   );
 }
 
@@ -24,56 +22,76 @@ Semantics _rowSemantics(WidgetTester tester, Finder finder) {
 
 void main() {
   group('OutputSheet — BT row availability (#225)', () {
-    testWidgets('BT row shows "no headphones" subtitle when btName is empty',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.speaker, btName: ''),
-      ));
+    testWidgets('BT row shows "no headphones" subtitle when btName is empty', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const OutputSheet(current: AudioOutput.speaker, btName: '')),
+      );
 
       expect(
-        find.text('No headphones connected — pair in system Bluetooth settings'),
+        find.text(
+          'No headphones connected — pair in system Bluetooth settings',
+        ),
         findsOneWidget,
       );
     });
 
-    testWidgets('BT row is semantically disabled when btName is empty',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.speaker, btName: ''),
-      ));
+    testWidgets('BT row is semantically disabled when btName is empty', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const OutputSheet(current: AudioOutput.speaker, btName: '')),
+      );
 
       final s = _rowSemantics(tester, find.text('Bluetooth headphones'));
       expect(s.properties.enabled, isFalse);
     });
 
-    testWidgets('BT row shows device name as subtitle when btName is provided',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.bluetooth, btName: 'AirPods Pro'),
-      ));
+    testWidgets(
+      'BT row shows device name as subtitle when btName is provided',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const OutputSheet(
+              current: AudioOutput.bluetooth,
+              btName: 'AirPods Pro',
+            ),
+          ),
+        );
 
-      expect(find.text('AirPods Pro'), findsOneWidget);
-      expect(
-        find.text('No headphones connected — pair in system Bluetooth settings'),
-        findsNothing,
+        expect(find.text('AirPods Pro'), findsOneWidget);
+        expect(
+          find.text(
+            'No headphones connected — pair in system Bluetooth settings',
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('BT row is semantically enabled when btName is provided', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const OutputSheet(
+            current: AudioOutput.bluetooth,
+            btName: 'AirPods Pro',
+          ),
+        ),
       );
-    });
-
-    testWidgets('BT row is semantically enabled when btName is provided',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.bluetooth, btName: 'AirPods Pro'),
-      ));
 
       final s = _rowSemantics(tester, find.text('Bluetooth headphones'));
       expect(s.properties.enabled, isTrue);
     });
 
-    testWidgets('speaker and earpiece rows are always semantically enabled',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.speaker, btName: ''),
-      ));
+    testWidgets('speaker and earpiece rows are always semantically enabled', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const OutputSheet(current: AudioOutput.speaker, btName: '')),
+      );
 
       final speakerS = _rowSemantics(tester, find.text('Phone speaker'));
       expect(speakerS.properties.enabled, isTrue);
@@ -82,13 +100,14 @@ void main() {
       expect(earpieceS.properties.enabled, isTrue);
     });
 
-    testWidgets('check icon absent on BT row when btName is empty',
-        (tester) async {
+    testWidgets('check icon absent on BT row when btName is empty', (
+      tester,
+    ) async {
       // Even if _output == bluetooth, the check icon must not render on the
       // BT row when there is no device connected (btName is empty).
-      await tester.pumpWidget(_wrap(
-        const OutputSheet(current: AudioOutput.bluetooth, btName: ''),
-      ));
+      await tester.pumpWidget(
+        _wrap(const OutputSheet(current: AudioOutput.bluetooth, btName: '')),
+      );
 
       // The check icon uses Icons.check; earpiece/speaker rows are not
       // selected, so only the BT row could show it — but btUnavailable.

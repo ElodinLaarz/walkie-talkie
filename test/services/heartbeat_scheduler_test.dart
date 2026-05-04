@@ -8,10 +8,14 @@ void main() {
       // gets resolved. If anyone retunes one without the other, the
       // check-on-tick logic stops mapping cleanly to the protocol's
       // "after 3 missed pings (~15s)" rule.
-      expect(HeartbeatScheduler.defaultPingInterval,
-          const Duration(seconds: 5));
-      expect(HeartbeatScheduler.defaultMissThreshold,
-          const Duration(seconds: 15));
+      expect(
+        HeartbeatScheduler.defaultPingInterval,
+        const Duration(seconds: 5),
+      );
+      expect(
+        HeartbeatScheduler.defaultMissThreshold,
+        const Duration(seconds: 15),
+      );
     });
 
     test('rejects a non-positive pingInterval', () {
@@ -31,30 +35,32 @@ void main() {
   });
 
   group('HeartbeatScheduler.start / stop', () {
-    test('start fires onTick periodically and stop cancels the timer',
-        () async {
-      final scheduler = HeartbeatScheduler(
-        pingInterval: const Duration(milliseconds: 10),
-        missThreshold: const Duration(seconds: 60),
-      );
+    test(
+      'start fires onTick periodically and stop cancels the timer',
+      () async {
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(milliseconds: 10),
+          missThreshold: const Duration(seconds: 60),
+        );
 
-      var ticks = 0;
-      scheduler.start(
-        onTick: () => ticks++,
-        onPeerLost: (_) => fail('no peers tracked, none should be lost'),
-      );
+        var ticks = 0;
+        scheduler.start(
+          onTick: () => ticks++,
+          onPeerLost: (_) => fail('no peers tracked, none should be lost'),
+        );
 
-      // Wait long enough to observe ≥ 2 ticks but bound the upper end so
-      // the test doesn't depend on millisecond-level timer accuracy.
-      await Future<void>.delayed(const Duration(milliseconds: 35));
-      expect(ticks, greaterThanOrEqualTo(2));
+        // Wait long enough to observe ≥ 2 ticks but bound the upper end so
+        // the test doesn't depend on millisecond-level timer accuracy.
+        await Future<void>.delayed(const Duration(milliseconds: 35));
+        expect(ticks, greaterThanOrEqualTo(2));
 
-      scheduler.stop();
-      final ticksAtStop = ticks;
-      // After stop, no further ticks should arrive.
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(ticks, ticksAtStop);
-    });
+        scheduler.stop();
+        final ticksAtStop = ticks;
+        // After stop, no further ticks should arrive.
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(ticks, ticksAtStop);
+      },
+    );
 
     test('isRunning toggles on start / stop', () {
       final scheduler = HeartbeatScheduler(
@@ -67,40 +73,36 @@ void main() {
       expect(scheduler.isRunning, isFalse);
     });
 
-    test('start while running cancels the previous timer and clears state',
-        () async {
-      final scheduler = HeartbeatScheduler(
-        pingInterval: const Duration(milliseconds: 10),
-        missThreshold: const Duration(seconds: 60),
-      );
+    test(
+      'start while running cancels the previous timer and clears state',
+      () async {
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(milliseconds: 10),
+          missThreshold: const Duration(seconds: 60),
+        );
 
-      var ticks1 = 0;
-      scheduler.start(
-        onTick: () => ticks1++,
-        onPeerLost: (_) {},
-      );
-      scheduler.notePingFrom('peer-a');
-      expect(scheduler.lastSeen, contains('peer-a'));
+        var ticks1 = 0;
+        scheduler.start(onTick: () => ticks1++, onPeerLost: (_) {});
+        scheduler.notePingFrom('peer-a');
+        expect(scheduler.lastSeen, contains('peer-a'));
 
-      // Re-start with a fresh callback. The first counter must stop
-      // incrementing, and the watermarks must be wiped.
-      var ticks2 = 0;
-      scheduler.start(
-        onTick: () => ticks2++,
-        onPeerLost: (_) {},
-      );
-      expect(scheduler.lastSeen, isEmpty);
+        // Re-start with a fresh callback. The first counter must stop
+        // incrementing, and the watermarks must be wiped.
+        var ticks2 = 0;
+        scheduler.start(onTick: () => ticks2++, onPeerLost: (_) {});
+        expect(scheduler.lastSeen, isEmpty);
 
-      await Future<void>.delayed(const Duration(milliseconds: 35));
-      // Only ticks2 should still be advancing — ticks1's timer was cancelled.
-      // We can't pin exact counts, but ticks1 must not have been advanced
-      // *after* the second start.
-      final ticks1AtStart = ticks1;
-      scheduler.stop();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(ticks1, ticks1AtStart);
-      expect(ticks2, greaterThan(0));
-    });
+        await Future<void>.delayed(const Duration(milliseconds: 35));
+        // Only ticks2 should still be advancing — ticks1's timer was cancelled.
+        // We can't pin exact counts, but ticks1 must not have been advanced
+        // *after* the second start.
+        final ticks1AtStart = ticks1;
+        scheduler.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ticks1, ticks1AtStart);
+        expect(ticks2, greaterThan(0));
+      },
+    );
 
     test('stop is safe when never started', () {
       final scheduler = HeartbeatScheduler();
@@ -127,18 +129,14 @@ void main() {
         missThreshold: const Duration(milliseconds: 1),
       );
       final lost = <String>[];
-      scheduler.start(
-        onTick: () {},
-        onPeerLost: lost.add,
-      );
+      scheduler.start(onTick: () {}, onPeerLost: lost.add);
 
       scheduler.debugTick();
       expect(lost, isEmpty);
       scheduler.stop();
     });
 
-    test('fires onPeerLost when elapsed time exactly equals missThreshold',
-        () {
+    test('fires onPeerLost when elapsed time exactly equals missThreshold', () {
       // Boundary test: the protocol's "~15 s elapsed" wording is read as
       // an inclusive boundary, so a tick at exactly 15s should declare
       // the peer lost rather than waiting one more interval.

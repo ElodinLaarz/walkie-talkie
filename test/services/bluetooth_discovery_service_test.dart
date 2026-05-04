@@ -14,10 +14,7 @@ import 'bluetooth_discovery_service_test.mocks.dart';
 /// - Advertisement name (advName) passthrough to DiscoveredSession.hostName
 /// - MAC address propagation from device.remoteId to DiscoveredSession.macAddress
 /// - Multiple manufacturer data entries (iteration until valid found)
-@GenerateMocks([
-  BluetoothDevice,
-  AdvertisementData,
-])
+@GenerateMocks([BluetoothDevice, AdvertisementData])
 void main() {
   // Ensure Flutter bindings are initialized for any widget-dependent code
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,7 +57,9 @@ void main() {
     Uint8List validV1Payload({String sessionUuidLow8 = '0011223344556677'}) {
       final uuidBytes = <int>[];
       for (var i = 0; i < sessionUuidLow8.length; i += 2) {
-        uuidBytes.add(int.parse(sessionUuidLow8.substring(i, i + 2), radix: 16));
+        uuidBytes.add(
+          int.parse(sessionUuidLow8.substring(i, i + 2), radix: 16),
+        );
       }
 
       return Uint8List.fromList([
@@ -72,25 +71,27 @@ void main() {
       ]);
     }
 
-    test('parseResult extracts valid manufacturer data and propagates all fields',
-        () {
-      final scanResult = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload().toList()},
-        advName: 'TestHost',
-        rssi: -72,
-        macAddress: '11:22:33:44:55:66',
-      );
+    test(
+      'parseResult extracts valid manufacturer data and propagates all fields',
+      () {
+        final scanResult = makeScanResult(
+          manufacturerData: {0x05A0: validV1Payload().toList()},
+          advName: 'TestHost',
+          rssi: -72,
+          macAddress: '11:22:33:44:55:66',
+        );
 
-      final session = service.parseResult(scanResult);
+        final session = service.parseResult(scanResult);
 
-      expect(session, isNotNull);
-      expect(session!.hostName, 'TestHost');
-      expect(session.rssi, -72);
-      expect(session.macAddress, '11:22:33:44:55:66');
-      expect(session.protocolVersion, 1);
-      expect(session.isHost, true);
-      expect(session.sessionUuidLow8, '0011223344556677');
-    });
+        expect(session, isNotNull);
+        expect(session!.hostName, 'TestHost');
+        expect(session.rssi, -72);
+        expect(session.macAddress, '11:22:33:44:55:66');
+        expect(session.protocolVersion, 1);
+        expect(session.isHost, true);
+        expect(session.sessionUuidLow8, '0011223344556677');
+      },
+    );
 
     test('parseResult returns null for invalid protocol version', () {
       // Version 2 is unsupported
@@ -215,13 +216,17 @@ void main() {
       final uuid2 = 'FFEEDDCC99887766';
 
       final result1 = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload(sessionUuidLow8: uuid1).toList()},
+        manufacturerData: {
+          0x05A0: validV1Payload(sessionUuidLow8: uuid1).toList(),
+        },
         advName: 'Host1',
         rssi: -50,
       );
 
       final result2 = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload(sessionUuidLow8: uuid2).toList()},
+        manufacturerData: {
+          0x05A0: validV1Payload(sessionUuidLow8: uuid2).toList(),
+        },
         advName: 'Host2',
         rssi: -60,
       );
@@ -236,29 +241,32 @@ void main() {
       expect(session2!.sessionUuidLow8, uuid2.toLowerCase());
     });
 
-    test('parseResult returns first valid session from multiple mfg entries', () {
-      // Both entries are valid with different UUIDs
-      final uuid1 = '1111111111111111';
-      final uuid2 = '2222222222222222';
-      final payload1 = validV1Payload(sessionUuidLow8: uuid1);
-      final payload2 = validV1Payload(sessionUuidLow8: uuid2);
+    test(
+      'parseResult returns first valid session from multiple mfg entries',
+      () {
+        // Both entries are valid with different UUIDs
+        final uuid1 = '1111111111111111';
+        final uuid2 = '2222222222222222';
+        final payload1 = validV1Payload(sessionUuidLow8: uuid1);
+        final payload2 = validV1Payload(sessionUuidLow8: uuid2);
 
-      final scanResult = makeScanResult(
-        manufacturerData: {
-          0x05A0: payload1.toList(), // First valid
-          0x05A1: payload2.toList(), // Second valid (different company ID)
-        },
-        advName: 'MultiValid',
-        rssi: -70,
-      );
+        final scanResult = makeScanResult(
+          manufacturerData: {
+            0x05A0: payload1.toList(), // First valid
+            0x05A1: payload2.toList(), // Second valid (different company ID)
+          },
+          advName: 'MultiValid',
+          rssi: -70,
+        );
 
-      final session = service.parseResult(scanResult);
+        final session = service.parseResult(scanResult);
 
-      // Should return the first valid session found during iteration
-      expect(session, isNotNull);
-      // Dart maps iterate in insertion order, so should return uuid1
-      expect(session!.sessionUuidLow8, uuid1.toLowerCase());
-    });
+        // Should return the first valid session found during iteration
+        expect(session, isNotNull);
+        // Dart maps iterate in insertion order, so should return uuid1
+        expect(session!.sessionUuidLow8, uuid1.toLowerCase());
+      },
+    );
   });
 
   group('DiscoveryService freshness window', () {

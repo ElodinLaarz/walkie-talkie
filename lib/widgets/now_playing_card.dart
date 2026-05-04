@@ -93,7 +93,11 @@ class NowPlayingCard extends StatelessWidget {
                   children: [
                     Text(
                       track.tag,
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: c.ink3,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -126,17 +130,25 @@ class NowPlayingCard extends StatelessWidget {
           if (!idle) ...[
             const SizedBox(height: 14),
             Slider(
-              value: progress.toDouble().clamp(0.0, track.durationSeconds.toDouble()),
+              value: progress.toDouble().clamp(
+                0.0,
+                track.durationSeconds.toDouble(),
+              ),
               min: 0,
               max: track.durationSeconds.toDouble(),
               onChanged: onScrub,
             ),
             Row(
               children: [
-                Text(formatTime(progress), style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
+                Text(
+                  formatTime(progress),
+                  style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3),
+                ),
                 const Spacer(),
-                Text('-${formatTime(track.durationSeconds - progress)}',
-                    style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3)),
+                Text(
+                  '-${formatTime(track.durationSeconds - progress)}',
+                  style: kMonoStyle.copyWith(fontSize: 11, color: c.ink3),
+                ),
               ],
             ),
           ],
@@ -146,7 +158,10 @@ class NowPlayingCard extends StatelessWidget {
               Semantics(
                 button: true,
                 label: 'Previous track',
-                child: GhostButton(icon: Icons.skip_previous, onPressed: onPrev),
+                child: GhostButton(
+                  icon: Icons.skip_previous,
+                  onPressed: onPrev,
+                ),
               ),
               const SizedBox(width: 4),
               _PlayCircle(playing: playing, onTap: onPlay),
@@ -160,7 +175,10 @@ class NowPlayingCard extends StatelessWidget {
               FreqButton(
                 icon: Icons.queue_music,
                 label: 'Queue',
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 fontSize: 13,
                 onPressed: onOpenQueue,
               ),
@@ -177,11 +195,18 @@ class NowPlayingCard extends StatelessWidget {
                 Expanded(
                   child: RichText(
                     text: TextSpan(
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: c.ink3,
+                      ),
                       children: [
                         TextSpan(
                           text: lastActionBy,
-                          style: TextStyle(color: c.ink2, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            color: c.ink2,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         TextSpan(text: ' $lastActionWhat'),
                       ],
@@ -190,7 +215,11 @@ class NowPlayingCard extends StatelessWidget {
                 ),
                 Text(
                   lastActionWhen,
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: c.ink3,
+                  ),
                 ),
               ],
             ),
