@@ -56,10 +56,10 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       and `deviceDiscovered` events drive the headset-routing manager.
       [audio_service.dart](lib/services/audio_service.dart) is the Dart
       side of that surface.
-    * Phase 2 (planned, see roadmap): the BLE control-plane bridge —
+    * Phase 2 ✅ done: the BLE control-plane bridge —
       Frequency-shaped methods like `startAdvertising`, `connectToHost`,
       and `setMuted`, plus events like `onPeerDiscovered` and
-      `onJoinAccepted`. Tracked under
+      `onJoinAccepted`. Implemented in
       [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
 4.  **Service Layer (Android Native — Kotlin):**
     * **Foreground Service**
@@ -68,9 +68,9 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
     * **BT headset routing** today
       ([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
       — pairs the user's headset and routes phone audio to it.
-    * **BLE Connection Manager** (Phase 2) — LE advertise (host), scan
-      (guest), GATT server / client, L2CAP CoC server / client. Not yet
-      implemented; tracked in the Phase 2 issues below.
+    * **BLE Connection Manager** (Phase 2 ✅ done) — LE advertise (host),
+      scan (guest), GATT server / client, L2CAP CoC server / client.
+      Implemented across [#37–#45](https://github.com/ElodinLaarz/walkie-talkie/issues/37).
     * **Audio Engine** (Phase 3) — mic capture (Oboe), Opus encode/decode,
       mix-minus. Not yet implemented.
 5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
@@ -199,12 +199,11 @@ graph TD
 
 ### Android Native (Kotlin / C++)
 
-The libraries / APIs below are the planned native surface for Phases 2-3
-(see roadmap). Today's native code under `android/app/src/main/kotlin/`
-is the headset-routing manager
-([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
-plus the foreground service shell — none of the BLE control / L2CAP / Opus
-pieces are wired up yet.
+The libraries / APIs below are the native surface for Phases 2-3
+(see roadmap). Phase 2 (BLE control plane) is complete; Phase 3
+(voice pipeline) building blocks have landed but the session-level
+wiring is still owed (tracked in
+[#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246)).
 
 1.  **AndroidX Bluetooth APIs** *(Phase 2)* — `BluetoothLeAdvertiser`,
     `BluetoothLeScanner`, `BluetoothGattServer` / `BluetoothGatt`, and
