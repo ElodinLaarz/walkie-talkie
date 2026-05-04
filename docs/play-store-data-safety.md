@@ -7,57 +7,56 @@ Fill these in at: **Play Console → App content → Data safety**.
 
 ## Does your app collect or share any of the required user data types?
 
-**Yes** — the app processes two narrow categories:
+**Yes** — but only one narrow opt-in category:
 
 | Data type | Collected? | Shared? | Notes |
 |---|---|---|---|
-| Voice or sound recordings (Audio) | Transient / processed | No | Mic audio is captured, Opus-encoded, and transmitted over BLE to nearby phones only. Never stored, never sent to a server. |
-| Device or other IDs (Bluetooth MAC / peerId) | Transient / on-device | No | A stable `peerId` UUID is generated on first launch and stored locally. It is shared with peers inside an active room for roster display but never sent off-device to any server. Bluetooth hardware addresses are used only by the OS for BLE connection management. |
+| Crash logs | Yes (opt-in only) | Yes — Sentry | Off by default; user toggles on via Settings → Crash reporting. TLS to Sentry. No audio, no display names, no peer IDs, no location. |
+| Diagnostics (session data) | Yes (opt-in only) | Yes — Sentry | Same envelope as crash logs. Session health events (start/end/crash-rate) sent by Sentry's auto session tracking. |
 
-All other data type rows should be answered **No**.
+All other data type rows answered **No**, including Audio (voice) and Device or other IDs (peerId). See "Why audio and peerId are not declared" below.
 
 ---
 
 ## Does your app collect data?
 
-**Yes** — but only the two transient categories above.
+**Yes** — but only the two opt-in Sentry categories above.
 
-### Audio
+### Crash logs and Diagnostics (Sentry, opt-in only)
 
-- **Why collected:** To transmit the user's voice to nearby peers in the same Frequency room.
-- **Is it encrypted in transit?** No — v1 uses unencrypted Bluetooth LE L2CAP CoC channels
-  (`createInsecureL2capChannel` / `listenUsingInsecureL2capChannel`). Link-layer encryption
-  is not enforced; a nearby attacker with a BLE sniffer could theoretically intercept voice
-  packets. This is disclosed in the in-app Privacy & Security FAQ. Future versions plan to
-  add enforced pairing or application-layer encryption.
-- **Can the user request deletion?** Not applicable — audio is never stored. It is processed in real time and discarded.
-- **Is collection required or optional?** Required to use the core walkie-talkie feature.
+- **Why collected:** App functionality — improving crash-free experience and tracking session health (crash rate, session counts).
+- **Is it encrypted in transit?** Yes — TLS to Sentry's ingestion endpoint.
+- **Can the user request deletion?** Yes — toggling crash reporting off stops new uploads, and uninstalling the app or clearing app data removes the local queue. Sentry's data retention is governed by Sentry's own policy, linked from the privacy page.
+- **Is collection required or optional?** Optional. The toggle defaults to off; users must explicitly enable it.
+- **Shared with third parties?** Yes — Sentry. No other third party receives any data.
 
-### Device or other IDs (peerId)
+## Why audio and peerId are not declared
 
-- **Why collected:** To identify the local peer in the room roster displayed to others.
-- **Is it encrypted in transit?** No — same unencrypted BLE L2CAP channel as audio (see above).
-  The peerId is low-sensitivity (a random UUID not tied to identity) and is only shared within
-  the local Bluetooth range of an active room.
-- **Can the user request deletion?** Yes — uninstalling the app deletes all local data including the `peerId`. There is no server-side record to delete. See the Data Deletion section below.
-- **Is collection required or optional?** Required.
+Voice audio and the local `peerId` UUID are transmitted over Bluetooth LE to other peers in the same Frequency room — peers the user explicitly chose to communicate with by joining a shared frequency. The developer never receives, processes, or stores either of these data types; they exist only on the user's device and on the devices of co-present peers within roughly 10–30 metres of BLE radio range.
+
+Per Google Play's Data Safety guidance:
+
+> Data sent to other users in your app shouldn't be declared as data collection, unless you also collect and use that data.
+
+That guidance applies cleanly here: the app's voice and peerId are user-to-user only, with no developer-side collection. Declaring them on the Data Safety form would over-state the app's data footprint and force a "No" answer on the encryption-in-transit question (since BLE L2CAP CoC is `createInsecureL2capChannel`), even though no data is actually leaving the user-to-user channel.
+
+The unencrypted BLE link is still disclosed in the in-app Privacy & Security FAQ — this section explains why it doesn't surface as a Data Safety declaration, not why we ignore it.
 
 ---
 
 ## Does your app share data with third parties?
 
-**No** — with one narrow, opt-in exception.
+**Yes** — but only one narrow, opt-in category (Sentry crash logs and diagnostics).
 
-All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server. No data is shared with any third party by default.
+All peer-to-peer voice and control traffic stays within local Bluetooth range and is never sent to any server.
 
-Exception: if the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from contexts, tags, and breadcrumbs (including nested values) before transmission, so only Sentry's own SDK-generated session identifiers are used for crash correlation. Users who keep crash reporting disabled send no outbound crash telemetry.
+If the user explicitly opts in to crash reporting (Settings → Crash reporting, off by default), anonymised crash stack traces and session health data are sent to Sentry. These traces contain no audio, no display names, no peer IDs, and no location data — the sanitizer in `lib/services/sentry_event_sanitizer.dart` strips peer IDs from contexts, tags, and breadcrumbs (including nested values) before transmission, so only Sentry's own SDK-generated session identifiers are used for crash correlation. Users who keep crash reporting disabled send no outbound crash telemetry or session data.
 
 ---
 
 ## Security practices
 
-- **Data is encrypted in transit:** No for peer-to-peer voice/control traffic (unencrypted BLE
-  L2CAP CoC in v1). Yes for the optional opt-in crash reporting channel (TLS to Sentry).
+- **Data is encrypted in transit:** Yes — all data declared as collected (crash logs, diagnostics) is transmitted over TLS to Sentry. Peer-to-peer voice/control traffic over BLE L2CAP CoC is not declared as collection (see "Why audio and peerId are not declared" above) and is unencrypted at the link layer; this is disclosed separately in the in-app Privacy & Security FAQ.
 - **You follow the Families Policy:** N/A — the app is rated 13+ (audio capture).
 - **Independent security review:** No formal third-party review at v1 launch.
 
