@@ -292,6 +292,8 @@ class GattClientManager(
                         disconnect()
                     } else {
                         Log.e(TAG, "CCCD write failed with status $status")
+                        onError?.invoke("GATT_SETUP_FAILED")
+                        disconnect()
                     }
                 }
             }
