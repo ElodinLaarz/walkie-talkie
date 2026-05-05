@@ -3712,10 +3712,15 @@ void main() {
     }
 
     test(
-      'host admits a new guest: roster grows and JoinAccepted is sent',
+      'host admits a new guest: roster grows, targeted JoinAccepted + RosterUpdate sent',
       () async {
         final t = makeTestTransport();
         final cubit = await makeEmptyHostCubit(t.transport);
+        addTearDown(() async {
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        });
         t.outbox.clear();
 
         final req = const JoinRequest(
@@ -3741,18 +3746,22 @@ void main() {
         );
 
         final sent = drainOutbox(t.outbox);
-        expect(sent, hasLength(1));
-        expect(sent.single, isA<JoinAccepted>());
-        final ja = sent.single as JoinAccepted;
+        // Host sends: targeted JoinAccepted to the new guest, then a
+        // RosterUpdate broadcast so existing guests learn of the arrival.
+        expect(sent, hasLength(2));
+        expect(sent[0], isA<JoinAccepted>());
+        final ja = sent[0] as JoinAccepted;
         expect(ja.hostPeerId, kHostPeerId);
+        expect(ja.recipientPeerId, 'p-guest');
         expect(
           ja.roster.map((p) => p.peerId),
           containsAll(['fake-peer-id', 'p-guest']),
         );
-
-        await cubit.close();
-        await t.inbox.close();
-        t.transport.dispose();
+        expect(sent[1], isA<RosterUpdate>());
+        expect(
+          (sent[1] as RosterUpdate).roster.map((p) => p.peerId),
+          containsAll(['fake-peer-id', 'p-guest']),
+        );
       },
     );
 
@@ -3857,10 +3866,15 @@ void main() {
     });
 
     test(
-      're-join from known peer refreshes entry and re-sends JoinAccepted',
+      're-join from known peer refreshes entry and re-sends targeted JoinAccepted',
       () async {
         final t = makeTestTransport();
         final cubit = await makeEmptyHostCubit(t.transport);
+        addTearDown(() async {
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        });
         // Seed a guest already in the roster with non-default flags.
         cubit.applyJoinAccepted(
           JoinAccepted(
@@ -3904,13 +3918,12 @@ void main() {
         expect(rejoinedPeer.muted, isTrue);
         expect(rejoinedPeer.talking, isFalse);
 
+        // Re-join sends only a targeted JoinAccepted (no RosterUpdate because
+        // the roster size hasn't changed).
         final sent = drainOutbox(t.outbox);
         expect(sent, hasLength(1));
         expect(sent.single, isA<JoinAccepted>());
-
-        await cubit.close();
-        await t.inbox.close();
-        t.transport.dispose();
+        expect((sent.single as JoinAccepted).recipientPeerId, 'p-guest');
       },
     );
 
@@ -3977,6 +3990,66 @@ void main() {
       await t.inbox.close();
       t.transport.dispose();
     });
+
+    test(
+      'applyJoinAccepted addressed to another peer is silently ignored',
+      () async {
+        final t = makeTestTransport();
+        final cubit = _makeCubit(
+          transport: t.transport,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        addTearDown(() async {
+          await cubit.close();
+          await t.inbox.close();
+          t.transport.dispose();
+        });
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        // Join as guest — _localPeerId will be 'fake-peer-id'.
+        await cubit.joinRoom(
+          freq: '104.3',
+          isHost: false,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          sessionUuidLow8: '0102030405060708',
+        );
+        // Bootstrap the room via an unaddressed JoinAccepted (no recipientPeerId).
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: kHostPeerId,
+            seq: 1,
+            atMs: 0,
+            hostPeerId: kHostPeerId,
+            roster: const [
+              ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+              ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+            ],
+          ),
+        );
+        final stateBefore = cubit.state;
+
+        // A JoinAccepted addressed to a *different* peer must not affect state.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: kHostPeerId,
+            seq: 2,
+            atMs: 500,
+            hostPeerId: kHostPeerId,
+            recipientPeerId: 'p-other-guest',
+            roster: const [
+              ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+              ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'p-other-guest', displayName: 'Other'),
+            ],
+          ),
+        );
+
+        // State and _seq must be unchanged (message was for another peer).
+        expect(cubit.state, equals(stateBefore));
+      },
+    );
   });
 
   // ── TalkingState (VAD outbound) ───────────────────────────────────────

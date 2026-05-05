@@ -455,15 +455,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
 
     emit(current.copyWith(roster: newRoster));
-    unawaited(_sendJoinAccepted(current, localPeerId, newRoster));
+    unawaited(_sendJoinAccepted(current, localPeerId, newRoster, m.peerId));
+    // Notify existing guests that the roster has changed. For re-joins this
+    // is a no-op (size unchanged), so we only broadcast on a fresh admit.
+    if (!isRejoin) {
+      unawaited(_broadcastRosterUpdate(newRoster));
+    }
   }
 
-  /// Builds and sends a [JoinAccepted] carrying the supplied [roster] to the
-  /// control-plane transport. Best-effort: failures are logged and swallowed.
+  /// Builds and sends a targeted [JoinAccepted] to [joiningPeerId].
+  ///
+  /// Setting [JoinAccepted.recipientPeerId] prevents existing guests from
+  /// resetting their `_seq` counters when they inadvertently receive the
+  /// broadcast — they check the field in [applyJoinAccepted] and ignore
+  /// messages not addressed to them.
   Future<void> _sendJoinAccepted(
     SessionRoom room,
     String localPeerId,
     List<ProtocolPeer> roster,
+    String joiningPeerId,
   ) async {
     final t = _transport;
     if (t == null) return;
@@ -474,6 +484,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       hostPeerId: localPeerId,
       roster: roster,
       mediaState: room.mediaState,
+      recipientPeerId: joiningPeerId,
     );
     unawaited(
       t.send(msg).catchError((Object e) {
@@ -1728,6 +1739,15 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (isClosed) return;
     final current = state;
     if (current is! SessionRoom) return;
+    // When the host sends a targeted JoinAccepted (recipientPeerId is set),
+    // peers other than the intended recipient must ignore it so their _seq
+    // counters and reconnect state are not inadvertently reset.
+    final local = _localPeerId;
+    if (msg.recipientPeerId != null &&
+        local != null &&
+        msg.recipientPeerId != local) {
+      return;
+    }
     _seq = 0;
     // Clear any in-progress reconnect and return to online — the handshake
     // completing is the authoritative "connection is healthy" signal.
