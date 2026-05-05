@@ -1163,10 +1163,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       );
       unawaited(audio.startGattServer());
       // Close the guest-side voice client before opening the host server.
-      // Without this, the native layer reuses the existing transport (which
-      // was built as a client and has no peer-registration callback), so
+      // Awaited so the native layer tears down the client transport before
+      // startVoiceServer() runs; without this, the native code reuses the
+      // existing client-mode transport (no peer-registration callback) and
       // reconnecting guests would never be registered with registerVoicePeer.
-      unawaited(audio.stopVoiceTransport());
+      await audio.stopVoiceTransport();
+      if (isClosed) return;
+      final promoted = state;
+      if (promoted is! SessionRoom || !promoted.roomIsHost) return;
       // Open the voice L2CAP server. Store the future so _sendJoinAccepted
       // can await it if a guest reconnects before the native call returns.
       final gen = ++_voiceGeneration;
