@@ -176,6 +176,17 @@ sealed class FrequencyMessage {
 
 /// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
 /// `FormatException` (not `TypeError`) when the wire shape is wrong.
+/// Parses an optional String field from a JSON map, throwing [FormatException]
+/// if the value is present but not a String. Returns null when absent.
+String? _parseOptionalString(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw == null) return null;
+  if (raw is! String) {
+    throw FormatException('`$key` must be a string when present, got $raw');
+  }
+  return raw;
+}
+
 List<ProtocolPeer> _parseRoster(Object? raw) {
   if (raw is! List) {
     throw const FormatException('`roster` must be a JSON array');
@@ -314,7 +325,7 @@ final class JoinAccepted extends FrequencyMessage {
               Map<String, dynamic>.from(j['mediaState'] as Map),
             ),
       voicePsm: voicePsm,
-      recipientPeerId: j['recipientPeerId'] as String?,
+      recipientPeerId: _parseOptionalString(j, 'recipientPeerId'),
     );
   }
 }

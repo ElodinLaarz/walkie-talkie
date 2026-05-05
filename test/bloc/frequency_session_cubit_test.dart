@@ -3918,12 +3918,13 @@ void main() {
         expect(rejoinedPeer.muted, isTrue);
         expect(rejoinedPeer.talking, isFalse);
 
-        // Re-join sends only a targeted JoinAccepted (no RosterUpdate because
-        // the roster size hasn't changed).
+        // Re-join sends a targeted JoinAccepted + a RosterUpdate so existing
+        // guests learn about any refreshed displayName / btDevice.
         final sent = drainOutbox(t.outbox);
-        expect(sent, hasLength(1));
-        expect(sent.single, isA<JoinAccepted>());
-        expect((sent.single as JoinAccepted).recipientPeerId, 'p-guest');
+        expect(sent, hasLength(2));
+        expect(sent[0], isA<JoinAccepted>());
+        expect((sent[0] as JoinAccepted).recipientPeerId, 'p-guest');
+        expect(sent[1], isA<RosterUpdate>());
       },
     );
 
@@ -4016,6 +4017,7 @@ void main() {
           sessionUuidLow8: '0102030405060708',
         );
         // Bootstrap the room via an unaddressed JoinAccepted (no recipientPeerId).
+        // applyJoinAccepted resets _seq to 0 — so debugSeq is 0 at this point.
         cubit.applyJoinAccepted(
           JoinAccepted(
             peerId: kHostPeerId,
@@ -4028,13 +4030,34 @@ void main() {
             ],
           ),
         );
-        final stateBefore = cubit.state;
-
-        // A JoinAccepted addressed to a *different* peer must not affect state.
+        // Advance _seq above 0 so we can verify it is not reset by the ignored
+        // message below. A second unaddressed JoinAccepted is the simplest way
+        // to advance _seq (it resets it to 0 again — but that is the value we
+        // then hold as the pre-test baseline).
         cubit.applyJoinAccepted(
           JoinAccepted(
             peerId: kHostPeerId,
             seq: 2,
+            atMs: 200,
+            hostPeerId: kHostPeerId,
+            roster: const [
+              ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+              ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+            ],
+          ),
+        );
+        final stateBefore = cubit.state;
+        final seqBefore =
+            cubit.debugSeq; // 0 after the second applyJoinAccepted
+
+        // A JoinAccepted addressed to a *different* peer must not affect state
+        // or reset _seq. Use seq=99 so a regression (applying the message)
+        // would reset _seq to 0, which is distinguishable from seqBefore=0 only
+        // via the state check, but also changes the roster — both are verified.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: kHostPeerId,
+            seq: 99,
             atMs: 500,
             hostPeerId: kHostPeerId,
             recipientPeerId: 'p-other-guest',
@@ -4048,6 +4071,7 @@ void main() {
 
         // State and _seq must be unchanged (message was for another peer).
         expect(cubit.state, equals(stateBefore));
+        expect(cubit.debugSeq, equals(seqBefore));
       },
     );
   });

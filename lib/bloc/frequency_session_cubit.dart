@@ -407,15 +407,17 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// Host-only: processes an incoming [JoinRequest] from a guest.
   ///
   /// Admits the guest (up to [kMaxRoomPeers] total) by adding them to the
-  /// roster, emitting updated [SessionRoom] state, and broadcasting a
-  /// [JoinAccepted] with the new roster snapshot. Sends [JoinDenied] with
-  /// [JoinDenyReason.roomFull] when capacity is reached. No-op for guests or
-  /// when the cubit is not in [SessionRoom].
+  /// roster, emitting updated [SessionRoom] state, sending a targeted
+  /// [JoinAccepted] (with [JoinAccepted.recipientPeerId] set) to the joining
+  /// peer, and broadcasting a [RosterUpdate] so existing guests learn of the
+  /// change. Sends [JoinDenied] with [JoinDenyReason.roomFull] when capacity is
+  /// reached. No-op for guests or when the cubit is not in [SessionRoom].
   ///
   /// **Re-joins**: if the requesting peer is already in the roster (e.g. after
   /// a BLE link drop and reconnect), their entry is refreshed in-place with the
-  /// latest displayName / btDevice from the request and a fresh [JoinAccepted]
-  /// is broadcast. The re-join does not consume a roster slot.
+  /// latest displayName / btDevice from the request. A targeted [JoinAccepted]
+  /// is sent and a [RosterUpdate] broadcast informs existing guests of any
+  /// metadata change. The re-join does not consume a roster slot.
   void _onJoinRequest(JoinRequest m) {
     final current = state;
     if (isClosed || current is! SessionRoom || !current.roomIsHost) return;
@@ -456,11 +458,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
     emit(current.copyWith(roster: newRoster));
     unawaited(_sendJoinAccepted(current, localPeerId, newRoster, m.peerId));
-    // Notify existing guests that the roster has changed. For re-joins this
-    // is a no-op (size unchanged), so we only broadcast on a fresh admit.
-    if (!isRejoin) {
-      unawaited(_broadcastRosterUpdate(newRoster));
-    }
+    // Always broadcast RosterUpdate so existing guests learn of roster changes
+    // (fresh admits grow the list; re-joins may refresh displayName/btDevice).
+    unawaited(_broadcastRosterUpdate(newRoster));
   }
 
   /// Builds and sends a targeted [JoinAccepted] to [joiningPeerId].
@@ -1741,11 +1741,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (current is! SessionRoom) return;
     // When the host sends a targeted JoinAccepted (recipientPeerId is set),
     // peers other than the intended recipient must ignore it so their _seq
-    // counters and reconnect state are not inadvertently reset.
-    final local = _localPeerId;
-    if (msg.recipientPeerId != null &&
-        local != null &&
-        msg.recipientPeerId != local) {
+    // counters and reconnect state are not inadvertently reset. This also
+    // covers the case where _localPeerId is null (bootstrap may leave it unset
+    // on a guest path failure) — an unknown local id cannot match any
+    // recipient, so we conservatively drop the message.
+    if (msg.recipientPeerId != null && msg.recipientPeerId != _localPeerId) {
       return;
     }
     _seq = 0;
