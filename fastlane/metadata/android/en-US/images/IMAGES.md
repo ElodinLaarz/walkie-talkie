@@ -45,7 +45,7 @@ Upload with `bundle exec fastlane android upload_images`.
 
 Screenshots:
 1. **Discovery screen** (`1.png`) — nearby frequency rows with radar animation, "Tune in" buttons, and "Start a new Frequency" card.
-2. **Frequency room** (`2.png`) — 98.7 MHz dial, two peer chips orbiting it, PTT and Mute buttons.
+2. **Frequency room** (`2.png`) — room header, local user card with PTT button, roster of two peer rows (talking-ring indicator, muted state), PTT mode hint.
 3. **Settings screen** (`3.png`) — Voice/Display/Privacy/About sections with toggles and links.
 
 To replace with real device captures:
@@ -60,7 +60,7 @@ Play Console recommends at least 2 even if the app is phone-only.
 
 Screenshots:
 1. **Discovery screen** (`1.png`) — nearby frequency rows with radar, Tune-in buttons, Start card.
-2. **Frequency room** (`2.png`) — 98.7 MHz dial, two peer chips orbiting, PTT and Mute buttons.
+2. **Frequency room** (`2.png`) — room header, local user card with PTT button, roster of two peer rows (talking-ring indicator, muted state), PTT mode hint.
 
 To replace with real device captures:
 `adb exec-out screencap -p > sevenInchScreenshots/1.png`
