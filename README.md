@@ -1,5 +1,7 @@
 # walkie_talkie
 
+[![codecov](https://codecov.io/gh/ElodinLaarz/walkie-talkie/branch/main/graph/badge.svg)](https://codecov.io/gh/ElodinLaarz/walkie-talkie)
+
 Frequency is an Android walkie-talkie app: open the app, "tune in" to someone
 nearby's frequency, and you're on a shared voice channel with everyone else
 tuned to the same one. No internet, no accounts, no cloud — just Bluetooth LE
