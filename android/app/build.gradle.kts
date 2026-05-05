@@ -24,8 +24,10 @@ android {
 
     defaultConfig {
         applicationId = "com.elodin.walkie_talkie"
-        // Android 13+ required for Bluetooth LE Audio APIs
-        minSdk = 33
+        // API 31 (Android 12) is the real floor: BLUETOOTH_SCAN/CONNECT/ADVERTISE
+        // runtime permissions were introduced in Android 12. Going below 31 would
+        // require a parallel BLUETOOTH_ADMIN legacy-permission branch.
+        minSdk = 31
         targetSdk = 36
         // Resolve versionCode in this priority order. Play rejects duplicate
         // versionCodes, so the goal is "every CI build uploads with a unique,
