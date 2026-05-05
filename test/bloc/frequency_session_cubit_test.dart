@@ -3281,6 +3281,357 @@ void main() {
     });
   });
 
+  // ── Host re-broadcast (issue #273) ───────────────────────────────────
+
+  group('Host re-broadcast', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    ({
+      BleControlTransport transport,
+      List<Uint8List> outbox,
+      StreamController<({String endpointId, Uint8List bytes})> inbox,
+    })
+    makeTestTransport() {
+      final outbox = <Uint8List>[];
+      final inbox =
+          StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+      final transport = BleControlTransport.forTest(
+        controlBytes: inbox.stream,
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      return (transport: transport, outbox: outbox, inbox: inbox);
+    }
+
+    List<FrequencyMessage> drainOutbox(List<Uint8List> outbox) {
+      final reassembler = FragmentReassembler();
+      final messages = <FrequencyMessage>[];
+      for (final bytes in outbox) {
+        final json = reassembler.feed(bytes);
+        if (json != null) messages.add(FrequencyMessage.decode(json));
+      }
+      return messages;
+    }
+
+    // The default _FakeStore.getPeerId() returns 'fake-peer-id'; bootstrap()
+    // caches this as _localPeerId, so the originator guard checks against it.
+    const String kHostPeerId = 'fake-peer-id';
+
+    /// Builds a host cubit with two roster entries: the host and 'p-guest'.
+    Future<FrequencySessionCubit> makeHostCubit(
+      BleControlTransport transport,
+    ) async {
+      final cubit = _makeCubit(
+        transport: transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 0,
+          hostPeerId: kHostPeerId,
+          roster: const [
+            ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+          ],
+        ),
+      );
+      return cubit;
+    }
+
+    test(
+      'host receives TalkingState from guest → re-broadcasts to all peers',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        final msg = const TalkingState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        );
+        t.outbox.clear(); // discard any join-phase sends
+        for (final frag in encodeFragments(msg.encode())) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final sent = drainOutbox(t.outbox);
+        expect(sent, hasLength(1));
+        expect(sent.single, isA<TalkingState>());
+        expect((sent.single as TalkingState).peerId, 'p-guest');
+        expect((sent.single as TalkingState).talking, isTrue);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host receives MuteState from guest → re-broadcasts to all peers',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        final msg = const MuteState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          muted: true,
+        );
+        t.outbox.clear();
+        for (final frag in encodeFragments(msg.encode())) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final sent = drainOutbox(t.outbox);
+        expect(sent, hasLength(1));
+        expect(sent.single, isA<MuteState>());
+        expect((sent.single as MuteState).peerId, 'p-guest');
+        expect((sent.single as MuteState).muted, isTrue);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host receives MediaCommand from guest → applies locally and re-broadcasts',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        final emissions = <MediaCommand>[];
+        final sub = cubit.mediaCommands.listen(emissions.add);
+
+        final msg = const MediaCommand(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          op: MediaOp.play,
+          source: 'YouTube Music',
+        );
+        t.outbox.clear();
+        for (final frag in encodeFragments(msg.encode())) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // Applied locally (mediaCommands stream)
+        expect(emissions, hasLength(1));
+        expect(emissions.single.op, MediaOp.play);
+
+        // Re-broadcast over the wire
+        final sent = drainOutbox(t.outbox);
+        expect(sent, hasLength(1));
+        expect(sent.single, isA<MediaCommand>());
+        expect((sent.single as MediaCommand).peerId, 'p-guest');
+
+        await sub.cancel();
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'guest role: receives TalkingState → applies locally, does NOT re-broadcast',
+      () async {
+        final t = makeTestTransport();
+        final cubit = _makeCubit(
+          transport: t.transport,
+          heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: false);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-peer', displayName: 'Someone'),
+            ],
+          ),
+        );
+
+        t.outbox.clear();
+        final msg = const TalkingState(
+          peerId: 'p-peer',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        );
+        for (final frag in encodeFragments(msg.encode())) {
+          t.inbox.add((endpointId: 'p-host', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // Applied locally (roster updated)
+        final room = cubit.state as SessionRoom;
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-peer').talking,
+          isTrue,
+        );
+        // No re-broadcast — not the host
+        expect(t.outbox, isEmpty);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host receives message from itself → no re-broadcast (originator guard)',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        t.outbox.clear();
+        // A TalkingState bearing the host's own peerId — should not loop back.
+        final msg = const TalkingState(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        );
+        for (final frag in encodeFragments(msg.encode())) {
+          t.inbox.add((endpointId: 'p-host', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(t.outbox, isEmpty);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'inbound TalkingState flips the matching roster peer\'s talking flag',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        final talking = const TalkingState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(talking)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        var room = cubit.state as SessionRoom;
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-guest').talking,
+          isTrue,
+        );
+        expect(
+          room.roster.firstWhere((p) => p.peerId == kHostPeerId).talking,
+          isFalse,
+        );
+
+        final stopped = const TalkingState(
+          peerId: 'p-guest',
+          seq: 2,
+          atMs: 2000,
+          talking: false,
+        ).encode();
+        for (final frag in encodeFragments(stopped)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        room = cubit.state as SessionRoom;
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-guest').talking,
+          isFalse,
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'inbound MuteState flips the matching roster peer\'s muted flag',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+
+        final muted = const MuteState(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          muted: true,
+        ).encode();
+        for (final frag in encodeFragments(muted)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-guest').muted,
+          isTrue,
+        );
+        expect(
+          room.roster.firstWhere((p) => p.peerId == kHostPeerId).muted,
+          isFalse,
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'inbound TalkingState/MuteState about an unknown peer is silently ignored',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeHostCubit(t.transport);
+        final stateBefore = cubit.state;
+
+        final msg = const TalkingState(
+          peerId: 'p-unknown',
+          seq: 1,
+          atMs: 1000,
+          talking: true,
+        ).encode();
+        for (final frag in encodeFragments(msg)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        // State unchanged — unknown peer not in roster
+        expect(cubit.state, equals(stateBefore));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+  });
+
   // ── TalkingState (VAD outbound) ───────────────────────────────────────
 
   group('TalkingState outbound', () {
