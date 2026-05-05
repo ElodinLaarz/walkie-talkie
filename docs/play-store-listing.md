@@ -59,7 +59,7 @@ One person hosts a Frequency room. Others nearby discover it automatically and j
 
 ── Requirements ──
 
-Android 13 (API 33) or higher. Bluetooth LE support required. Works best within 30–100 m of the host; range depends on environment and device hardware.
+Android 12 (API 31) or higher. Bluetooth LE support required. Works best within 30–100 m of the host; range depends on environment and device hardware.
 ```
 
 Run `bash scripts/validate_store_metadata.sh` to see the current character count (max 4 000).
