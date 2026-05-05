@@ -211,6 +211,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// [_initiateHostTransfer] to tell the promoted peer what UUID to advertise.
   String? _sessionUuid;
 
+  /// PSM of the running voice L2CAP server (host path only). Set when
+  /// [joinRoom] or [_promoteToHost] succeeds in opening the native socket;
+  /// null when the native layer returned null (e.g. BT off) or on the guest
+  /// path. Threaded into every [JoinAccepted] so guests know which PSM to
+  /// dial. Cleared on room teardown alongside [_sessionUuid].
+  int? _voicePsm;
+
   FrequencySessionCubit({
     required this.identityStore,
     required this.recentFrequenciesStore,
@@ -485,6 +492,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       roster: roster,
       mediaState: room.mediaState,
       recipientPeerId: joiningPeerId,
+      voicePsm: _voicePsm,
     );
     unawaited(
       t.send(msg).catchError((Object e) {
@@ -1134,6 +1142,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         ),
       );
       unawaited(audio.startGattServer());
+      // Open the voice L2CAP server. The PSM will be included in the next
+      // JoinAccepted sent to guests who re-connect after the host transfer.
+      unawaited(
+        audio.startVoiceServer().then((psm) {
+          if (!isClosed) _voicePsm = psm;
+        }),
+      );
     }
   }
 
@@ -1364,6 +1379,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           audio.startAdvertising(sessionUuid: sessionUuid, displayName: myName),
         );
         unawaited(audio.startGattServer());
+        // Open the L2CAP voice server and store the PSM. Fire-and-forget:
+        // discovery + GATT handshake latency means the first JoinRequest
+        // won't arrive before the native call returns.
+        unawaited(
+          audio.startVoiceServer().then((psm) {
+            if (!isClosed) _voicePsm = psm;
+          }),
+        );
       }
     } else {
       if (freq == null) {
@@ -1450,6 +1473,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         unawaited(audio.stopGattServer());
       }
     }
+    // Tear down the voice L2CAP transport for both roles: closes the server
+    // socket on the host and the client channel on the guest. Safe to call
+    // when no voice channel is open (e.g. the native start failed).
+    unawaited(_audio?.stopVoiceTransport());
     // Stop any in-progress reconnect so BLE retries halt promptly when
     // the user manually leaves rather than waiting for the next delay tick.
     _reconnectController?.cancel();
@@ -1481,6 +1508,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _transport?.forgetAllPeers();
     _seq = 0;
     _sessionUuid = null;
+    _voicePsm = null;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
     emit(
@@ -1563,6 +1591,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _weakSignalDetector.clear();
     _transport?.forgetAllPeers();
     _seq = 0;
+    _voicePsm = null;
     // Best-effort native teardown — failures are already logged inside
     // AudioService and must not block the state transition.
     final audio = _audio;
@@ -1571,6 +1600,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         await audio.stopVoice();
       } catch (error, stackTrace) {
         debugPrint('stopVoice during permission revoke failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      try {
+        await audio.stopVoiceTransport();
+      } catch (error, stackTrace) {
+        debugPrint(
+          'stopVoiceTransport during permission revoke failed: $error',
+        );
         debugPrintStack(stackTrace: stackTrace);
       }
       try {
@@ -1763,6 +1800,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         connectionPhase: ConnectionPhase.online,
       ),
     );
+    // Open the voice L2CAP channel when the host has advertised a PSM.
+    // Guest-only: the host never receives its own JoinAccepted and
+    // roomIsHost is always false on the guest path that reaches here.
+    // macAddress is required to dial the native CoC; we skip silently when
+    // it's absent (cosmetic / test-only entries that have no BLE device).
+    final voicePsm = msg.voicePsm;
+    final mac = current.macAddress;
+    final audio = _audio;
+    if (!current.roomIsHost &&
+        voicePsm != null &&
+        mac != null &&
+        audio != null) {
+      unawaited(
+        audio.connectVoiceClient(mac, voicePsm).catchError((Object e) {
+          if (kDebugMode) debugPrint('connectVoiceClient failed: $e');
+          return false;
+        }),
+      );
+    }
   }
 
   /// Called by heartbeat detection when the guest hasn't heard from the host
@@ -1961,6 +2017,8 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         unawaited(audio.stopGattServer());
       }
     }
+    // Stop the voice transport for both roles (safe when not running).
+    unawaited(_audio?.stopVoiceTransport());
     // Cancel an in-progress reconnect before closing so the attempt loop
     // won't call emit() or leaveRoom() after the cubit is disposed.
     _reconnectController?.cancel();
