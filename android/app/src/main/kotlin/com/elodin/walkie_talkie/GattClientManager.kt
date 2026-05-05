@@ -168,19 +168,41 @@ class GattClientManager(
             } else {
                 Log.w(TAG, "MTU change failed with status $status")
             }
-            // Proceed to service discovery regardless of MTU result
-            gatt.discoverServices()
+            // Proceed to service discovery regardless of MTU result.
+            // If the stack refuses the request, propagate the failure so Flutter
+            // can react (the onServicesDiscovered callback will never fire).
+            // SecurityException is thrown if BLUETOOTH_CONNECT is revoked mid-session.
+            try {
+                val started = gatt.discoverServices()
+                if (!started) {
+                    Log.e(TAG, "discoverServices() returned false — GATT stack busy or disconnected")
+                    onError?.invoke("GATT_SETUP_FAILED")
+                    gatt.disconnect()
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Missing Bluetooth permission for discoverServices()", e)
+                onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
+                gatt.disconnect()
+            }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "Service discovery failed with status $status")
+                if (status in GattConstants.AUTHORIZATION_ERRORS) {
+                    onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                } else {
+                    onError?.invoke("GATT_SETUP_FAILED")
+                }
+                gatt.disconnect()
                 return
             }
 
             val service = gatt.getService(GattConstants.SERVICE_UUID)
             if (service == null) {
                 Log.e(TAG, "Walkie-talkie service not found on host")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
                 return
             }
 
@@ -188,6 +210,8 @@ class GattClientManager(
             requestCharacteristic = service.getCharacteristic(GattConstants.REQUEST_CHAR_UUID)
             if (requestCharacteristic == null) {
                 Log.e(TAG, "REQUEST characteristic not found")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
                 return
             }
 
@@ -195,6 +219,8 @@ class GattClientManager(
             responseCharacteristic = service.getCharacteristic(GattConstants.RESPONSE_CHAR_UUID)
             if (responseCharacteristic == null) {
                 Log.e(TAG, "RESPONSE characteristic not found")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
                 return
             }
 
@@ -202,6 +228,8 @@ class GattClientManager(
             val notifyEnabled = gatt.setCharacteristicNotification(responseCharacteristic, true)
             if (!notifyEnabled) {
                 Log.e(TAG, "Failed to enable characteristic notification")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
                 return
             }
 
@@ -209,6 +237,8 @@ class GattClientManager(
             val cccd = responseCharacteristic?.getDescriptor(GattConstants.CCCD_UUID)
             if (cccd == null) {
                 Log.e(TAG, "CCCD descriptor not found on RESPONSE characteristic")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
                 return
             }
 
@@ -221,6 +251,8 @@ class GattClientManager(
             )
             if (writeSuccess != BluetoothStatusCodes.SUCCESS) {
                 Log.e(TAG, "Failed to write CCCD descriptor: $writeSuccess")
+                onError?.invoke("GATT_SETUP_FAILED")
+                gatt.disconnect()
             } else {
                 Log.i(TAG, "GATT client setup complete, notifications enabled")
             }
@@ -264,6 +296,8 @@ class GattClientManager(
                         disconnect()
                     } else {
                         Log.e(TAG, "CCCD write failed with status $status")
+                        onError?.invoke("GATT_SETUP_FAILED")
+                        disconnect()
                     }
                 }
             }
