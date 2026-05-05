@@ -128,7 +128,7 @@ service UUID. Each row shows host name + cosmetic MHz dial reading. Tap
 *Tune in* to send a `JoinRequest`. Includes an identity chip that opens a
 rename sheet for changing your display name later.
 
-**Frequency Room** — central frequency dial, orbiting peer chips with
+**Frequency Room** — central frequency dial, a roster of peer chips with
 talking-rings, push-to-talk button, mute toggle, shared-media controls,
 and a *Leave* button. Joining is implicit — the host's `JoinAccepted`
 delivers the roster + current `mediaState` so the room renders fully

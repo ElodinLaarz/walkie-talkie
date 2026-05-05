@@ -3449,7 +3449,9 @@ void main() {
         final t = makeTestTransport();
         final cubit = _makeCubit(
           transport: t.transport,
-          heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
         );
         await cubit.bootstrap();
         cubit.emit(const SessionDiscovery(myName: 'Maya'));
