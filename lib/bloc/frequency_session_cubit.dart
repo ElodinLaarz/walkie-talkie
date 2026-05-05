@@ -397,11 +397,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         }
       case JoinRequest m:
         _onJoinRequest(m);
-      // JoinDenied arrives at a guest that was rejected; the guest should
-      // disconnect on receipt. The cubit has no additional state to update
-      // here — the BLE layer handles the disconnection.
+      // JoinDenied arrives at a guest whose JoinRequest was rejected.
+      // Per the protocol, the guest must disconnect on receipt.
       case JoinDenied():
-        break;
+        if (!isClosed) unawaited(leaveRoom());
     }
   }
 
@@ -423,6 +422,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final localPeerId = _localPeerId;
     if (localPeerId == null) return;
 
+    // Reject a spoofed JoinRequest that claims the host's own peerId.
+    if (m.peerId == localPeerId) return;
+
     final existingIdx = current.roster.indexWhere((p) => p.peerId == m.peerId);
     final bool isRejoin = existingIdx >= 0;
 
@@ -434,8 +436,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     final List<ProtocolPeer> newRoster;
     if (isRejoin) {
       final updated = [...current.roster];
-      updated[existingIdx] = ProtocolPeer(
-        peerId: m.peerId,
+      // Preserve live session flags (muted/talking) so a BLE reconnect
+      // doesn't silently clear the peer's in-room state.
+      updated[existingIdx] = current.roster[existingIdx].copyWith(
         displayName: m.displayName,
         btDevice: m.btDevice,
       );

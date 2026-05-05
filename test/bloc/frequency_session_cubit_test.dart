@@ -3861,7 +3861,7 @@ void main() {
       () async {
         final t = makeTestTransport();
         final cubit = await makeEmptyHostCubit(t.transport);
-        // Seed a guest already in the roster.
+        // Seed a guest already in the roster with non-default flags.
         cubit.applyJoinAccepted(
           JoinAccepted(
             peerId: kHostPeerId,
@@ -3870,7 +3870,12 @@ void main() {
             hostPeerId: kHostPeerId,
             roster: const [
               ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
-              ProtocolPeer(peerId: 'p-guest', displayName: 'OldName'),
+              ProtocolPeer(
+                peerId: 'p-guest',
+                displayName: 'OldName',
+                muted: true,
+                talking: false,
+              ),
             ],
           ),
         );
@@ -3891,10 +3896,13 @@ void main() {
         final room = cubit.state as SessionRoom;
         // Roster size must not grow on re-join.
         expect(room.roster.length, rosterSizeBefore);
-        expect(
-          room.roster.firstWhere((p) => p.peerId == 'p-guest').displayName,
-          'NewName',
+        final rejoinedPeer = room.roster.firstWhere(
+          (p) => p.peerId == 'p-guest',
         );
+        expect(rejoinedPeer.displayName, 'NewName');
+        // muted/talking flags must be preserved from the live session state.
+        expect(rejoinedPeer.muted, isTrue);
+        expect(rejoinedPeer.talking, isFalse);
 
         final sent = drainOutbox(t.outbox);
         expect(sent, hasLength(1));
@@ -3905,6 +3913,70 @@ void main() {
         t.transport.dispose();
       },
     );
+
+    test(
+      'host ignores JoinRequest that spoofs the host\'s own peerId',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeEmptyHostCubit(t.transport);
+        t.outbox.clear();
+        final stateBefore = cubit.state;
+
+        // A malicious guest claims to be the host.
+        final req = JoinRequest(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 1000,
+          displayName: 'Impersonator',
+        ).encode();
+        for (final frag in encodeFragments(req)) {
+          t.inbox.add((endpointId: 'EE:FF', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, equals(stateBefore));
+        expect(t.outbox, isEmpty);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('guest receives JoinDenied → leaves the room', () async {
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        sessionUuidLow8: '0102030405060708',
+      );
+      expect(cubit.state, isA<SessionRoom>());
+
+      final denied = const JoinDenied(
+        peerId: kHostPeerId,
+        seq: 1,
+        atMs: 1000,
+        reason: JoinDenyReason.roomFull,
+      ).encode();
+      for (final frag in encodeFragments(denied)) {
+        t.inbox.add((endpointId: 'AA:BB:CC:DD:EE:FF', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // After JoinDenied the cubit must exit the room and return to Discovery.
+      expect(cubit.state, isA<SessionDiscovery>());
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
   });
 
   // ── TalkingState (VAD outbound) ───────────────────────────────────────
