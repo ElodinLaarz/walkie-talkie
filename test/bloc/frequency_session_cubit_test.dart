@@ -3651,6 +3651,334 @@ void main() {
     );
   });
 
+  // ── JoinRequest (host-side admit / deny) ─────────────────────────────
+
+  group('JoinRequest', () {
+    setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
+    ({
+      BleControlTransport transport,
+      List<Uint8List> outbox,
+      StreamController<({String endpointId, Uint8List bytes})> inbox,
+    })
+    makeTestTransport() {
+      final outbox = <Uint8List>[];
+      final inbox =
+          StreamController<({String endpointId, Uint8List bytes})>.broadcast();
+      final transport = BleControlTransport.forTest(
+        controlBytes: inbox.stream,
+        writeBytes: (bytes) async {
+          outbox.add(bytes);
+        },
+      );
+      return (transport: transport, outbox: outbox, inbox: inbox);
+    }
+
+    List<FrequencyMessage> drainOutbox(List<Uint8List> outbox) {
+      final reassembler = FragmentReassembler();
+      final messages = <FrequencyMessage>[];
+      for (final bytes in outbox) {
+        final json = reassembler.feed(bytes);
+        if (json != null) messages.add(FrequencyMessage.decode(json));
+      }
+      return messages;
+    }
+
+    const String kHostPeerId = 'fake-peer-id';
+
+    /// Host cubit with just the host on the roster (no guests yet).
+    Future<FrequencySessionCubit> makeEmptyHostCubit(
+      BleControlTransport transport,
+    ) async {
+      final cubit = _makeCubit(
+        transport: transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 0,
+          hostPeerId: kHostPeerId,
+          roster: const [
+            ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+          ],
+        ),
+      );
+      return cubit;
+    }
+
+    test(
+      'host admits a new guest: roster grows and JoinAccepted is sent',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeEmptyHostCubit(t.transport);
+        t.outbox.clear();
+
+        final req = const JoinRequest(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          displayName: 'Maya',
+          btDevice: 'AirPods Pro',
+        ).encode();
+        for (final frag in encodeFragments(req)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(
+          room.roster.map((p) => p.peerId),
+          containsAll(['fake-peer-id', 'p-guest']),
+        );
+        expect(
+          room.roster.firstWhere((p) => p.peerId == 'p-guest').displayName,
+          'Maya',
+        );
+
+        final sent = drainOutbox(t.outbox);
+        expect(sent, hasLength(1));
+        expect(sent.single, isA<JoinAccepted>());
+        final ja = sent.single as JoinAccepted;
+        expect(ja.hostPeerId, kHostPeerId);
+        expect(
+          ja.roster.map((p) => p.peerId),
+          containsAll(['fake-peer-id', 'p-guest']),
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('host sends JoinDenied when room is full', () async {
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+
+      // Fill the room to kMaxRoomPeers (including the host).
+      final fullRoster = List<ProtocolPeer>.generate(
+        FrequencySessionCubit.kMaxRoomPeers,
+        (i) => ProtocolPeer(peerId: 'p-$i', displayName: 'Peer $i'),
+      );
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 0,
+          hostPeerId: kHostPeerId,
+          roster: fullRoster,
+        ),
+      );
+      t.outbox.clear();
+      final stateBefore = cubit.state;
+
+      final req = const JoinRequest(
+        peerId: 'p-overflow',
+        seq: 1,
+        atMs: 2000,
+        displayName: 'Extra',
+      ).encode();
+      for (final frag in encodeFragments(req)) {
+        t.inbox.add((endpointId: 'CC:DD', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Roster must not have grown.
+      expect(cubit.state, equals(stateBefore));
+
+      final sent = drainOutbox(t.outbox);
+      expect(sent, hasLength(1));
+      expect(sent.single, isA<JoinDenied>());
+      expect((sent.single as JoinDenied).reason, JoinDenyReason.roomFull);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('guest role silently ignores incoming JoinRequest', () async {
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      // Join as guest (isHost: false)
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        sessionUuidLow8: '0102030405060708',
+      );
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 0,
+          hostPeerId: kHostPeerId,
+          roster: const [
+            ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+            ProtocolPeer(peerId: 'fake-peer-id', displayName: 'Maya'),
+          ],
+        ),
+      );
+      t.outbox.clear();
+      final stateBefore = cubit.state;
+
+      final req = const JoinRequest(
+        peerId: 'p-other',
+        seq: 1,
+        atMs: 1000,
+        displayName: 'Other',
+      ).encode();
+      for (final frag in encodeFragments(req)) {
+        t.inbox.add((endpointId: 'BB:CC', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.state, equals(stateBefore));
+      expect(t.outbox, isEmpty);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test(
+      're-join from known peer refreshes entry and re-sends JoinAccepted',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeEmptyHostCubit(t.transport);
+        // Seed a guest already in the roster with non-default flags.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: kHostPeerId,
+            seq: 2,
+            atMs: 0,
+            hostPeerId: kHostPeerId,
+            roster: const [
+              ProtocolPeer(peerId: kHostPeerId, displayName: 'Devon'),
+              ProtocolPeer(
+                peerId: 'p-guest',
+                displayName: 'OldName',
+                muted: true,
+                talking: false,
+              ),
+            ],
+          ),
+        );
+        t.outbox.clear();
+        final rosterSizeBefore = (cubit.state as SessionRoom).roster.length;
+
+        final req = const JoinRequest(
+          peerId: 'p-guest',
+          seq: 2,
+          atMs: 2000,
+          displayName: 'NewName',
+        ).encode();
+        for (final frag in encodeFragments(req)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        // Roster size must not grow on re-join.
+        expect(room.roster.length, rosterSizeBefore);
+        final rejoinedPeer = room.roster.firstWhere(
+          (p) => p.peerId == 'p-guest',
+        );
+        expect(rejoinedPeer.displayName, 'NewName');
+        // muted/talking flags must be preserved from the live session state.
+        expect(rejoinedPeer.muted, isTrue);
+        expect(rejoinedPeer.talking, isFalse);
+
+        final sent = drainOutbox(t.outbox);
+        expect(sent, hasLength(1));
+        expect(sent.single, isA<JoinAccepted>());
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'host ignores JoinRequest that spoofs the host\'s own peerId',
+      () async {
+        final t = makeTestTransport();
+        final cubit = await makeEmptyHostCubit(t.transport);
+        t.outbox.clear();
+        final stateBefore = cubit.state;
+
+        // A malicious guest claims to be the host.
+        final req = JoinRequest(
+          peerId: kHostPeerId,
+          seq: 1,
+          atMs: 1000,
+          displayName: 'Impersonator',
+        ).encode();
+        for (final frag in encodeFragments(req)) {
+          t.inbox.add((endpointId: 'EE:FF', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, equals(stateBefore));
+        expect(t.outbox, isEmpty);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('guest receives JoinDenied → leaves the room', () async {
+      final t = makeTestTransport();
+      final cubit = _makeCubit(
+        transport: t.transport,
+        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Maya'));
+      await cubit.joinRoom(
+        freq: '104.3',
+        isHost: false,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        sessionUuidLow8: '0102030405060708',
+      );
+      expect(cubit.state, isA<SessionRoom>());
+
+      final denied = const JoinDenied(
+        peerId: kHostPeerId,
+        seq: 1,
+        atMs: 1000,
+        reason: JoinDenyReason.roomFull,
+      ).encode();
+      for (final frag in encodeFragments(denied)) {
+        t.inbox.add((endpointId: 'AA:BB:CC:DD:EE:FF', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // After JoinDenied the cubit must exit the room and return to Discovery.
+      expect(cubit.state, isA<SessionDiscovery>());
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+  });
+
   // ── TalkingState (VAD outbound) ───────────────────────────────────────
 
   group('TalkingState outbound', () {
