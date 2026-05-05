@@ -235,17 +235,20 @@ def make_room(W, H, scale):
            "PTT", font=fnt(32, True, scale), fill=WHITE)
     y += card_h
 
-    # Section header
-    y += s(28, scale)
-    d.text((PAD + s(6, scale), y), "IN THIS ROOM",
-           font=fnt(28, True, scale), fill=TEXT2)
-    y += s(46, scale)
-
     # Peers card — linear list matching the actual PeerRow-based UI
     peers = [
         ("TR", "Taylor Rivera", PURPLE, True,  False),
         ("MK", "Morgan Kim",    GREEN,  False, True),
     ]
+
+    # Section header mirrors the in-app SectionLabel: "On this frequency · N"
+    # where N = peers + local user.
+    y += s(28, scale)
+    d.text((PAD + s(6, scale), y),
+           f"On this frequency · {len(peers) + 1}",
+           font=fnt(28, True, scale), fill=TEXT2)
+    y += s(46, scale)
+
     row_h = s(120, scale)
     card_total = len(peers) * row_h
     rounded_rect(d, [PAD, y, W - PAD, y + card_total], r=s(16, scale), fill=CARD_BG)
@@ -266,7 +269,7 @@ def make_room(W, H, scale):
         tx2 = ax2 + pr + s(18, scale)
         d.text((tx2, ry + s(22, scale)), name,
                font=fnt(36, True, scale), fill=TEXT1)
-        status = "Talking…" if talking else "Muted"
+        status = "Talking…" if talking else ("Muted" if muted else "Silent")
         status_col = col if talking else TEXT2
         d.text((tx2, ry + s(68, scale)), status,
                font=fnt(28, False, scale), fill=status_col)
