@@ -50,7 +50,6 @@ import 'frequency_session_state.dart';
 ///     characteristic via the BLE transport.
 ///   * [applyHostMediaEcho] — host echo path. Forwards the host-approved
 ///     command onto [mediaCommands] so local listeners can react.
-///     Host fan-out (re-broadcasting to all peers) is pending #273.
 ///     This currently does **not** mutate `SessionRoom.mediaState`;
 ///     the cubit's room snapshot only changes when room state is
 ///     replaced (e.g. via [applyJoinAccepted]). The room screen owns
@@ -58,6 +57,10 @@ import 'frequency_session_state.dart';
 ///     [applyHostMediaEcho] for why mediaState advancement isn't in
 ///     the cubit.
 class FrequencySessionCubit extends Cubit<FrequencySessionState> {
+  /// Maximum number of peers in a single room (host + guests), per
+  /// [docs/protocol.md § Beyond 12 peers]. The host counts toward the cap.
+  static const int kMaxRoomPeers = 12;
+
   final IdentityStore identityStore;
   final RecentFrequenciesStore recentFrequenciesStore;
 
@@ -392,12 +395,111 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         if (_applyPeerStateUpdate(m.peerId, muted: m.muted)) {
           _hostRebroadcast(m);
         }
-      // JoinRequest is host-only ingress (future host-side issue).
-      // JoinDenied is reserved for the host-rejects-guest path.
-      case JoinRequest():
+      case JoinRequest m:
+        _onJoinRequest(m);
+      // JoinDenied arrives at a guest that was rejected; the guest should
+      // disconnect on receipt. The cubit has no additional state to update
+      // here — the BLE layer handles the disconnection.
       case JoinDenied():
         break;
     }
+  }
+
+  /// Host-only: processes an incoming [JoinRequest] from a guest.
+  ///
+  /// Admits the guest (up to [kMaxRoomPeers] total) by adding them to the
+  /// roster, emitting updated [SessionRoom] state, and broadcasting a
+  /// [JoinAccepted] with the new roster snapshot. Sends [JoinDenied] with
+  /// [JoinDenyReason.roomFull] when capacity is reached. No-op for guests or
+  /// when the cubit is not in [SessionRoom].
+  ///
+  /// **Re-joins**: if the requesting peer is already in the roster (e.g. after
+  /// a BLE link drop and reconnect), their entry is refreshed in-place with the
+  /// latest displayName / btDevice from the request and a fresh [JoinAccepted]
+  /// is broadcast. The re-join does not consume a roster slot.
+  void _onJoinRequest(JoinRequest m) {
+    final current = state;
+    if (isClosed || current is! SessionRoom || !current.roomIsHost) return;
+    final localPeerId = _localPeerId;
+    if (localPeerId == null) return;
+
+    final existingIdx = current.roster.indexWhere((p) => p.peerId == m.peerId);
+    final bool isRejoin = existingIdx >= 0;
+
+    if (!isRejoin && current.roster.length >= kMaxRoomPeers) {
+      unawaited(_sendJoinDenied(localPeerId, JoinDenyReason.roomFull));
+      return;
+    }
+
+    final List<ProtocolPeer> newRoster;
+    if (isRejoin) {
+      final updated = [...current.roster];
+      updated[existingIdx] = ProtocolPeer(
+        peerId: m.peerId,
+        displayName: m.displayName,
+        btDevice: m.btDevice,
+      );
+      newRoster = updated;
+    } else {
+      newRoster = [
+        ...current.roster,
+        ProtocolPeer(
+          peerId: m.peerId,
+          displayName: m.displayName,
+          btDevice: m.btDevice,
+        ),
+      ];
+    }
+
+    emit(current.copyWith(roster: newRoster));
+    unawaited(_sendJoinAccepted(current, localPeerId, newRoster));
+  }
+
+  /// Builds and sends a [JoinAccepted] carrying the supplied [roster] to the
+  /// control-plane transport. Best-effort: failures are logged and swallowed.
+  Future<void> _sendJoinAccepted(
+    SessionRoom room,
+    String localPeerId,
+    List<ProtocolPeer> roster,
+  ) async {
+    final t = _transport;
+    if (t == null) return;
+    final msg = JoinAccepted(
+      peerId: localPeerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      hostPeerId: localPeerId,
+      roster: roster,
+      mediaState: room.mediaState,
+    );
+    unawaited(
+      t.send(msg).catchError((Object e) {
+        if (kDebugMode) debugPrint('JoinAccepted send failed: $e');
+        return false;
+      }),
+    );
+  }
+
+  /// Builds and sends a [JoinDenied] to the control-plane transport.
+  /// Best-effort: failures are logged and swallowed.
+  Future<void> _sendJoinDenied(
+    String localPeerId,
+    JoinDenyReason reason,
+  ) async {
+    final t = _transport;
+    if (t == null) return;
+    final msg = JoinDenied(
+      peerId: localPeerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      reason: reason,
+    );
+    unawaited(
+      t.send(msg).catchError((Object e) {
+        if (kDebugMode) debugPrint('JoinDenied send failed: $e');
+        return false;
+      }),
+    );
   }
 
   /// Applies a single-peer flag mutation (talking or mute) from an inbound
@@ -1717,11 +1819,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///   3. Write it to the host's REQUEST characteristic via
   ///      `_transport?.send(cmd)`. The host validates and applies it;
   ///      [applyHostMediaEcho] delivers the canonical echo locally.
-  ///      Host fan-out to all peers (so others see the change) is
-  ///      still pending — tracked in issue #273.
   ///
   /// The BLE transport is wired — step 3 runs alongside the optimistic
-  /// apply. Cross-peer reconciliation depends on host fan-out (#273).
+  /// apply. The host re-broadcasts the echo to all peers via
+  /// [_hostRebroadcast] in [applyHostMediaEcho].
   Future<void> sendMediaCommand({
     required MediaOp op,
     required String source,
