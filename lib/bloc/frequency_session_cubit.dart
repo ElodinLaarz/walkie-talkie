@@ -385,11 +385,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           );
         }
       case TalkingState m:
-        _applyPeerStateUpdate(m.peerId, talking: m.talking);
-        _hostRebroadcast(m);
+        if (_applyPeerStateUpdate(m.peerId, talking: m.talking)) {
+          _hostRebroadcast(m);
+        }
       case MuteState m:
-        _applyPeerStateUpdate(m.peerId, muted: m.muted);
-        _hostRebroadcast(m);
+        if (_applyPeerStateUpdate(m.peerId, muted: m.muted)) {
+          _hostRebroadcast(m);
+        }
       // JoinRequest is host-only ingress (future host-side issue).
       // JoinDenied is reserved for the host-rejects-guest path.
       case JoinRequest():
@@ -400,21 +402,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
 
   /// Applies a single-peer flag mutation (talking or mute) from an inbound
   /// [TalkingState] / [MuteState] to the live roster, then emits the updated
-  /// [SessionRoom]. No-op when the cubit is closed, outside `SessionRoom`,
-  /// when the named peer isn't in the roster (stale message after
-  /// Leave / RemovePeer), or when the new flag matches the current value
-  /// (avoids redundant emits under flapping VAD).
-  void _applyPeerStateUpdate(String peerId, {bool? muted, bool? talking}) {
+  /// [SessionRoom]. Returns `true` when the named peer exists in the roster
+  /// (regardless of whether the value changed), `false` when the peer is
+  /// unknown, the state is wrong, or the cubit is closed.
+  ///
+  /// Callers use the return value to decide whether to fan-out the message:
+  /// a `false` result means the peer isn't in this room, so re-broadcasting
+  /// would leak a stale or spoofed peer ID to the rest of the room.
+  bool _applyPeerStateUpdate(String peerId, {bool? muted, bool? talking}) {
     final current = state;
-    if (isClosed || current is! SessionRoom) return;
+    if (isClosed || current is! SessionRoom) return false;
     final idx = current.roster.indexWhere((p) => p.peerId == peerId);
-    if (idx < 0) return;
+    if (idx < 0) return false;
     final existing = current.roster[idx];
     final updated = existing.copyWith(muted: muted, talking: talking);
-    if (existing == updated) return;
+    if (existing == updated) return true;
     final newRoster = [...current.roster];
     newRoster[idx] = updated;
     emit(current.copyWith(roster: newRoster));
+    return true;
   }
 
   /// Re-broadcasts [msg] to all peers when running as the host, excluding

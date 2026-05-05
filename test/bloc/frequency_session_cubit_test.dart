@@ -3610,20 +3610,37 @@ void main() {
         final t = makeTestTransport();
         final cubit = await makeHostCubit(t.transport);
         final stateBefore = cubit.state;
+        t.outbox.clear();
 
-        final msg = const TalkingState(
+        final talkingMsg = const TalkingState(
           peerId: 'p-unknown',
           seq: 1,
           atMs: 1000,
           talking: true,
         ).encode();
-        for (final frag in encodeFragments(msg)) {
+        for (final frag in encodeFragments(talkingMsg)) {
           t.inbox.add((endpointId: 'AA:BB', bytes: frag));
         }
         await Future<void>.delayed(Duration.zero);
 
         // State unchanged — unknown peer not in roster
         expect(cubit.state, equals(stateBefore));
+        // Must not fan out stale/unknown peer IDs to the room
+        expect(t.outbox, isEmpty);
+
+        final muteMsg = const MuteState(
+          peerId: 'p-unknown',
+          seq: 2,
+          atMs: 2000,
+          muted: true,
+        ).encode();
+        for (final frag in encodeFragments(muteMsg)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(cubit.state, equals(stateBefore));
+        expect(t.outbox, isEmpty);
 
         await cubit.close();
         await t.inbox.close();
