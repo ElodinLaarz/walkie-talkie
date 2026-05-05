@@ -251,6 +251,14 @@ final class JoinAccepted extends FrequencyMessage {
   /// silent until/unless a future message provides one.
   final int? voicePsm;
 
+  /// Peer-id of the intended recipient. Non-null when the host sends a
+  /// targeted `JoinAccepted` to a single joining guest (as opposed to a
+  /// legacy broadcast with no recipient filter). Receivers that observe a
+  /// non-null value that doesn't match their own peer-id must silently
+  /// ignore the message so that existing guests don't reset their `_seq`
+  /// counters when a new peer joins.
+  final String? recipientPeerId;
+
   const JoinAccepted({
     required super.peerId,
     required super.seq,
@@ -259,6 +267,7 @@ final class JoinAccepted extends FrequencyMessage {
     required this.roster,
     this.mediaState,
     this.voicePsm,
+    this.recipientPeerId,
   }) : assert(
          voicePsm == null ||
              (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
@@ -275,6 +284,7 @@ final class JoinAccepted extends FrequencyMessage {
     'roster': roster.map((p) => p.toJson()).toList(),
     if (mediaState != null) 'mediaState': mediaState!.toJson(),
     if (voicePsm != null) 'voicePsm': voicePsm,
+    if (recipientPeerId != null) 'recipientPeerId': recipientPeerId,
   };
 
   factory JoinAccepted._fromJson(Map<String, dynamic> j) {
@@ -304,6 +314,7 @@ final class JoinAccepted extends FrequencyMessage {
               Map<String, dynamic>.from(j['mediaState'] as Map),
             ),
       voicePsm: voicePsm,
+      recipientPeerId: j['recipientPeerId'] as String?,
     );
   }
 }
