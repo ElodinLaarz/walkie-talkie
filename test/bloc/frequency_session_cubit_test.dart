@@ -972,98 +972,107 @@ void main() {
       expect(calls.map((c) => c.method), contains('stopVoiceTransport'));
     });
 
-    test('_promoteToHost calls startVoiceServer and PSM appears in JoinAccepted',
-        () async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      const channel = MethodChannel('com.elodin.walkie_talkie/audio');
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            if (call.method == 'startVoiceServer') return 0x81;
-            return true;
-          });
-      addTearDown(() {
+    test(
+      '_promoteToHost calls startVoiceServer and PSM appears in JoinAccepted',
+      () async {
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(channel, null);
-      });
+            .setMockMethodCallHandler(channel, (call) async {
+              if (call.method == 'startVoiceServer') return 0x81;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
 
-      final outbox = <Uint8List>[];
-      final inbox =
-          StreamController<({String endpointId, Uint8List bytes})>.broadcast();
-      final transport = BleControlTransport.forTest(
-        controlBytes: inbox.stream,
-        writeBytes: (bytes) async => outbox.add(bytes),
-      );
-      final store = _FakeStore(initial: 'Devon');
-      store._peerId = 'peer-2';
-      final cubit = _makeCubit(
-        audio: AudioService(),
-        transport: transport,
-        identityStore: store,
-        heartbeats: HeartbeatScheduler(pingInterval: const Duration(hours: 1)),
-      );
-      await cubit.bootstrap();
-      cubit.emit(
-        const SessionRoom(
-          myName: 'Devon',
-          roomFreq: '104.3',
-          roomIsHost: false,
-          hostPeerId: 'peer-1',
-          macAddress: 'AA:BB:CC:DD:EE:FF',
-          sessionUuidLow8: '0011223344556677',
-          roster: [
-            ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
-            ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
-          ],
-        ),
-      );
+        final outbox = <Uint8List>[];
+        final inbox =
+            StreamController<
+              ({String endpointId, Uint8List bytes})
+            >.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async => outbox.add(bytes),
+        );
+        final store = _FakeStore(initial: 'Devon');
+        store._peerId = 'peer-2';
+        final cubit = _makeCubit(
+          audio: AudioService(),
+          transport: transport,
+          identityStore: store,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+            ],
+          ),
+        );
 
-      // Inject a HostTransfer that promotes peer-2 (this cubit) to host.
-      for (final frag in encodeFragments(
-        const HostTransfer(
-          peerId: 'peer-1',
-          seq: 1,
-          atMs: 0,
-          newHostPeerId: 'peer-2',
-          sessionUuid: _testHostSessionUuid,
-        ).encode(),
-      )) {
-        inbox.add((endpointId: 'AA:BB', bytes: frag));
-      }
-      // Allow _promoteToHost and startVoiceServer to complete.
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-      outbox.clear();
+        // Inject a HostTransfer that promotes peer-2 (this cubit) to host.
+        for (final frag in encodeFragments(
+          const HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ).encode(),
+        )) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        // Allow _promoteToHost and startVoiceServer to complete.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        outbox.clear();
 
-      // Now send a JoinRequest — the host should reply with voicePsm set.
-      for (final frag in encodeFragments(
-        const JoinRequest(
-          peerId: 'peer-3',
-          seq: 1,
-          atMs: 1000,
-          displayName: 'Charlie',
-        ).encode(),
-      )) {
-        inbox.add((endpointId: 'CC:DD', bytes: frag));
-      }
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+        // Now send a JoinRequest — the host should reply with voicePsm set.
+        for (final frag in encodeFragments(
+          const JoinRequest(
+            peerId: 'peer-3',
+            seq: 1,
+            atMs: 1000,
+            displayName: 'Charlie',
+          ).encode(),
+        )) {
+          inbox.add((endpointId: 'CC:DD', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
 
-      final reassembler = FragmentReassembler();
-      final messages = <FrequencyMessage>[];
-      for (final bytes in outbox) {
-        final json = reassembler.feed(bytes);
-        if (json != null) messages.add(FrequencyMessage.decode(json));
-      }
-      final ja = messages.whereType<JoinAccepted>().firstOrNull;
-      expect(ja, isNotNull, reason: 'promoted host should send JoinAccepted');
-      expect(ja!.voicePsm, 0x81,
-          reason: 'promoted host should include voice PSM in JoinAccepted');
+        final reassembler = FragmentReassembler();
+        final messages = <FrequencyMessage>[];
+        for (final bytes in outbox) {
+          final json = reassembler.feed(bytes);
+          if (json != null) messages.add(FrequencyMessage.decode(json));
+        }
+        final ja = messages.whereType<JoinAccepted>().firstOrNull;
+        expect(ja, isNotNull, reason: 'promoted host should send JoinAccepted');
+        expect(
+          ja!.voicePsm,
+          0x81,
+          reason: 'promoted host should include voice PSM in JoinAccepted',
+        );
 
-      await cubit.close();
-      await inbox.close();
-      transport.dispose();
-    });
+        await cubit.close();
+        await inbox.close();
+        transport.dispose();
+      },
+    );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'leaveRoom drops back to Discovery with the prior name',
