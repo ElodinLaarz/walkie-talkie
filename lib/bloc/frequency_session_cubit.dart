@@ -218,6 +218,18 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// dial. Cleared on room teardown alongside [_sessionUuid].
   int? _voicePsm;
 
+  /// In-flight [AudioService.startVoiceServer] future. Stored so
+  /// [_sendJoinAccepted] can await it when a guest arrives before the native
+  /// call resolves, preventing a null PSM in the first [JoinAccepted].
+  /// Nulled on every room teardown.
+  Future<int?>? _voiceServerStartup;
+
+  /// Incremented each time the host role starts a new voice server session.
+  /// Guards the `.then` callback in [_promoteToHost] / [joinRoom] so a late
+  /// completion from a torn-down session cannot overwrite the next session's
+  /// [_voicePsm].
+  int _voiceGeneration = 0;
+
   FrequencySessionCubit({
     required this.identityStore,
     required this.recentFrequenciesStore,
@@ -484,6 +496,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ) async {
     final t = _transport;
     if (t == null) return;
+    // If startVoiceServer() hasn't resolved yet, wait for it so we never
+    // send JoinAccepted(voicePsm: null) to a guest just because the native
+    // call is still in flight.
+    final psm = _voicePsm ?? await _voiceServerStartup;
+    if (_voicePsm == null && psm != null) _voicePsm = psm;
     final msg = JoinAccepted(
       peerId: localPeerId,
       seq: ++_seq,
@@ -492,7 +509,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       roster: roster,
       mediaState: room.mediaState,
       recipientPeerId: joiningPeerId,
-      voicePsm: _voicePsm,
+      voicePsm: psm,
     );
     unawaited(
       t.send(msg).catchError((Object e) {
@@ -1142,11 +1159,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         ),
       );
       unawaited(audio.startGattServer());
-      // Open the voice L2CAP server. The PSM will be included in the next
-      // JoinAccepted sent to guests who re-connect after the host transfer.
+      // Open the voice L2CAP server. Store the future so _sendJoinAccepted
+      // can await it if a guest reconnects before the native call returns.
+      final gen = ++_voiceGeneration;
+      _voiceServerStartup = audio.startVoiceServer();
       unawaited(
-        audio.startVoiceServer().then((psm) {
-          if (!isClosed) _voicePsm = psm;
+        _voiceServerStartup!.then((psm) {
+          if (!isClosed && _voiceGeneration == gen) _voicePsm = psm;
         }),
       );
     }
@@ -1379,12 +1398,13 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           audio.startAdvertising(sessionUuid: sessionUuid, displayName: myName),
         );
         unawaited(audio.startGattServer());
-        // Open the L2CAP voice server and store the PSM. Fire-and-forget:
-        // discovery + GATT handshake latency means the first JoinRequest
-        // won't arrive before the native call returns.
+        // Open the L2CAP voice server. Store the future so _sendJoinAccepted
+        // can await it if a guest arrives before the native call returns.
+        final gen = ++_voiceGeneration;
+        _voiceServerStartup = audio.startVoiceServer();
         unawaited(
-          audio.startVoiceServer().then((psm) {
-            if (!isClosed) _voicePsm = psm;
+          _voiceServerStartup!.then((psm) {
+            if (!isClosed && _voiceGeneration == gen) _voicePsm = psm;
           }),
         );
       }
@@ -1509,6 +1529,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _seq = 0;
     _sessionUuid = null;
     _voicePsm = null;
+    _voiceServerStartup = null;
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
     emit(
@@ -1592,6 +1613,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _transport?.forgetAllPeers();
     _seq = 0;
     _voicePsm = null;
+    _voiceServerStartup = null;
     // Best-effort native teardown — failures are already logged inside
     // AudioService and must not block the state transition.
     final audio = _audio;
