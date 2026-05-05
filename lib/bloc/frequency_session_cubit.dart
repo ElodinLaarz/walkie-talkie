@@ -318,6 +318,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         applyJoinAccepted(m);
       case MediaCommand m:
         applyHostMediaEcho(m);
+        _hostRebroadcast(m);
       case RosterUpdate m:
         final current = state;
         if (isClosed || current is! SessionRoom) return;
@@ -383,14 +384,60 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
             ),
           );
         }
-      // These message types are handled by future issues
-      // (voice-activity detection, join request flow). Silently drop.
-      case TalkingState():
-      case MuteState():
+      case TalkingState m:
+        if (_applyPeerStateUpdate(m.peerId, talking: m.talking)) {
+          _hostRebroadcast(m);
+        }
+      case MuteState m:
+        if (_applyPeerStateUpdate(m.peerId, muted: m.muted)) {
+          _hostRebroadcast(m);
+        }
+      // JoinRequest is host-only ingress (future host-side issue).
+      // JoinDenied is reserved for the host-rejects-guest path.
       case JoinRequest():
       case JoinDenied():
         break;
     }
+  }
+
+  /// Applies a single-peer flag mutation (talking or mute) from an inbound
+  /// [TalkingState] / [MuteState] to the live roster, then emits the updated
+  /// [SessionRoom]. Returns `true` when the named peer exists in the roster
+  /// (regardless of whether the value changed), `false` when the peer is
+  /// unknown, the state is wrong, or the cubit is closed.
+  ///
+  /// Callers use the return value to decide whether to fan-out the message:
+  /// a `false` result means the peer isn't in this room, so re-broadcasting
+  /// would leak a stale or spoofed peer ID to the rest of the room.
+  bool _applyPeerStateUpdate(String peerId, {bool? muted, bool? talking}) {
+    final current = state;
+    if (isClosed || current is! SessionRoom) return false;
+    final idx = current.roster.indexWhere((p) => p.peerId == peerId);
+    if (idx < 0) return false;
+    final existing = current.roster[idx];
+    final updated = existing.copyWith(muted: muted, talking: talking);
+    if (existing == updated) return true;
+    final newRoster = [...current.roster];
+    newRoster[idx] = updated;
+    emit(current.copyWith(roster: newRoster));
+    return true;
+  }
+
+  /// Re-broadcasts [msg] to all peers when running as the host, excluding
+  /// messages the host originated itself (originator guard prevents loopback).
+  /// No-op for guests or when no transport is wired.
+  void _hostRebroadcast(FrequencyMessage msg) {
+    final current = state;
+    if (isClosed || current is! SessionRoom || !current.roomIsHost) return;
+    if (msg.peerId == _localPeerId) return;
+    final t = _transport;
+    if (t == null) return;
+    unawaited(
+      t.send(msg).catchError((Object e) {
+        if (kDebugMode) debugPrint('Host re-broadcast failed: $e');
+        return false;
+      }),
+    );
   }
 
   /// Host-only ingress for `SignalReport`. Guests currently send
@@ -1727,9 +1774,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// queue (`MediaSourceLib.queue.length`), so it can't correctly
   /// resolve the trackIdx for `skip` / `prev`. The room screen owns
   /// queue-aware advancement; the cubit's `mediaState` is the
-  /// `JoinAccepted` bootstrap snapshot only. Host fan-out (so the host
-  /// tracks canonical mediaState and snapshots it into `JoinAccepted`
-  /// for guests) is still pending — tracked in issue #273.
+  /// `JoinAccepted` bootstrap snapshot only.
   ///
   /// No-op outside `SessionRoom`, or after the cubit is closed.
   void applyHostMediaEcho(MediaCommand cmd) {
