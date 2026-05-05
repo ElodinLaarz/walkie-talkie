@@ -157,6 +157,43 @@ FrequencySessionCubit _seededCubit({bool isHost = false}) {
   return cubit;
 }
 
+/// Creates a [MockFrequencySessionCubit] pre-stubbed for audio-event /
+/// gattError tests that only need to verify [recheckPermissions] calls and
+/// do not emit any media-command or weak-signal events.
+///
+/// Uses [Stream.empty] for the streams that are subscribed but never
+/// fired, so no [StreamController] teardown is needed in the test.
+MockFrequencySessionCubit _mockCubitForPermTest() {
+  final cubit = MockFrequencySessionCubit();
+  final mockStore = MockIdentityStore();
+  when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
+  when(() => cubit.identityStore).thenReturn(mockStore);
+  when(() => cubit.localPeerId).thenReturn(null);
+  when(() => cubit.state).thenReturn(const SessionBooting());
+  when(
+    () => cubit.stream,
+  ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
+  when(
+    () => cubit.mediaCommands,
+  ).thenAnswer((_) => Stream<MediaCommand>.empty());
+  when(
+    () => cubit.weakSignalEvents,
+  ).thenAnswer(
+    (_) => Stream<({String peerId, String displayName})>.empty(),
+  );
+  when(
+    () => cubit.sendMediaCommand(
+      op: any(named: 'op'),
+      source: any(named: 'source'),
+      trackIdx: any(named: 'trackIdx'),
+      positionMs: any(named: 'positionMs'),
+    ),
+  ).thenAnswer((_) async {});
+  when(() => cubit.broadcastMute(any())).thenAnswer((_) async {});
+  when(() => cubit.recheckPermissions()).thenAnswer((_) async {});
+  return cubit;
+}
+
 void main() {
   /// Captures every audio MethodChannel call the room screen makes during a
   /// single test. Reset in `setUp` so cross-test bleed is impossible.
@@ -959,34 +996,7 @@ void main() {
         );
         addTearDown(eventEmitter.dispose);
 
-        final cubit = MockFrequencySessionCubit();
-        final mockStore = MockIdentityStore();
-        when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
-        when(() => cubit.identityStore).thenReturn(mockStore);
-        when(() => cubit.localPeerId).thenReturn(null);
-        when(() => cubit.state).thenReturn(const SessionBooting());
-        when(
-          () => cubit.stream,
-        ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
-        final mediaCtrl = StreamController<MediaCommand>.broadcast();
-        when(() => cubit.mediaCommands).thenAnswer((_) => mediaCtrl.stream);
-        final weakCtrl =
-            StreamController<({String peerId, String displayName})>.broadcast();
-        when(() => cubit.weakSignalEvents).thenAnswer((_) => weakCtrl.stream);
-        when(
-          () => cubit.sendMediaCommand(
-            op: any(named: 'op'),
-            source: any(named: 'source'),
-            trackIdx: any(named: 'trackIdx'),
-            positionMs: any(named: 'positionMs'),
-          ),
-        ).thenAnswer((_) async {});
-        when(() => cubit.broadcastMute(any())).thenAnswer((_) async {});
-        when(() => cubit.recheckPermissions()).thenAnswer((_) async {});
-        addTearDown(() {
-          mediaCtrl.close();
-          weakCtrl.close();
-        });
+        final cubit = _mockCubitForPermTest();
 
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
@@ -1014,34 +1024,7 @@ void main() {
         );
         addTearDown(eventEmitter.dispose);
 
-        final cubit = MockFrequencySessionCubit();
-        final mockStore = MockIdentityStore();
-        when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
-        when(() => cubit.identityStore).thenReturn(mockStore);
-        when(() => cubit.localPeerId).thenReturn(null);
-        when(() => cubit.state).thenReturn(const SessionBooting());
-        when(
-          () => cubit.stream,
-        ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
-        final mediaCtrl = StreamController<MediaCommand>.broadcast();
-        when(() => cubit.mediaCommands).thenAnswer((_) => mediaCtrl.stream);
-        final weakCtrl =
-            StreamController<({String peerId, String displayName})>.broadcast();
-        when(() => cubit.weakSignalEvents).thenAnswer((_) => weakCtrl.stream);
-        when(
-          () => cubit.sendMediaCommand(
-            op: any(named: 'op'),
-            source: any(named: 'source'),
-            trackIdx: any(named: 'trackIdx'),
-            positionMs: any(named: 'positionMs'),
-          ),
-        ).thenAnswer((_) async {});
-        when(() => cubit.broadcastMute(any())).thenAnswer((_) async {});
-        when(() => cubit.recheckPermissions()).thenAnswer((_) async {});
-        addTearDown(() {
-          mediaCtrl.close();
-          weakCtrl.close();
-        });
+        final cubit = _mockCubitForPermTest();
 
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
@@ -1072,34 +1055,7 @@ void main() {
         );
         addTearDown(eventEmitter.dispose);
 
-        final cubit = MockFrequencySessionCubit();
-        final mockStore = MockIdentityStore();
-        when(() => mockStore.getPeerId()).thenAnswer((_) async => 'me');
-        when(() => cubit.identityStore).thenReturn(mockStore);
-        when(() => cubit.localPeerId).thenReturn(null);
-        when(() => cubit.state).thenReturn(const SessionBooting());
-        when(
-          () => cubit.stream,
-        ).thenAnswer((_) => const Stream<FrequencySessionState>.empty());
-        final mediaCtrl = StreamController<MediaCommand>.broadcast();
-        when(() => cubit.mediaCommands).thenAnswer((_) => mediaCtrl.stream);
-        final weakCtrl =
-            StreamController<({String peerId, String displayName})>.broadcast();
-        when(() => cubit.weakSignalEvents).thenAnswer((_) => weakCtrl.stream);
-        when(
-          () => cubit.sendMediaCommand(
-            op: any(named: 'op'),
-            source: any(named: 'source'),
-            trackIdx: any(named: 'trackIdx'),
-            positionMs: any(named: 'positionMs'),
-          ),
-        ).thenAnswer((_) async {});
-        when(() => cubit.broadcastMute(any())).thenAnswer((_) async {});
-        when(() => cubit.recheckPermissions()).thenAnswer((_) async {});
-        addTearDown(() {
-          mediaCtrl.close();
-          weakCtrl.close();
-        });
+        final cubit = _mockCubitForPermTest();
 
         await tester.pumpWidget(_wrap(_room(), cubit: cubit));
         await tester.pump();
