@@ -171,10 +171,17 @@ class GattClientManager(
             // Proceed to service discovery regardless of MTU result.
             // If the stack refuses the request, propagate the failure so Flutter
             // can react (the onServicesDiscovered callback will never fire).
-            val started = gatt.discoverServices()
-            if (!started) {
-                Log.e(TAG, "discoverServices() returned false — GATT stack busy or disconnected")
-                onError?.invoke("GATT_SETUP_FAILED")
+            // SecurityException is thrown if BLUETOOTH_CONNECT is revoked mid-session.
+            try {
+                val started = gatt.discoverServices()
+                if (!started) {
+                    Log.e(TAG, "discoverServices() returned false — GATT stack busy or disconnected")
+                    onError?.invoke("GATT_SETUP_FAILED")
+                    gatt.disconnect()
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Missing Bluetooth permission for discoverServices()", e)
+                onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
                 gatt.disconnect()
             }
         }
