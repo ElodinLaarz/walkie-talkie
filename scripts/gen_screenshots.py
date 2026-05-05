@@ -3,7 +3,6 @@ Generate three Play-Store phone screenshots for the Frequency app.
 Dimensions: 1080 x 1920 (9:16, standard phone portrait)
 Run: python3 scripts/gen_screenshots.py
 """
-import math
 import os
 import sys
 
@@ -150,56 +149,68 @@ def make_room():
     d.text((W - 152, 122), "Leave", font=fnt(32, True), fill=(255, 200, 200))
     y = 192
 
-    # Name chip
-    y += 52
-    nc = "Alex Chen  ·  You"
-    ncw = d.textlength(nc, font=fnt(36))
-    rounded_rect(d, [W // 2 - ncw // 2 - 30, y, W // 2 + ncw // 2 + 30, y + 64], r=32, fill=BLUE)
-    d.text((W // 2 - ncw // 2, y + 14), nc, font=fnt(36), fill=WHITE)
-    y += 90
+    PAD = 32
 
-    # Dial
-    dial_cy = y + 380
-    dial_r  = 260
-    for r, alp in [(320, 25), (385, 15), (450, 8)]:
-        ov  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ovd = ImageDraw.Draw(ov)
-        ovd.ellipse([W // 2 - r, dial_cy - r, W // 2 + r, dial_cy + r],
-                    outline=(52, 152, 219, alp * 4), width=4)
-        img = img.convert("RGBA")
-        img = Image.alpha_composite(img, ov)
-        img = img.convert("RGB")
-    d = ImageDraw.Draw(img)
-    d.ellipse([W // 2 - dial_r, dial_cy - dial_r, W // 2 + dial_r, dial_cy + dial_r],
-              fill=WHITE, outline=DIVIDER, width=2)
-    fw = d.textlength("98.7", font=fnt(80, True))
-    d.text((W // 2 - fw // 2, dial_cy - 62), "98.7", font=fnt(80, True), fill=BLUE)
-    mw = d.textlength("MHz", font=fnt(38))
-    d.text((W // 2 - mw // 2, dial_cy + 36), "MHz", font=fnt(38), fill=TEXT2)
+    # Me-card: local user with avatar + name + PTT button
+    y += 24
+    card_h = 136
+    rounded_rect(d, [PAD, y, W - PAD, y + card_h], r=16, fill=CARD_BG)
+    ax = PAD + 20 + 44
+    ay = y + card_h // 2
+    d.ellipse([ax - 44, ay - 44, ax + 44, ay + 44], fill=BLUE)
+    iw = d.textlength("AC", font=fnt(36, True))
+    d.text((ax - iw // 2, ay - 22), "AC", font=fnt(36, True), fill=WHITE)
+    tx = ax + 44 + 18
+    d.text((tx, y + 26), "Alex Chen", font=fnt(38, True), fill=TEXT1)
+    d.text((tx, y + 74), "Phone speaker", font=fnt(28), fill=TEXT2)
+    bw, bh = 152, 64
+    bx0 = W - PAD - 20 - bw
+    by0 = y + (card_h - bh) // 2
+    rounded_rect(d, [bx0, by0, bx0 + bw, by0 + bh], r=32, fill=BLUE)
+    btw = d.textlength("PTT", font=fnt(32, True))
+    d.text((bx0 + (bw - btw) // 2, by0 + 16), "PTT", font=fnt(32, True), fill=WHITE)
+    y += card_h
 
-    # Peer chips
-    orbit_r = 385
-    for initials, pname, col, angle in [
-        ("TR", "Taylor", PURPLE, -math.pi / 4),
-        ("MK", "Morgan", GREEN,   math.pi + math.pi / 4),
-    ]:
-        px = int(W // 2 + orbit_r * math.cos(angle))
-        py = int(dial_cy + orbit_r * math.sin(angle))
-        d.ellipse([px - 56, py - 56, px + 56, py + 56], fill=col, outline=WHITE, width=4)
-        avatar(d, px, py, 42, col, initials)
-        pw = d.textlength(pname, font=fnt(30))
-        d.text((px - pw // 2, py + 60), pname, font=fnt(30), fill=TEXT1)
+    # Peers card — linear list matching the actual PeerRow-based UI
+    peers = [
+        ("TR", "Taylor Rivera", PURPLE, True,  False),
+        ("MK", "Morgan Kim",    GREEN,  False, True),
+    ]
 
-    # PTT + mute
-    ptt_cx, ptt_cy = W // 2, dial_cy + dial_r + 140
-    d.ellipse([ptt_cx - 100, ptt_cy - 100, ptt_cx + 100, ptt_cy + 100], fill=RED_PTT)
-    pw = d.textlength("PTT", font=fnt(36, True))
-    d.text((ptt_cx - pw // 2, ptt_cy - 20), "PTT", font=fnt(36, True), fill=WHITE)
+    # Section header mirrors the in-app SectionLabel: "On this frequency · N"
+    # where N = peers + local user.
+    y += 28
+    d.text((PAD + 6, y),
+           f"On this frequency · {len(peers) + 1}", font=fnt(28, True), fill=TEXT2)
+    y += 46
 
-    mx, my = ptt_cx - 240, ptt_cy
-    d.ellipse([mx - 60, my - 60, mx + 60, my + 60], fill=DARK_BLUE)
-    mw2 = d.textlength("Mute", font=fnt(28))
-    d.text((mx - mw2 // 2, my - 16), "Mute", font=fnt(28), fill=WHITE)
+    row_h = 120
+    card_total = len(peers) * row_h
+    rounded_rect(d, [PAD, y, W - PAD, y + card_total], r=16, fill=CARD_BG)
+
+    for i, (initials, name, col, talking, muted) in enumerate(peers):
+        ry = y + i * row_h
+        ax2 = PAD + 20 + 38
+        ay2 = ry + row_h // 2
+        if talking:
+            d.ellipse([ax2 - 50, ay2 - 50, ax2 + 50, ay2 + 50], outline=col, width=4)
+        d.ellipse([ax2 - 38, ay2 - 38, ax2 + 38, ay2 + 38], fill=col)
+        niw = d.textlength(initials, font=fnt(30, True))
+        d.text((ax2 - niw // 2, ay2 - 18), initials, font=fnt(30, True), fill=WHITE)
+        tx2 = ax2 + 38 + 18
+        d.text((tx2, ry + 22), name, font=fnt(36, True), fill=TEXT1)
+        status = "Talking…" if talking else ("Muted" if muted else "Silent")
+        status_col = col if talking else TEXT2
+        d.text((tx2, ry + 68), status, font=fnt(28), fill=status_col)
+        if i < len(peers) - 1:
+            d.line([PAD + 16, ry + row_h, W - PAD - 16, ry + row_h], fill=DIVIDER)
+    y += card_total
+
+    # PTT mode hint
+    y += 48
+    hint = "Push-to-talk · hold the mic button to transmit"
+    hw = d.textlength(hint, font=fnt(26))
+    d.text((W // 2 - int(hw) // 2, y), hint, font=fnt(26), fill=TEXT2)
 
     nav_bar(d)
     img.save(os.path.join(OUT, "2.png"), "PNG", optimize=True)
