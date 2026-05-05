@@ -189,7 +189,11 @@ class GattClientManager(
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "Service discovery failed with status $status")
-                onError?.invoke("GATT_SETUP_FAILED")
+                if (status in GattConstants.AUTHORIZATION_ERRORS) {
+                    onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                } else {
+                    onError?.invoke("GATT_SETUP_FAILED")
+                }
                 gatt.disconnect()
                 return
             }
