@@ -285,6 +285,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
         // SessionPermissionDenied without waiting for the 5-second poll
         // cycle in DefaultPermissionWatcher.
         unawaited(cubit.recheckPermissions());
+      } else if (type == 'gattError') {
+        // GATT client failure from GattClientManager — either a permission
+        // revocation (reason contains BLUETOOTH_PERMISSION_DENIED or
+        // GATT_AUTHORIZATION_DENIED) or a service-setup failure
+        // (GATT_SETUP_FAILED). Permission-related reasons get an immediate
+        // re-check; other reasons are left for the heartbeat watchdog to
+        // surface as a host-drop and trigger the reconnect flow.
+        final reason = event['reason'] as String? ?? '';
+        if (reason.contains('PERMISSION_DENIED') ||
+            reason.contains('AUTHORIZATION_DENIED')) {
+          unawaited(cubit.recheckPermissions());
+        }
       }
     });
 
