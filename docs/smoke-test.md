@@ -5,7 +5,7 @@ Manual end-to-end test procedure for verifying BLE/L2CAP/voice functionality acr
 ## Pre-flight
 
 ### Hardware Requirements
-- **Two Android 13+ devices** covering the OEM matrix:
+- **Two Android 12+ devices** covering the OEM matrix:
   - **Minimum**: One Pixel + one Samsung
   - **Ideal**: Add Xiaomi or OnePlus to catch aggressive battery-management failures
 

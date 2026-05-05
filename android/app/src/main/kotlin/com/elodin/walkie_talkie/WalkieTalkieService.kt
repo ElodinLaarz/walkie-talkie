@@ -420,21 +420,12 @@ class WalkieTalkieService : Service() {
             .build()
     }
 
-    /**
-     * Check if Bluetooth permissions are granted. On Android 12+ we need
-     * BLUETOOTH_CONNECT to use FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE.
-     */
-    private fun hasBluetoothPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            // On older APIs, BLUETOOTH permission is install-time, not runtime
-            true
-        }
-    }
+    /** BLUETOOTH_CONNECT is needed to attach FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE. */
+    private fun hasBluetoothPermissions(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
 
     private fun startForegroundWithNotification(freq: String?) {
         val notification = buildNotification(freq)
@@ -451,14 +442,12 @@ class WalkieTalkieService : Service() {
                 notification,
                 serviceType,
             )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        } else {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
                 serviceType,
             )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
         }
     }
 

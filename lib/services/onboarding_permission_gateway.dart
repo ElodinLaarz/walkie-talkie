@@ -18,7 +18,7 @@ abstract class OnboardingPermissionGateway {
 
 /// Default implementation backed by the `permission_handler` package.
 ///
-/// Bluetooth on Android 13+ requires three runtime permissions; we ask for
+/// Bluetooth on Android 12+ requires three runtime permissions; we ask for
 /// all of them together and only report `granted` when every one is granted.
 class DefaultOnboardingPermissionGateway
     implements OnboardingPermissionGateway {
