@@ -58,7 +58,7 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       and `deviceDiscovered` events drive the headset-routing manager.
       [audio_service.dart](lib/services/audio_service.dart) is the Dart
       side of that surface.
-    * Phase 2 ✅ done: the BLE control-plane bridge —
+    * Phase 2 ✅ code-complete, stabilizing: the BLE control-plane bridge —
       Frequency-shaped methods like `startAdvertising`, `connectToHost`,
       and `setMuted`, plus events like `onPeerDiscovered` and
       `onJoinAccepted`. Implemented in
@@ -70,10 +70,10 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
     * **BT headset routing** today
       ([BluetoothLeAudioManager.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/BluetoothLeAudioManager.kt))
       — pairs the user's headset and routes phone audio to it.
-    * **BLE Connection Manager** (Phase 2 ✅ done) — LE advertise (host),
+    * **BLE Connection Manager** (Phase 2 ✅ code-complete, stabilizing) — LE advertise (host),
       scan (guest), GATT server / client, L2CAP CoC server / client.
       Implemented across [#37–#45](https://github.com/ElodinLaarz/walkie-talkie/issues/37).
-    * **Audio Engine** (Phase 3 ✅) — mic capture (Oboe), Opus encode/decode,
+    * **Audio Engine** (Phase 3 ✅ code-complete, stabilizing) — mic capture (Oboe), Opus encode/decode,
       mix-minus. Fully wired; see
       [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
 5.  **Hardware Layer:** Bluetooth radio, microphone, audio output.
@@ -236,7 +236,7 @@ UI screens, onboarding + permissions, BLoC state, Hive persistence
 (`peerId` + display name), wire-protocol Dart stubs (framing,
 sequence filter, message envelope, voice-frame), foreground service shell.
 
-### Phase 2 — Native BLE control plane ✅ done
+### Phase 2 — Native BLE control plane ✅ code-complete, stabilizing
 
 End-to-end host advertise → guest connect → JoinAccepted snapshot, all on
 real radios.
@@ -251,7 +251,7 @@ real radios.
 * [#39](https://github.com/ElodinLaarz/walkie-talkie/issues/39) Host-side session bootstrap (mint `sessionUuid`, self-seed `JoinAccepted`).
 * [#40](https://github.com/ElodinLaarz/walkie-talkie/issues/40) Replace mock roster + media in the room screen with cubit state.
 
-### Phase 3 — Voice plane ✅ done
+### Phase 3 — Voice plane ✅ code-complete, stabilizing
 
 * [#46](https://github.com/ElodinLaarz/walkie-talkie/issues/46) Native L2CAP CoC server (host) + client (guest).
 * [#47](https://github.com/ElodinLaarz/walkie-talkie/issues/47) Native libopus encoder + decoder.
@@ -260,7 +260,7 @@ real radios.
 * [#50](https://github.com/ElodinLaarz/walkie-talkie/issues/50) Voice-activity detection + outbound `TalkingState` messages.
 * [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246) Session-level wiring: mic→encode→send + receive→decode→playback.
 
-### Phase 4 — Reliability ✅ done
+### Phase 4 — Reliability ✅ code-complete, stabilizing
 
 * [#51](https://github.com/ElodinLaarz/walkie-talkie/issues/51) Heartbeats + dirty-disconnect detection.
 * [#53](https://github.com/ElodinLaarz/walkie-talkie/issues/53) `SignalReport` on a 10s timer (replaces the demo weak-signal toast).
@@ -268,16 +268,19 @@ real radios.
 * [#56](https://github.com/ElodinLaarz/walkie-talkie/issues/56) Graceful auto-reconnect for transient drops (≤30s).
 * [#57](https://github.com/ElodinLaarz/walkie-talkie/issues/57) Permissions revocation handling (mic / BT revoked while in-room).
 
-### Phase 5 — Release polish ✅ done
+### Phase 5 — Release polish ✅ code-complete, stabilizing
 
 * [#34](https://github.com/ElodinLaarz/walkie-talkie/issues/34) Release signing config (replace debug-key fallback).
 * [#35](https://github.com/ElodinLaarz/walkie-talkie/issues/35) CI: build & run native `mixer_test` (and delete the checked-in binary).
 * [#36](https://github.com/ElodinLaarz/walkie-talkie/issues/36) Delete iOS / macOS / Windows / Linux scaffolding (Android-only v1).
 * [#52](https://github.com/ElodinLaarz/walkie-talkie/issues/52) Verify foreground notification configuration in `WalkieTalkieService`.
 
-### Phase 6 — Play Store submission (in progress)
+### Phase 6 — Play Store submission (in progress, gated on stabilization)
 
-Code and assets are ready; remaining steps are Play Console actions.
+Submission is gated on the launch-readiness issues opened after the
+code-complete review ([#301–#325](https://github.com/ElodinLaarz/walkie-talkie/issues/301));
+those must be resolved before submitting to Play. Remaining Play Console
+actions are documented in the submission guide below.
 
 * [#111](https://github.com/ElodinLaarz/walkie-talkie/issues/111) ✅ Privacy policy: written (`docs/privacy-policy.md`), linked from in-app About screen. Requires GitHub Pages to be enabled in repo settings before the URL goes live.
 * [#112](https://github.com/ElodinLaarz/walkie-talkie/issues/112) ✅ Adaptive launcher icon + monochrome icon for Android 13 themed icons.
