@@ -122,11 +122,13 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
     );
     if (confirmed != true || !mounted) return;
 
+    // A partial wipe is better than silently doing nothing, so we tolerate
+    // individual store failures and always proceed to the reset.
     await Future.wait([
-      widget.settingsStore.clear(),
-      identityStore.clear(),
-      recentStore.clear(),
-      blockedStore.clear(),
+      widget.settingsStore.clear().catchError((_) {}),
+      identityStore.clear().catchError((_) {}),
+      recentStore.clear().catchError((_) {}),
+      blockedStore.clear().catchError((_) {}),
     ]);
 
     // Shut down Sentry so no stale session or cached envelopes are reported

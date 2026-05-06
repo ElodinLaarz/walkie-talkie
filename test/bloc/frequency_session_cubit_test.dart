@@ -419,9 +419,20 @@ void main() {
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
       'resetToOnboarding clears the cached localPeerId',
-      build: () => _makeCubit(),
+      // _makeCubit does not call bootstrap(), so localPeerId starts null.
+      // joinRoom as host reads getPeerId() from the store and caches it in
+      // _localPeerId — this is the same priming path as production code.
+      build: () => _makeCubit(identityStore: _FakeStore(initial: 'Maya')),
       seed: () => const SessionDiscovery(myName: 'Maya'),
-      act: (cubit) => cubit.resetToOnboarding(),
+      act: (cubit) async {
+        await cubit.joinRoom(isHost: true);
+        expect(
+          cubit.localPeerId,
+          isNotNull,
+          reason: 'joinRoom must prime localPeerId before reset',
+        );
+        cubit.resetToOnboarding();
+      },
       verify: (cubit) {
         expect(cubit.localPeerId, isNull);
       },

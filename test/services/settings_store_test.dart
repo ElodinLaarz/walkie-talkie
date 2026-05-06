@@ -167,13 +167,16 @@ void main() {
         expect(await store.getCrashReportingEnabled(), isFalse);
       });
 
-      test('clears settings visible to a fresh instance', () async {
-        await SqfliteSettingsStore().setCrashReportingEnabled(true);
+      test('clears all keys visible to a fresh instance', () async {
+        final seed = SqfliteSettingsStore();
+        await seed.setCrashReportingEnabled(true);
+        await seed.setPttModeEnabled(true);
+        await seed.setKeepScreenOn(true);
         await SqfliteSettingsStore().clear();
-        expect(
-          await SqfliteSettingsStore().getCrashReportingEnabled(),
-          isFalse,
-        );
+        final fresh = SqfliteSettingsStore();
+        expect(await fresh.getCrashReportingEnabled(), isFalse);
+        expect(await fresh.getPttModeEnabled(), isFalse);
+        expect(await fresh.getKeepScreenOn(), isFalse);
       });
     });
   });

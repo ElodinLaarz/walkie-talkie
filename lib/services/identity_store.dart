@@ -101,6 +101,12 @@ class SqfliteIdentityStore implements IdentityStore {
 
   @override
   Future<void> clear() async {
+    // Await any in-flight _readOrCreatePeerId so its db.insert completes
+    // before we delete — otherwise the insert wins the race and leaves the
+    // old peer ID in kv after clear() returns.
+    try {
+      await _peerIdFuture;
+    } catch (_) {}
     _peerIdFuture = null;
     final db = await WalkieTalkieDatabase.open();
     await db.delete(
