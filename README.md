@@ -200,7 +200,6 @@ graph TD
 3.  **`permission_handler`** — Bluetooth scan / connect / advertise + mic
     permissions. The runtime asks happen during onboarding
     ([lib/services/onboarding_permission_gateway.dart](lib/services/onboarding_permission_gateway.dart)).
-4.  **`google_fonts`** — typography.
 
 ### Android Native (Kotlin / C++)
 
