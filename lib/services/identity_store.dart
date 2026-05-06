@@ -26,6 +26,10 @@ abstract class IdentityStore {
   /// lifetime — the same id is returned on every subsequent call across
   /// app restarts.
   Future<String> getPeerId();
+
+  /// Removes all persisted identity data (display name and peer ID).
+  /// The next [getPeerId] call after [clear] generates a fresh UUID.
+  Future<void> clear();
 }
 
 /// sqflite-backed [IdentityStore]. Both keys live in the shared `kv` table
@@ -93,5 +97,22 @@ class SqfliteIdentityStore implements IdentityStore {
       'value': fresh,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     return fresh;
+  }
+
+  @override
+  Future<void> clear() async {
+    // Await any in-flight _readOrCreatePeerId so its db.insert completes
+    // before we delete — otherwise the insert wins the race and leaves the
+    // old peer ID in kv after clear() returns.
+    try {
+      await _peerIdFuture;
+    } catch (_) {}
+    _peerIdFuture = null;
+    final db = await WalkieTalkieDatabase.open();
+    await db.delete(
+      'kv',
+      where: 'key = ? OR key = ?',
+      whereArgs: [_displayNameKey, _peerIdKey],
+    );
   }
 }

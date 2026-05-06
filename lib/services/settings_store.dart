@@ -26,6 +26,10 @@ abstract class SettingsStore {
 
   /// Persists the keep-screen-on preference.
   Future<void> setKeepScreenOn(bool enabled);
+
+  /// Removes all persisted settings. All getters return their default
+  /// values until new preferences are written.
+  Future<void> clear();
 }
 
 /// sqflite-backed [SettingsStore]. All keys live in the shared `kv` table
@@ -34,6 +38,11 @@ class SqfliteSettingsStore implements SettingsStore {
   static const String _crashReportingKey = 'crashReportingEnabled';
   static const String _pttModeKey = 'pttModeEnabled';
   static const String _keepScreenOnKey = 'keepScreenOn';
+
+  /// Serialises all writes (including [clear]) so a [clear] call that arrives
+  /// while a [setPttModeEnabled] / [setKeepScreenOn] called via `unawaited`
+  /// is still in flight never wins the race and leaves a stale key behind.
+  Future<void> _writeChain = Future.value();
 
   Future<bool> _readBool(String key) async {
     final db = await WalkieTalkieDatabase.open();
@@ -50,12 +59,14 @@ class SqfliteSettingsStore implements SettingsStore {
     return false;
   }
 
-  Future<void> _writeBool(String key, bool value) async {
-    final db = await WalkieTalkieDatabase.open();
-    await db.insert('kv', {
-      'key': key,
-      'value': value ? '1' : '0',
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> _writeBool(String key, bool value) {
+    return _writeChain = _writeChain.then((_) async {
+      final db = await WalkieTalkieDatabase.open();
+      await db.insert('kv', {
+        'key': key,
+        'value': value ? '1' : '0',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   @override
@@ -78,4 +89,16 @@ class SqfliteSettingsStore implements SettingsStore {
   @override
   Future<void> setKeepScreenOn(bool enabled) =>
       _writeBool(_keepScreenOnKey, enabled);
+
+  @override
+  Future<void> clear() {
+    return _writeChain = _writeChain.then((_) async {
+      final db = await WalkieTalkieDatabase.open();
+      await db.delete(
+        'kv',
+        where: 'key IN (?, ?, ?)',
+        whereArgs: [_crashReportingKey, _pttModeKey, _keepScreenOnKey],
+      );
+    });
+  }
 }

@@ -1249,6 +1249,16 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     emit(SessionDiscovery(myName: name, recentHostedFrequencies: recent));
   }
 
+  /// Transitions to [SessionOnboarding] after all user data has been cleared
+  /// by the caller. Call this only after all stores have been wiped so the
+  /// cubit's cached [_localPeerId] is stale; the next bootstrap will generate
+  /// a fresh peer ID from the now-empty [IdentityStore].
+  void resetToOnboarding() {
+    _localPeerId = null;
+    if (isClosed) return;
+    emit(const SessionOnboarding());
+  }
+
   /// Persists the new [name] without changing the current stage. Same
   /// failure semantics as [completeOnboarding].
   ///

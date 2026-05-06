@@ -147,5 +147,37 @@ void main() {
         expect(await store.getCrashReportingEnabled(), isFalse);
       });
     });
+
+    group('clear', () {
+      test('resets all settings to their defaults', () async {
+        final store = SqfliteSettingsStore();
+        await store.setCrashReportingEnabled(true);
+        await store.setPttModeEnabled(true);
+        await store.setKeepScreenOn(true);
+        await store.clear();
+        expect(await store.getCrashReportingEnabled(), isFalse);
+        expect(await store.getPttModeEnabled(), isFalse);
+        expect(await store.getKeepScreenOn(), isFalse);
+      });
+
+      test('is idempotent when called on an already-empty store', () async {
+        final store = SqfliteSettingsStore();
+        await store.clear();
+        await store.clear();
+        expect(await store.getCrashReportingEnabled(), isFalse);
+      });
+
+      test('clears all keys visible to a fresh instance', () async {
+        final seed = SqfliteSettingsStore();
+        await seed.setCrashReportingEnabled(true);
+        await seed.setPttModeEnabled(true);
+        await seed.setKeepScreenOn(true);
+        await SqfliteSettingsStore().clear();
+        final fresh = SqfliteSettingsStore();
+        expect(await fresh.getCrashReportingEnabled(), isFalse);
+        expect(await fresh.getPttModeEnabled(), isFalse);
+        expect(await fresh.getKeepScreenOn(), isFalse);
+      });
+    });
   });
 }

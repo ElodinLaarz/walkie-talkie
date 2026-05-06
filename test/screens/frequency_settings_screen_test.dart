@@ -44,6 +44,12 @@ class _FakeSettingsStore implements SettingsStore {
   @override
   Future<void> setCrashReportingEnabled(bool v) async =>
       calls.add(('setCrashReporting', v));
+
+  @override
+  Future<void> clear() async {
+    pttMode = false;
+    keepScreenOn = false;
+  }
 }
 
 FreqSwitch _findToggleFor(WidgetTester tester, String label) {

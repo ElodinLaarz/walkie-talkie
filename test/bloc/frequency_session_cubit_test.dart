@@ -46,6 +46,12 @@ class _FakeStore implements IdentityStore {
     if (throwOnGetPeerId) throw StateError('boom');
     return _peerId ??= 'fake-peer-id';
   }
+
+  @override
+  Future<void> clear() async {
+    _name = null;
+    _peerId = null;
+  }
 }
 
 /// Internal row carrying the public [RecentFrequency] plus a synthetic
@@ -401,6 +407,35 @@ void main() {
       seed: () => const SessionOnboarding(),
       act: (cubit) => cubit.rename('Sam'),
       expect: () => const <FrequencySessionState>[],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'resetToOnboarding emits SessionOnboarding from Discovery',
+      build: () => _makeCubit(identityStore: _FakeStore(initial: 'Devon')),
+      seed: () => const SessionDiscovery(myName: 'Devon'),
+      act: (cubit) => cubit.resetToOnboarding(),
+      expect: () => [const SessionOnboarding()],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'resetToOnboarding clears the cached localPeerId',
+      // _makeCubit does not call bootstrap(), so localPeerId starts null.
+      // joinRoom as host reads getPeerId() from the store and caches it in
+      // _localPeerId — this is the same priming path as production code.
+      build: () => _makeCubit(identityStore: _FakeStore(initial: 'Maya')),
+      seed: () => const SessionDiscovery(myName: 'Maya'),
+      act: (cubit) async {
+        await cubit.joinRoom(isHost: true);
+        expect(
+          cubit.localPeerId,
+          isNotNull,
+          reason: 'joinRoom must prime localPeerId before reset',
+        );
+        cubit.resetToOnboarding();
+      },
+      verify: (cubit) {
+        expect(cubit.localPeerId, isNull);
+      },
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
@@ -5251,6 +5286,9 @@ class _GatedPeerIdStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() => _peerIdFuture;
+
+  @override
+  Future<void> clear() async {}
 }
 
 /// AudioService stub that exposes a caller-supplied stream as
