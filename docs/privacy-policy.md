@@ -139,4 +139,4 @@ be filed as an issue on the project's GitHub repository or emailed to
 the maintainers:
 
 - <https://github.com/ElodinLaarz/walkie-talkie/issues>
-- <info@formalizedchaos.com>
+- <support@formalizedchaos.com>
