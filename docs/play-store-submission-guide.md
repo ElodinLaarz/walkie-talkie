@@ -30,7 +30,7 @@ items marked ⏳ require action inside the Play Console.
 | Target audience (13+) | ⏳ Play Console | See below |
 | Signed AAB upload to internal track | ⏳ First time | See below |
 | Closed testing track (12 testers × 14 days) | ⏳ Play Console | See below |
-| Production promotion (staged rollout) | ✅ Automated | `.github/workflows/play-store-promote.yml` |
+| Production promotion (staged rollout) | Tooling ready (manual trigger) | `.github/workflows/play-store-promote.yml` |
 | Pre-launch report | ⏳ Auto after AAB upload | See below |
 | Promo video | Optional | — |
 
@@ -147,10 +147,14 @@ Use the justifications in
 
 ## Step 7 — Closed testing track setup
 
-Google requires **12 testers × 14 continuous days** on the internal or closed
-testing track before a new personal developer account can publish to production.
+Google requires **12 testers × 14 continuous days** on the **closed testing**
+track before a new personal developer account can publish to production.
 
-**Play Console → Testing → Internal testing → Testers**
+> **Important:** You must use **closed testing** (not internal testing) for
+> the 12×14 days gate. Internal testing is for your own dev team and does
+> **not** count toward the production eligibility requirement.
+
+**Play Console → Testing → Closed testing → Create track (or use Alpha)**
 
 1. Create a testers list and add at least 12 Google accounts
 2. Share the opt-in link with your testers
@@ -158,9 +162,8 @@ testing track before a new personal developer account can publish to production.
 4. The 14-day clock starts once testers are active
 
 Practical notes:
-- You can use the internal track for the mandatory period (internal is
-  separate from closed/alpha/beta but counts toward the requirement in
-  newer Google policies — verify in your Play Console dashboard).
+- Use the **closed testing** (alpha) track — not the internal track — for
+  the mandatory period.
 - The clock **does not restart** if you push a new AAB; keep testers
   on the same track throughout.
 
