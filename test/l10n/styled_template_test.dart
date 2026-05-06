@@ -9,7 +9,7 @@ void main() {
   group('styledTemplate', () {
     test('single placeholder produces prefix + value + suffix spans', () {
       // Simulates a template like "Join {freq} now".
-      String template(String s) => 'Join ${s}now';
+      String template(String s) => 'Join $s now';
       final spans = styledTemplate(
         template: template,
         value: '92.5',
@@ -21,7 +21,7 @@ void main() {
       expect((spans[0] as TextSpan).style, surroundingStyle);
       expect((spans[1] as TextSpan).text, '92.5');
       expect((spans[1] as TextSpan).style, valueStyle);
-      expect((spans[2] as TextSpan).text, 'now');
+      expect((spans[2] as TextSpan).text, ' now');
       expect((spans[2] as TextSpan).style, surroundingStyle);
     });
 
