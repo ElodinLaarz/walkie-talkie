@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/sentry_config.dart';
@@ -135,6 +136,11 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
             onChanged: (v) {
               setState(() => _crashReporting = v);
               unawaited(widget.settingsStore.setCrashReportingEnabled(v));
+              if (!v) {
+                // Close the active Sentry session immediately so no events are
+                // captured or transmitted until the user re-enables on next launch.
+                unawaited(Sentry.close());
+              }
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
