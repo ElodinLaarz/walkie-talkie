@@ -137,9 +137,10 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
               setState(() => _crashReporting = v);
               unawaited(widget.settingsStore.setCrashReportingEnabled(v));
               if (!v) {
-                // Close the active Sentry session immediately so no events are
-                // captured or transmitted until the user re-enables on next launch.
-                unawaited(Sentry.close());
+                // Stop Sentry from capturing new events immediately. Any events
+                // already queued will be flushed during shutdown; re-init happens
+                // on the next launch if the user re-enables crash reporting.
+                unawaited(Sentry.close().catchError((_) {}));
               }
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
