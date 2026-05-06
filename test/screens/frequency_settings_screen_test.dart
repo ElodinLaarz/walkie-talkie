@@ -378,6 +378,7 @@ void main() {
         final blocked = _FakeBlockedStore();
         final settings = _FakeSettingsStore(pttMode: true);
         final cubit = _FakeCubit();
+        addTearDown(cubit.close);
 
         await tester.pumpWidget(
           _ProvidedSettings(
@@ -420,6 +421,7 @@ void main() {
         final blocked = _FakeBlockedStore();
         final settings = _FakeSettingsStore(pttMode: true);
         final cubit = _FakeCubit();
+        addTearDown(cubit.close);
 
         await tester.pumpWidget(
           _ProvidedSettings(
@@ -464,6 +466,7 @@ void main() {
         final blocked = _FakeBlockedStore(throwOnClear: true);
         final settings = _FakeSettingsStore(throwOnClear: true);
         final cubit = _FakeCubit();
+        addTearDown(cubit.close);
 
         await tester.pumpWidget(
           _ProvidedSettings(

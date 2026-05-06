@@ -95,6 +95,10 @@ void main() {
       await cubit.startDiscovery();
 
       expect(cubit.state, const DiscoveryStopped());
+      // Pin the interaction — without this, an early return that never
+      // reached the service would still leave the state at
+      // DiscoveryStopped() and pass the assertion.
+      verify(mockService.startScan()).called(2);
     },
   );
 }

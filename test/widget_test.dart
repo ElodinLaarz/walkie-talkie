@@ -390,8 +390,21 @@ void main() {
   testWidgets(
     'didUpdateWidget mints a fresh owned watcher when caller drops the supplied one',
     (tester) async {
-      // First pump: caller supplies a watcher.
+      // Snapshot the test-fake constructor counter so we can verify the
+      // supplied watcher counts as a creation. The owned default watcher
+      // (DefaultPermissionWatcher) is a production class and isn't tracked
+      // here; the indirect signal is that the widget keeps building
+      // without throwing in build(), which would happen if the
+      // null-coalesce on `widget.permissionWatcher ?? _ownedWatcher!`
+      // tripped on a null owned watcher.
+      final beforeSupplied = _FakePermissionWatcher.createdInstances;
       final supplied = _FakePermissionWatcher();
+      expect(
+        _FakePermissionWatcher.createdInstances,
+        beforeSupplied + 1,
+        reason: 'supplied watcher should bump the constructor counter',
+      );
+
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
@@ -420,6 +433,13 @@ void main() {
       await tester.pump();
 
       expect(supplied.disposed, isFalse);
+      // No new fake watcher should have been minted — the replacement is
+      // a real DefaultPermissionWatcher, not our test fake.
+      expect(
+        _FakePermissionWatcher.createdInstances,
+        beforeSupplied + 1,
+        reason: 'owned-watcher mint must not pull in a test fake',
+      );
       // The widget must remain mounted — if the new owned-watcher branch
       // failed to mint a default, the build() null-coalesce would throw.
       expect(find.byType(WalkieTalkieApp), findsOneWidget);

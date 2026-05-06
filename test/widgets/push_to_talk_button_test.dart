@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/push_to_talk_button.dart';
@@ -61,23 +60,12 @@ void main() {
         _wrap(PushToTalkButton(holding: false, onChange: events.add)),
       );
 
-      // Wrap in try/finally so the handle is released even if expect()
-      // throws — Flutter checks for leaked semantics handles in
-      // _endOfTestVerifications, which runs *before* addTearDown.
-      final handle = tester.ensureSemantics();
-      try {
-        final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
-        // pipelineOwner is technically deprecated in favour of
-        // rootPipelineOwner, but the latter has a null semanticsOwner in
-        // standalone widget tests on Flutter 3.41.
-        // ignore: deprecated_member_use
-        tester.binding.pipelineOwner.semanticsOwner!
-            .performAction(id, SemanticsAction.tap);
-        await tester.pump();
-        expect(events, [true, false]);
-      } finally {
-        handle.dispose();
-      }
+      // tester.semantics is the modern non-deprecated entry point; pair it
+      // with `find.semantics.byLabel(...)` to look up the SemanticsNode by
+      // its label rather than by widget type.
+      tester.semantics.tap(find.semantics.byLabel('Push to talk'));
+      await tester.pump();
+      expect(events, [true, false]);
     });
 
     testWidgets('semantics onLongPress fires true then false', (tester) async {
@@ -86,17 +74,9 @@ void main() {
         _wrap(PushToTalkButton(holding: false, onChange: events.add)),
       );
 
-      final handle = tester.ensureSemantics();
-      try {
-        final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
-        // ignore: deprecated_member_use
-        tester.binding.pipelineOwner.semanticsOwner!
-            .performAction(id, SemanticsAction.longPress);
-        await tester.pump();
-        expect(events, [true, false]);
-      } finally {
-        handle.dispose();
-      }
+      tester.semantics.longPress(find.semantics.byLabel('Push to talk'));
+      await tester.pump();
+      expect(events, [true, false]);
     });
 
     testWidgets('pointer cancel fires false', (tester) async {
