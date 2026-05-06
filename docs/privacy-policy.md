@@ -6,7 +6,7 @@ permalink: /privacy-policy/
 
 # Frequency — Privacy Policy
 
-_Last updated: 2026-05-04_
+_Last updated: 2026-05-06_
 
 Frequency is an offline, peer-to-peer walkie-talkie app for Android. It runs
 entirely on the phones in the conversation — there is no Frequency server, no
@@ -15,10 +15,12 @@ exactly what data the app touches, where it lives, and how to remove it.
 
 ## TL;DR
 
-- **No internet is required for voice or control.** The app does not declare
-  the `INTERNET` permission in its main manifest and does not send your
-  audio to the internet or any server; voice is transmitted directly to
-  nearby peers over Bluetooth.
+- **No internet is required for voice or control.** Voice is transmitted
+  directly to nearby peers over Bluetooth; audio never touches any server.
+- **Crash reporting is opt-in and off by default.** The app declares the
+  `INTERNET` permission solely so that Sentry can upload crash reports when
+  you explicitly enable this in Settings. The permission is never used for
+  any other outbound network traffic.
 - **No accounts.** There is nothing to sign up for and nothing to delete from
   a server because no server exists.
 - **No third-party analytics, ads, or tracking.**
@@ -69,9 +71,25 @@ device by Frequency.
 
 ### Crash and diagnostic data
 
-Frequency does not include any crash reporter, telemetry SDK, or analytics
-library. If a crash reporter is added in a future version it will be
-**opt-in** and the in-app setting will state exactly what is sent.
+Frequency includes an opt-in crash reporter powered by
+[Sentry](https://sentry.io). It is **off by default**. You can enable it in
+**Settings → Crash reporting**.
+
+When enabled, anonymised crash stack traces and session health data (crash
+rate, session counts) are sent over TLS to Sentry. The sanitizer in
+`lib/services/sentry_event_sanitizer.dart` strips peer IDs and display names
+from contexts, tags, and breadcrumbs before transmission, so Sentry's own
+SDK-generated session identifiers are used for crash correlation rather than
+any app-level identifier.
+
+When disabled (the default), no data leaves the device via the internet.
+Sentry is not analytics — it captures nothing about normal usage, only
+crash reports and session health.
+
+The app declares the `INTERNET` permission in its main manifest solely for
+this feature. A `network_security_config.xml` policy forbids cleartext
+(HTTP) traffic globally, so even if Sentry's SDK is initialised, it can
+only communicate over TLS.
 
 ## Permissions and why each is requested
 
@@ -84,6 +102,7 @@ library. If a crash reporter is added in a future version it will be
 | `MODIFY_AUDIO_SETTINGS` | Route audio to the speaker, a wired headset, or a paired Bluetooth headset. |
 | `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Keep the mic and Bluetooth radio running while the screen is off so the room does not drop when the phone locks. |
 | `POST_NOTIFICATIONS` | Show the foreground-service notification that lets you know a room is active and provides controls. |
+| `INTERNET` | Upload opt-in crash reports to Sentry. Only used when you enable crash reporting in Settings; never used for voice, control, or any other outbound traffic. |
 
 ## Children's privacy
 

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security policy for Frequency.
+
+  The app has exactly one outbound internet path: opt-in Sentry crash
+  reporting. All peer-to-peer voice and control traffic is Bluetooth LE only.
+
+  Policy:
+  - Cleartext (HTTP) traffic is forbidden globally.
+  - TLS to any host is permitted (Sentry's ingestion endpoint hostname is
+    baked into the DSN at build time via --dart-define and may vary per
+    deployment; host-specific pinning would break on cert rotation so we
+    rely on the system trust store and Sentry's TLS instead).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- Also trust user-installed CAs so devices behind enterprise
+                 TLS-inspection proxies can still upload crash reports. -->
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
