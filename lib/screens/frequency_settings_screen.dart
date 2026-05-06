@@ -62,6 +62,29 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
     });
   }
 
+  Future<void> _onCrashReportingChanged(bool v) async {
+    setState(() => _crashReporting = v);
+    await widget.settingsStore.setCrashReportingEnabled(v);
+    if (!v) {
+      // Stop capturing new events immediately. Any events already queued will
+      // be flushed during shutdown; re-init happens on the next launch if the
+      // user re-enables crash reporting.
+      await Sentry.close().catchError((_) {});
+    }
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          v
+              ? l10n.settingsCrashReportingEnabledSnackbar
+              : l10n.settingsCrashReportingDisabledSnackbar,
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
@@ -133,27 +156,7 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
             subtitle: l10n.settingsCrashReportingDescription,
             value: _crashReporting,
             c: c,
-            onChanged: (v) {
-              setState(() => _crashReporting = v);
-              unawaited(widget.settingsStore.setCrashReportingEnabled(v));
-              if (!v) {
-                // Stop Sentry from capturing new events immediately. Any events
-                // already queued will be flushed during shutdown; re-init happens
-                // on the next launch if the user re-enables crash reporting.
-                unawaited(Sentry.close().catchError((_) {}));
-              }
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    v
-                        ? l10n.settingsCrashReportingEnabledSnackbar
-                        : l10n.settingsCrashReportingDisabledSnackbar,
-                  ),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            },
+            onChanged: (v) => unawaited(_onCrashReportingChanged(v)),
           )
         else
           _SettingsToggle(
