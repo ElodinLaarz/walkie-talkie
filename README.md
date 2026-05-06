@@ -72,7 +72,7 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       — pairs the user's headset and routes phone audio to it.
     * **BLE Connection Manager** (Phase 2 ✅ code-complete, stabilizing) — LE advertise (host),
       scan (guest), GATT server / client, L2CAP CoC server / client.
-      Implemented across [#37–#45](https://github.com/ElodinLaarz/walkie-talkie/issues/37).
+      Implemented across [#37](https://github.com/ElodinLaarz/walkie-talkie/issues/37)–[#45](https://github.com/ElodinLaarz/walkie-talkie/issues/45).
     * **Audio Engine** (Phase 3 ✅ code-complete, stabilizing) — mic capture (Oboe), Opus encode/decode,
       mix-minus. Fully wired; see
       [#246](https://github.com/ElodinLaarz/walkie-talkie/issues/246).
