@@ -30,41 +30,54 @@ void main() {
       }
     });
 
-    testWidgets('current source row shows check icon', (tester) async {
-      await tester.pumpWidget(
-        _wrap(const MediaSourceSheet(current: 'spotify')),
-      );
-      await tester.pump();
-      // The selected row has a checkmark; other rows do not.
-      expect(find.byIcon(Icons.check), findsOneWidget);
-    });
-
-    testWidgets('non-selected source has no check icon', (tester) async {
-      // With 'spotify' selected, YouTube Music row has no check.
-      await tester.pumpWidget(
-        _wrap(const MediaSourceSheet(current: 'spotify')),
-      );
-      await tester.pump();
-      // Only one check visible — the selected source.
-      expect(find.byIcon(Icons.check), findsOneWidget);
-    });
-
-    testWidgets('selected source row shows check; others do not', (
+    testWidgets('check icon is on the selected row and absent from others', (
       tester,
     ) async {
-      // Spotify selected — check icon should appear exactly once.
+      Finder rowContaining(String label) => find
+          .ancestor(of: find.text(label), matching: find.byType(InkWell))
+          .first;
+
+      // Spotify selected.
       await tester.pumpWidget(
         _wrap(const MediaSourceSheet(current: 'spotify')),
       );
       await tester.pump();
-      expect(find.byIcon(Icons.check), findsOneWidget);
 
-      // Switch to Podcasts — check moves (verify by re-pumping with new current).
+      expect(
+        find.descendant(
+          of: rowContaining('Spotify'),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: rowContaining('Podcasts'),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsNothing,
+      );
+
+      // Switch to Podcasts — check icon must move.
       await tester.pumpWidget(
         _wrap(const MediaSourceSheet(current: 'Podcasts')),
       );
       await tester.pump();
-      expect(find.byIcon(Icons.check), findsOneWidget);
+
+      expect(
+        find.descendant(
+          of: rowContaining('Podcasts'),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: rowContaining('Spotify'),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsNothing,
+      );
     });
   });
 }

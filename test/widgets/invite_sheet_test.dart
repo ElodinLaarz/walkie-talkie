@@ -40,7 +40,11 @@ void main() {
       await tester.pump();
       expect(find.text('Copied invite'), findsOneWidget);
 
-      await tester.pump(const Duration(milliseconds: 1700));
+      await tester.pump(const Duration(milliseconds: 1599));
+      expect(find.text('Copied invite'), findsOneWidget);
+      expect(find.text('Copy invite link'), findsNothing);
+
+      await tester.pump(const Duration(milliseconds: 1));
       expect(find.text('Copy invite link'), findsOneWidget);
       expect(find.text('Copied invite'), findsNothing);
     });
