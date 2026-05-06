@@ -2027,7 +2027,7 @@ void main() {
     late AudioService audio;
     // The mock handler returns values pushed here; empty = return false.
     final List<bool> connectQueue = [];
-    // Completer to block the first connectDevice call so we can inspect
+    // Completer to block the first connectToHost call so we can inspect
     // intermediate state.
     Completer<bool>? blockFirst;
 
@@ -2041,7 +2041,7 @@ void main() {
           .setMockMethodCallHandler(
             const MethodChannel('com.elodin.walkie_talkie/audio'),
             (MethodCall call) async {
-              if (call.method == 'connectDevice') {
+              if (call.method == 'connectToHost') {
                 final blocker = blockFirst;
                 if (blocker != null) {
                   blockFirst = null;
@@ -2104,7 +2104,7 @@ void main() {
     });
 
     test('notifyDrop transitions state to reconnecting', () async {
-      // Block the first connectDevice so we can observe the intermediate state.
+      // Block the first connectToHost so we can observe the intermediate state.
       final blocker = Completer<bool>();
       blockFirst = blocker;
 
@@ -2123,7 +2123,7 @@ void main() {
 
       final dropFuture = cubit.notifyDrop(macAddress: 'AA:BB:CC:DD:EE:FF');
 
-      // Yield to let the cubit emit reconnecting before connectDevice resolves.
+      // Yield to let the cubit emit reconnecting before connectToHost resolves.
       await Future<void>.delayed(Duration.zero);
 
       expect(
@@ -2237,7 +2237,7 @@ void main() {
           ),
         );
 
-        // Let the blocked connectDevice resolve with false (the cancel signal
+        // Let the blocked connectToHost resolve with false (the cancel signal
         // will override it anyway, but the mock needs to settle).
         blocker.complete(false);
         await dropFuture;

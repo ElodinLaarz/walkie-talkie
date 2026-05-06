@@ -17,7 +17,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AudioService audio;
-  // connectDevice results consumed in order; empty = false.
+  // connectToHost results consumed in order; empty = false.
   final List<bool> connectResults = [];
   int connectCallCount = 0;
 
@@ -30,7 +30,7 @@ void main() {
         .setMockMethodCallHandler(
           const MethodChannel('com.elodin.walkie_talkie/audio'),
           (MethodCall call) async {
-            if (call.method == 'connectDevice') {
+            if (call.method == 'connectToHost') {
               connectCallCount++;
               if (connectResults.isEmpty) return false;
               return connectResults.removeAt(0);

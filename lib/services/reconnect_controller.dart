@@ -39,7 +39,7 @@ class ReconnectController {
       await Future.delayed(delay);
       if (_cancelled) return false;
       try {
-        final connected = await _audio.connectDevice(macAddress);
+        final connected = await _audio.connectToHost(macAddress);
         if (_cancelled) return false;
         if (connected) return true;
       } catch (_) {
