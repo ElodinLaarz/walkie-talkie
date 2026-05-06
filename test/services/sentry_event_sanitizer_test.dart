@@ -261,6 +261,36 @@ void main() {
       expect(result.message!.params!.single, '[MAC_REDACTED]');
       expect(result.message!.formatted, contains('[MAC_REDACTED]'));
     });
+
+    test('redacts structured (Map) message params', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'join attempt for %s',
+          params: [
+            {'peerId': 'abc-123', 'role': 'guest'},
+          ],
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final param = result.message!.params!.single as Map<String, dynamic>;
+      expect(param['peerId'], '[REDACTED]');
+      expect(param['role'], 'guest');
+    });
+
+    test('redacts MAC inside List message params', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'failed for %s',
+          params: [
+            ['AA:BB:CC:DD:EE:FF', 'rssi=-70'],
+          ],
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final list = result.message!.params!.single as List;
+      expect(list[0], '[MAC_REDACTED]');
+      expect(list[1], 'rssi=-70');
+    });
   });
 
   group('sanitizeSentryEvent — exceptions', () {
@@ -320,6 +350,32 @@ void main() {
       expect(frame.vars['count'], 3);
       expect(frame.fileName, 'foo.dart');
       expect(frame.lineNo, 42);
+    });
+
+    test('redacts MAC inside stack-trace registers (native crashes)', () {
+      final event = SentryEvent(
+        exceptions: [
+          SentryException(
+            type: 'NativeCrash',
+            value: 'SIGSEGV',
+            stackTrace: SentryStackTrace(
+              frames: [
+                SentryStackFrame(function: 'native_call', fileName: 'libfoo.so'),
+              ],
+              registers: {
+                'r0': '0xAABBCCDDEEFF',
+                'r1': 'AA:BB:CC:DD:EE:FF',
+                'pc': '0x1234',
+              },
+            ),
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final regs = result.exceptions!.single.stackTrace!.registers;
+      expect(regs['r1'], '[MAC_REDACTED]');
+      expect(regs['r0'], '0xAABBCCDDEEFF'); // 12-hex-digit literal — not a MAC shape
+      expect(regs['pc'], '0x1234');
     });
   });
 

@@ -122,7 +122,23 @@ SentryStackFrame _scrubFrame(SentryStackFrame f) {
 SentryStackTrace? _scrubStackTrace(SentryStackTrace? st) {
   if (st == null) return null;
   final scrubbed = [for (final f in st.frames) _scrubFrame(f)];
-  return SentryStackTrace(frames: scrubbed);
+  // `registers` is a Map<String, String> CPU register snapshot used for
+  // native (NDK) crashes. Empty for Dart-only crashes, but on native it can
+  // contain memory addresses or stringified pointers that match our MAC
+  // regex by coincidence; scrub each value through the message redactor.
+  final registers = st.registers;
+  final scrubbedRegisters = registers.isEmpty
+      ? null
+      : <String, String>{
+          for (final e in registers.entries)
+            e.key: _isPiiKey(e.key) ? '[REDACTED]' : _redactMessage(e.value),
+        };
+  return SentryStackTrace(
+    frames: scrubbed,
+    registers: scrubbedRegisters,
+    lang: st.lang,
+    snapshot: st.snapshot,
+  );
 }
 
 void _scrubException(SentryException ex) {
@@ -143,10 +159,11 @@ void _scrubMessage(SentryMessage m) {
   if (template != null) m.template = _redactMessage(template);
   final params = m.params;
   if (params != null) {
-    final redacted = [
-      for (final p in params) p is String ? _redactMessage(p) : p,
-    ];
-    m.params = redacted;
+    // Use the deep redactor so structured params (Map / List) are scrubbed,
+    // not just String values. Sentry coerces non-strings to strings on
+    // serialization, so a Map<String, dynamic> with a peerId key would
+    // otherwise be stringified verbatim before reaching beforeSend's reach.
+    m.params = [for (final p in params) _redactDeep(p)];
   }
 }
 
