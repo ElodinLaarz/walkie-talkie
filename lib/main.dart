@@ -66,6 +66,12 @@ void main() async {
           options.sampleRate = 1.0;
           // Attach stack traces to messages
           options.attachStacktrace = true;
+          // Belt-and-braces: refuse Sentry's server-side enrichment that
+          // would otherwise resolve `user.ipAddress = "{{auto}}"` to the
+          // device's public IP. The sanitizer also drops the user block,
+          // but this prevents the auto-resolution from happening in the
+          // first place.
+          options.sendDefaultPii = false;
           // Redact PII before sending
           options.beforeSend = (event, hint) {
             return sanitizeSentryEvent(event);
