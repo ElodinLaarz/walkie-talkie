@@ -18,8 +18,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        }
     }
 
     defaultConfig {
@@ -193,10 +195,10 @@ android {
     // ships an AAB instead of a fat APK is to deliver only the ABI / density /
     // language slice each device needs.
     //
-    // vcsInfo embeds the HEAD commit SHA + remote URL into the AAB metadata so
-    // Play Console can deep-link crash stack traces back to the exact source
-    // revision — pairs with the R8 mapping upload from #110 for fully
-    // deobfuscated, source-linked traces in the Play Console crash dashboard.
+    // vcsInfo is intentionally omitted: the AGP version used here does not
+    // resolve the vcsInfo DSL block in the Kotlin build-script context,
+    // causing a compile-time error. Source-revision linking in Play Console
+    // is covered by the Sentry R8 mapping upload (see sentry block below).
     bundle {
         language {
             enableSplit = true
@@ -206,9 +208,6 @@ android {
         }
         abi {
             enableSplit = true
-        }
-        vcsInfo {
-            include = true
         }
     }
 

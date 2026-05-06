@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 /// Drives the protocol's `signal_report` plane: emits an [onTick] every
 /// [interval] so the caller can sample local RSSI and send a `SignalReport`
 /// over the wire.
@@ -56,4 +58,9 @@ class SignalReporter {
     _timer = null;
     _onTick = null;
   }
+
+  /// Fires [onTick] immediately without waiting for the next timer interval.
+  /// Mirrors [HeartbeatScheduler.debugTick].
+  @visibleForTesting
+  void debugTick() => _onTick?.call();
 }

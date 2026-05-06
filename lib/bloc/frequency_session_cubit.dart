@@ -628,7 +628,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// RSSI to report (e.g. before the GATT client has a connection),
   /// which keeps the wire quiet during link bring-up.
   ///
-  /// **Seq accounting.** Two distinct skip cases, with different rules:
+  /// **Seq accounting.** Three distinct skip cases, with different rules:
   ///   * Transport / audio absent, RSSI sample throws, peerId resolve
   ///     fails — the seq counter still advances. These are failure
   ///     paths where another producer may have already used a seq, so
@@ -639,6 +639,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///     report with samples picks up where we left off instead of
   ///     skipping wire-level numbers the host's SequenceFilter would
   ///     have to tolerate gaps in.
+  ///   * All samples have unresolvable MACs (no MAC→peerId mapping in
+  ///     state yet, e.g. before [applyJoinAccepted]) — the seq counter
+  ///     does **not** advance, same non-event semantics as an empty list.
   Future<void> _sendSignalReport() async {
     final t = _transport;
     final audio = _audio;
@@ -677,14 +680,33 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         return;
       }
       if (isClosed) return;
+      // The GATT client keys connections by BT MAC, not application peerId,
+      // so samples arrive with MAC as the peerId field. Resolve to the
+      // application-level peerId before building the report — the host's
+      // roster is indexed by application peerId and the MAC lookup would
+      // silently drop every neighbor at the displayName-null guard (#316).
+      final current = state;
+      final Map<String, String> macToPeerId;
+      if (current is SessionRoom &&
+          current.macAddress != null &&
+          current.hostPeerId != null) {
+        macToPeerId = {current.macAddress!: current.hostPeerId!};
+      } else {
+        macToPeerId = const {};
+      }
+      final resolvedNeighbors = [
+        for (final s in samples)
+          if (macToPeerId[s.peerId] case final resolvedId?)
+            NeighborSignal(peerId: resolvedId, rssi: s.rssi),
+      ];
+      // Nothing resolvable — same non-event as an empty sample list; do not
+      // advance the seq counter so the host's SequenceFilter sees no gap.
+      if (resolvedNeighbors.isEmpty) return;
       final msg = SignalReport(
         peerId: peerId,
         seq: ++_seq,
         atMs: DateTime.now().millisecondsSinceEpoch,
-        neighbors: [
-          for (final s in samples)
-            NeighborSignal(peerId: s.peerId, rssi: s.rssi),
-        ],
+        neighbors: resolvedNeighbors,
       );
       try {
         await t.send(msg);
