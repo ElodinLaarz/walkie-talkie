@@ -628,7 +628,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// RSSI to report (e.g. before the GATT client has a connection),
   /// which keeps the wire quiet during link bring-up.
   ///
-  /// **Seq accounting.** Two distinct skip cases, with different rules:
+  /// **Seq accounting.** Three distinct skip cases, with different rules:
   ///   * Transport / audio absent, RSSI sample throws, peerId resolve
   ///     fails — the seq counter still advances. These are failure
   ///     paths where another producer may have already used a seq, so
@@ -639,6 +639,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   ///     report with samples picks up where we left off instead of
   ///     skipping wire-level numbers the host's SequenceFilter would
   ///     have to tolerate gaps in.
+  ///   * All samples have unresolvable MACs (no MAC→peerId mapping in
+  ///     state yet, e.g. before [applyJoinAccepted]) — the seq counter
+  ///     does **not** advance, same non-event semantics as an empty list.
   Future<void> _sendSignalReport() async {
     final t = _transport;
     final audio = _audio;

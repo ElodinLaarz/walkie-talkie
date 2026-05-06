@@ -3484,6 +3484,7 @@ void main() {
         // Join without calling applyJoinAccepted — hostPeerId is null.
         await cubit.joinRoom(freq: '104.3', isHost: false, macAddress: hostMac);
 
+        final seqBefore = cubit.debugSeq;
         t.outbox.clear();
         reporter.debugTick();
         await Future<void>.delayed(Duration.zero);
@@ -3492,6 +3493,12 @@ void main() {
           t.outbox,
           isEmpty,
           reason: 'unresolvable MAC should produce no outbound report',
+        );
+        expect(
+          cubit.debugSeq,
+          seqBefore,
+          reason:
+              'fully-dropped reports are non-events and must not advance seq',
         );
 
         await cubit.close();
