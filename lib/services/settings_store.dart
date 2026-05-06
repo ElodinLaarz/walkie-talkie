@@ -26,6 +26,10 @@ abstract class SettingsStore {
 
   /// Persists the keep-screen-on preference.
   Future<void> setKeepScreenOn(bool enabled);
+
+  /// Removes all persisted settings. All getters return their default
+  /// values until new preferences are written.
+  Future<void> clear();
 }
 
 /// sqflite-backed [SettingsStore]. All keys live in the shared `kv` table
@@ -78,4 +82,14 @@ class SqfliteSettingsStore implements SettingsStore {
   @override
   Future<void> setKeepScreenOn(bool enabled) =>
       _writeBool(_keepScreenOnKey, enabled);
+
+  @override
+  Future<void> clear() async {
+    final db = await WalkieTalkieDatabase.open();
+    await db.delete(
+      'kv',
+      where: 'key IN (?, ?, ?)',
+      whereArgs: [_crashReportingKey, _pttModeKey, _keepScreenOnKey],
+    );
+  }
 }

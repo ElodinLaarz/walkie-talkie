@@ -1,10 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
+import '../bloc/frequency_session_cubit.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../services/blocked_peers_store.dart';
+import '../services/identity_store.dart';
+import '../services/recent_frequencies_store.dart';
 import '../services/sentry_config.dart';
 import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
@@ -83,6 +88,54 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
         duration: const Duration(seconds: 4),
       ),
     );
+  }
+
+  Future<void> _onResetAllData(BuildContext context) async {
+    final l10n = AppLocalizations.of(context);
+    // Capture everything that is context-dependent before any async gap so
+    // the use_build_context_synchronously lint is satisfied.
+    final identityStore = context.read<IdentityStore>();
+    final recentStore = context.read<RecentFrequenciesStore>();
+    final blockedStore = context.read<BlockedPeersStore>();
+    final cubit = context.read<FrequencySessionCubit>();
+    final navigator = Navigator.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.settingsResetAllDataDialogTitle),
+        content: Text(l10n.settingsResetAllDataDialogBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.settingsResetAllDataDialogCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: Text(l10n.settingsResetAllDataDialogConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await Future.wait([
+      widget.settingsStore.clear(),
+      identityStore.clear(),
+      recentStore.clear(),
+      blockedStore.clear(),
+    ]);
+
+    // Shut down Sentry so no stale session or cached envelopes are reported
+    // after the data wipe.
+    await Sentry.close().catchError((_) {});
+
+    if (!mounted) return;
+    cubit.resetToOnboarding();
+    navigator.pop();
   }
 
   @override
@@ -180,6 +233,12 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => const SecurityFaqScreen()),
           ),
+        ),
+        _SettingsDestructiveLink(
+          title: l10n.settingsResetAllData,
+          subtitle: l10n.settingsResetAllDataDescription,
+          c: c,
+          onTap: () => unawaited(_onResetAllData(context)),
         ),
         // About
         _SectionHeader(label: l10n.settingsAboutSection, c: c),
@@ -309,6 +368,45 @@ class _SettingsLink extends StatelessWidget {
           ),
         ),
         trailing: Icon(Icons.chevron_right, color: c.ink3, size: 20),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _SettingsDestructiveLink extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final FrequencyColors c;
+  final VoidCallback onTap;
+
+  const _SettingsDestructiveLink({
+    required this.title,
+    required this.subtitle,
+    required this.c,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final errorColor = Theme.of(context).colorScheme.error;
+    return _SettingsCard(
+      c: c,
+      child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            color: errorColor,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: c.ink3),
+        ),
         onTap: onTap,
       ),
     );

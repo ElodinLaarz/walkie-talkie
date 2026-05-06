@@ -3,6 +3,17 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/walkie_talkie_database.dart';
 
+// Canonical UUID v4: 8-4-4-4-12 hex with the version nibble pinned
+// to `4` and the variant top bits to `10` (so the 4-segment starts
+// with `4` and the 5-segment starts with 8/9/a/b).
+final _uuidV4Pattern = RegExp(
+  r'^[0-9a-f]{8}-'
+  r'[0-9a-f]{4}-'
+  r'4[0-9a-f]{3}-'
+  r'[89ab][0-9a-f]{3}-'
+  r'[0-9a-f]{12}$',
+);
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -61,21 +72,10 @@ void main() {
     });
 
     group('getPeerId', () {
-      // Canonical UUID v4: 8-4-4-4-12 hex with the version nibble pinned
-      // to `4` and the variant top bits to `10` (so the 4-segment starts
-      // with `4` and the 5-segment starts with 8/9/a/b).
-      final uuidV4Pattern = RegExp(
-        r'^[0-9a-f]{8}-'
-        r'[0-9a-f]{4}-'
-        r'4[0-9a-f]{3}-'
-        r'[89ab][0-9a-f]{3}-'
-        r'[0-9a-f]{12}$',
-      );
-
       test('returns a UUID v4 string', () async {
         final store = SqfliteIdentityStore();
         final id = await store.getPeerId();
-        expect(id, matches(uuidV4Pattern));
+        expect(id, matches(_uuidV4Pattern));
       });
 
       test('is idempotent within a session', () async {
@@ -136,7 +136,52 @@ void main() {
         );
         final secondId = await SqfliteIdentityStore().getPeerId();
         expect(secondId, isNot(equals(firstId)));
-        expect(secondId, matches(uuidV4Pattern));
+        expect(secondId, matches(_uuidV4Pattern));
+      });
+    });
+
+    group('clear', () {
+      test('removes display name', () async {
+        final store = SqfliteIdentityStore();
+        await store.setDisplayName('Maya');
+        await store.clear();
+        expect(await store.getDisplayName(), isNull);
+      });
+
+      test(
+        'resets peer ID cache so next call generates a fresh UUID',
+        () async {
+          final store = SqfliteIdentityStore();
+          final original = await store.getPeerId();
+          await store.clear();
+          final after = await store.getPeerId();
+          expect(after, isNot(equals(original)));
+          expect(after, matches(_uuidV4Pattern));
+        },
+      );
+
+      test('fresh instance after clear generates a new peer ID', () async {
+        final first = SqfliteIdentityStore();
+        final original = await first.getPeerId();
+        await first.clear();
+        final second = SqfliteIdentityStore();
+        expect(await second.getPeerId(), isNot(equals(original)));
+      });
+
+      test('clears both display name and peer ID together', () async {
+        final store = SqfliteIdentityStore();
+        await store.setDisplayName('Devon');
+        await store.getPeerId();
+        await store.clear();
+        expect(await store.getDisplayName(), isNull);
+        expect(await store.getPeerId(), matches(_uuidV4Pattern));
+      });
+
+      test('is idempotent when called on an already-empty store', () async {
+        final store = SqfliteIdentityStore();
+        await store.clear();
+        await store.clear();
+        expect(await store.getDisplayName(), isNull);
       });
     });
   });

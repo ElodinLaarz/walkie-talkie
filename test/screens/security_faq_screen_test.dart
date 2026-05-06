@@ -29,6 +29,8 @@ class _FakeSettingsStore implements SettingsStore {
   Future<bool> getKeepScreenOn() async => false;
   @override
   Future<void> setKeepScreenOn(bool v) async {}
+  @override
+  Future<void> clear() async {}
 }
 
 void main() {

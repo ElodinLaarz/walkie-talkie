@@ -25,6 +25,12 @@ class _FakeIdentityStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() async => _peerId ??= 'fake-peer-id';
+
+  @override
+  Future<void> clear() async {
+    _name = null;
+    _peerId = null;
+  }
 }
 
 /// Internal row carrying the public [RecentFrequency] plus a synthetic
@@ -225,6 +231,13 @@ class _FakeSettingsStore implements SettingsStore {
   Future<bool> getKeepScreenOn() async => _keepScreenOn;
   @override
   Future<void> setKeepScreenOn(bool v) async => _keepScreenOn = v;
+
+  @override
+  Future<void> clear() async {
+    _crashReporting = false;
+    _pttMode = false;
+    _keepScreenOn = false;
+  }
 }
 
 void main() {

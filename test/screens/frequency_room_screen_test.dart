@@ -1490,6 +1490,12 @@ class _MemoryStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() async => _peerId ??= 'me-peer-id';
+
+  @override
+  Future<void> clear() async {
+    _name = null;
+    _peerId = null;
+  }
 }
 
 /// Inert RecentFrequenciesStore — these tests don't exercise the

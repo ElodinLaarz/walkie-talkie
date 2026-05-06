@@ -564,6 +564,36 @@
         "description": "Tappable row in the Settings Privacy section that opens the in-app security FAQ."
     },
 
+    "settingsResetAllData": "Reset all data",
+    "@settingsResetAllData": {
+        "description": "Destructive action row in the Settings Privacy section that wipes all persisted user data."
+    },
+
+    "settingsResetAllDataDescription": "Delete your peer ID, display name, recent channels, blocked peers, and crash report cache",
+    "@settingsResetAllDataDescription": {
+        "description": "Subtitle under the Reset all data settings row."
+    },
+
+    "settingsResetAllDataDialogTitle": "Reset all data?",
+    "@settingsResetAllDataDialogTitle": {
+        "description": "Title of the confirmation dialog shown before resetting all data."
+    },
+
+    "settingsResetAllDataDialogBody": "This will delete your peer ID, display name, recent channels, blocked peers, and any cached crash reports. You'll be taken back to onboarding. This cannot be undone.",
+    "@settingsResetAllDataDialogBody": {
+        "description": "Body text of the confirmation dialog shown before resetting all data."
+    },
+
+    "settingsResetAllDataDialogConfirm": "Reset",
+    "@settingsResetAllDataDialogConfirm": {
+        "description": "Confirm button label in the reset-all-data dialog."
+    },
+
+    "settingsResetAllDataDialogCancel": "Cancel",
+    "@settingsResetAllDataDialogCancel": {
+        "description": "Cancel button label in the reset-all-data dialog."
+    },
+
     "securityFaqTitle": "Privacy & Security",
     "@securityFaqTitle": {
         "description": "Title of the in-app security FAQ screen."
