@@ -278,7 +278,7 @@ real radios.
 ### Phase 6 — Play Store submission (in progress, gated on stabilization)
 
 Submission is gated on the launch-readiness issues opened after the
-code-complete review ([#301–#325](https://github.com/ElodinLaarz/walkie-talkie/issues/301));
+code-complete review ([#301](https://github.com/ElodinLaarz/walkie-talkie/issues/301)–[#325](https://github.com/ElodinLaarz/walkie-talkie/issues/325));
 those must be resolved before submitting to Play. Remaining Play Console
 actions are documented in the submission guide below.
 
