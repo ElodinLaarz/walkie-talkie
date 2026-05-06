@@ -56,4 +56,8 @@ class SignalReporter {
     _timer = null;
     _onTick = null;
   }
+
+  /// Fires [onTick] immediately without waiting for the next timer interval.
+  /// Test-only — mirrors [HeartbeatScheduler.debugTick].
+  void debugTick() => _onTick?.call();
 }

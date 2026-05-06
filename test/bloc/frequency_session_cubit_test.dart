@@ -3395,6 +3395,110 @@ void main() {
       await t.inbox.close();
       t.transport.dispose();
     });
+
+    test(
+      'guest _sendSignalReport resolves host MAC to application peerId (#316)',
+      () async {
+        // The GATT client keys connections by BT MAC, not application peerId.
+        // getCurrentRssi returns MAC as the peerId field. Before this fix the
+        // SignalReport was sent with MAC as the neighbor peerId, causing the
+        // host's roster lookup to always miss and weak-signal toasts to never
+        // fire. Verify the cubit resolves MAC → application peerId using the
+        // macAddress→hostPeerId mapping from state before building the report.
+        const hostMac = 'AA:BB:CC:DD:EE:FF';
+        const hostPeerId = 'p-host';
+
+        final t = makeTestTransport();
+        final reporter = SignalReporter(interval: const Duration(hours: 1));
+        final rssi = <({String peerId, int rssi})>[
+          (peerId: hostMac, rssi: -75),
+        ];
+        final cubit = _makeCubit(
+          transport: t.transport,
+          audio: makeRssiAudio(rssi),
+          signalReporter: reporter,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: false, macAddress: hostMac);
+        // Handshake: host replies with JoinAccepted, establishing hostPeerId.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: hostPeerId,
+            seq: 1,
+            atMs: 0,
+            hostPeerId: hostPeerId,
+            roster: const [
+              ProtocolPeer(peerId: hostPeerId, displayName: 'Devon'),
+            ],
+          ),
+        );
+
+        t.outbox.clear();
+        reporter.debugTick();
+        await Future<void>.delayed(Duration.zero);
+
+        final wire = t.outbox.map((b) => String.fromCharCodes(b)).join();
+        expect(wire, contains('signal_report'));
+        expect(
+          wire,
+          contains(hostPeerId),
+          reason: 'neighbor peerId should be the application peerId, not MAC',
+        );
+        expect(
+          wire,
+          isNot(contains(hostMac)),
+          reason: 'MAC address must not appear in the sent report',
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'guest _sendSignalReport drops samples with unresolvable MAC (#316)',
+      () async {
+        // When macAddress or hostPeerId is absent from state (e.g. before
+        // JoinAccepted arrives), no MAC can be resolved so the report should
+        // be silently dropped rather than sending garbage peer IDs to the host.
+        const hostMac = 'AA:BB:CC:DD:EE:FF';
+
+        final t = makeTestTransport();
+        final reporter = SignalReporter(interval: const Duration(hours: 1));
+        final rssi = <({String peerId, int rssi})>[
+          (peerId: hostMac, rssi: -75),
+        ];
+        final cubit = _makeCubit(
+          transport: t.transport,
+          audio: makeRssiAudio(rssi),
+          signalReporter: reporter,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        // Join without calling applyJoinAccepted — hostPeerId is null.
+        await cubit.joinRoom(freq: '104.3', isHost: false, macAddress: hostMac);
+
+        t.outbox.clear();
+        reporter.debugTick();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          t.outbox,
+          isEmpty,
+          reason: 'unresolvable MAC should produce no outbound report',
+        );
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
   });
 
   // ── Permission revocation (#57) ─────────────────────────────────────────
