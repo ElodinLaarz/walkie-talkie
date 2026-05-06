@@ -5,7 +5,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
 import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
-import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_privacy_policy_screen.dart';
 import 'package:walkie_talkie/screens/frequency_settings_screen.dart';
 import 'package:walkie_talkie/screens/security_faq_screen.dart';
@@ -59,8 +58,11 @@ class _FakeSettingsStore implements SettingsStore {
   Future<void> setCrashReportingEnabled(bool v) async =>
       calls.add(('setCrashReporting', v));
 
+  int clearCalls = 0;
+
   @override
   Future<void> clear() async {
+    clearCalls++;
     if (throwOnClear) throw StateError('boom');
     pttMode = false;
     keepScreenOn = false;
@@ -487,7 +489,12 @@ void main() {
         await tester.tap(find.widgetWithText(TextButton, 'Reset'));
         await tester.pumpAndSettle();
 
-        // Tolerated errors → still reset.
+        // Tolerated errors → every store's clear() was attempted, and
+        // the cubit reset still ran exactly once.
+        expect(identity.clearCalls, 1);
+        expect(recents.clearCalls, 1);
+        expect(blocked.clearCalls, 1);
+        expect(settings.clearCalls, 1);
         expect(cubit.resetCalls, 1);
       },
     );
@@ -532,6 +539,7 @@ class _ProvidedSettings extends StatelessWidget {
 
 class _FakeIdentityStore implements IdentityStore {
   bool cleared = false;
+  int clearCalls = 0;
   final bool throwOnClear;
   _FakeIdentityStore({this.throwOnClear = false});
 
@@ -543,6 +551,7 @@ class _FakeIdentityStore implements IdentityStore {
   Future<String> getPeerId() async => 'fake-peer';
   @override
   Future<void> clear() async {
+    clearCalls++;
     if (throwOnClear) throw StateError('boom');
     cleared = true;
   }
@@ -550,6 +559,7 @@ class _FakeIdentityStore implements IdentityStore {
 
 class _FakeRecentStore implements RecentFrequenciesStore {
   bool cleared = false;
+  int clearCalls = 0;
   final bool throwOnClear;
   _FakeRecentStore({this.throwOnClear = false});
 
@@ -567,6 +577,7 @@ class _FakeRecentStore implements RecentFrequenciesStore {
   Future<void> delete(String freq) async {}
   @override
   Future<void> clear() async {
+    clearCalls++;
     if (throwOnClear) throw StateError('boom');
     cleared = true;
   }
@@ -574,6 +585,7 @@ class _FakeRecentStore implements RecentFrequenciesStore {
 
 class _FakeBlockedStore implements BlockedPeersStore {
   bool cleared = false;
+  int clearCalls = 0;
   final bool throwOnClear;
   _FakeBlockedStore({this.throwOnClear = false});
 
@@ -585,6 +597,7 @@ class _FakeBlockedStore implements BlockedPeersStore {
   Future<void> unblock(String peerId) async {}
   @override
   Future<void> clear() async {
+    clearCalls++;
     if (throwOnClear) throw StateError('boom');
     cleared = true;
   }

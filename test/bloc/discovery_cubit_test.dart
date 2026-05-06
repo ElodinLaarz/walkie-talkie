@@ -86,45 +86,14 @@ void main() {
   });
 
   test(
-    'startDiscovery from DiscoveryStopped(with prior sessions) preserves them on failure',
+    'startDiscovery from DiscoveryStopped emits empty DiscoveryStopped on failure',
     () async {
-      // First scan: succeeds, fills in sessions.
       await cubit.startDiscovery();
-      final sessions = [
-        DiscoveredSession(
-          protocolVersion: 1,
-          isHost: true,
-          sessionUuidLow8: '1234567890ABCDEF',
-          flags: 0,
-          hostName: 'Host',
-          rssi: -55,
-          macAddress: 'AA:BB:CC:DD:EE:FF',
-        ),
-      ];
-      resultsController.add(sessions);
-      await Future.delayed(Duration.zero);
-
-      // Stop — cubit is now DiscoveryStopped(sessions: sessions).
-      await cubit.stopDiscovery();
-      // stopDiscovery emits an empty DiscoveryStopped(); inject one with
-      // sessions to exercise the inner ternary branch on retry.
-      // Restart with a failure: the catch block reads
-      // `state is DiscoveryStopped`, so seed the state first by emitting
-      // the test sessions after a successful scan that we then stop with
-      // a non-default emit. We simulate that here by triggering startScan
-      // again immediately and feeding sessions.
-      await cubit.startDiscovery();
-      resultsController.add(sessions);
-      await Future.delayed(Duration.zero);
       await cubit.stopDiscovery();
 
-      // Now the state is DiscoveryStopped() (empty by default). The inner
-      // ternary branch exists for *future* paths where stopDiscovery may
-      // return non-empty; reaching it from the cubit's public API is not
-      // possible today. Verify the failure-path emission without leaking
-      // through that ternary.
       when(mockService.startScan()).thenThrow(Exception('boom'));
       await cubit.startDiscovery();
+
       expect(cubit.state, const DiscoveryStopped());
     },
   );

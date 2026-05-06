@@ -976,12 +976,13 @@ void main() {
         expect(received, isEmpty);
       });
 
-      test('caches the broadcast stream across reads', () {
+      test('caches the broadcast source across reads', () async {
+        // The exposed stream is the where/map wrapper, so identity does not
+        // hold; instead, verify a single emission fan-outs to two listeners
+        // attached to two separate `controlBytes` reads — this is only
+        // possible if the underlying broadcast source is cached.
         final s1 = audioService.controlBytes;
         final s2 = audioService.controlBytes;
-        // The exposed stream is the where/map wrapper, so identity does not
-        // hold; assert via the underlying caching by listening twice and
-        // letting a single backing source feed both.
         final eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
         final codec = const StandardMethodCodec();
         final a = <({String endpointId, Uint8List bytes})>[];
@@ -1002,6 +1003,14 @@ void main() {
               }),
               (_) {},
             );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(a, hasLength(1));
+        expect(b, hasLength(1));
+        expect(a.first.endpointId, 'X');
+        expect(a.first.bytes, Uint8List.fromList([42]));
+        expect(b.first.endpointId, 'X');
+        expect(b.first.bytes, Uint8List.fromList([42]));
       });
     });
   });

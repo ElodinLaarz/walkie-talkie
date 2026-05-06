@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/main.dart';
@@ -203,6 +202,13 @@ class _FakeDiscoveryService implements DiscoveryService {
 /// at the end of the test. The fake's stream is empty, so the cubit's
 /// permission listener never fires and no transitions race the test.
 class _FakePermissionWatcher implements PermissionWatcher {
+  static int createdInstances = 0;
+  bool disposed = false;
+
+  _FakePermissionWatcher() {
+    createdInstances++;
+  }
+
   @override
   Stream<List<AppPermission>> watch() => const Stream.empty();
 
@@ -210,7 +216,9 @@ class _FakePermissionWatcher implements PermissionWatcher {
   Future<List<AppPermission>> checkNow() async => const [];
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    disposed = true;
+  }
 }
 
 class _DenyingPermissionWatcher implements PermissionWatcher {
@@ -236,6 +244,7 @@ class _FakeSettingsStore implements SettingsStore {
   bool _crashReporting = false;
   bool _pttMode = false;
   bool _keepScreenOn = false;
+  int pttReadCalls = 0;
 
   @override
   Future<bool> getCrashReportingEnabled() async => _crashReporting;
@@ -243,7 +252,11 @@ class _FakeSettingsStore implements SettingsStore {
   Future<void> setCrashReportingEnabled(bool v) async => _crashReporting = v;
 
   @override
-  Future<bool> getPttModeEnabled() async => _pttMode;
+  Future<bool> getPttModeEnabled() async {
+    pttReadCalls++;
+    return _pttMode;
+  }
+
   @override
   Future<void> setPttModeEnabled(bool v) async => _pttMode = v;
 
@@ -335,9 +348,10 @@ void main() {
   );
 
   testWidgets(
-    'didUpdateWidget releases owned watcher when caller starts supplying one',
+    'didUpdateWidget keeps caller-supplied watcher alive across pumps',
     (tester) async {
-      // First pump: no permissionWatcher → app owns a default one.
+      // First pump: no permissionWatcher → app owns a default one (a real
+      // DefaultPermissionWatcher, not directly observable from a unit test).
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
@@ -349,19 +363,26 @@ void main() {
       await tester.pump();
 
       // Re-pump with a supplied watcher — exercises wasOwning && !stillOwning.
+      // We can't directly assert that the previously-owned default watcher
+      // was disposed (it's a production singleton), but we *can* assert
+      // that the now-supplied watcher is NOT disposed by us (caller owns it).
+      final supplied = _FakePermissionWatcher();
+      expect(supplied.disposed, isFalse);
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
           recentFrequenciesStore: _FakeRecentFrequenciesStore(),
           discoveryService: _FakeDiscoveryService(),
-          permissionWatcher: _FakePermissionWatcher(),
+          permissionWatcher: supplied,
           settingsStore: _FakeSettingsStore(),
         ),
       );
       await tester.pump();
 
-      // No assertion on internals — coverage is the assertion. The widget
-      // must still render without throwing.
+      // The widget must not have disposed the caller-supplied watcher,
+      // either as part of didUpdateWidget reconciliation or as the cubit
+      // teardown for the discarded prior cubit instance.
+      expect(supplied.disposed, isFalse);
       expect(find.byType(WalkieTalkieApp), findsOneWidget);
     },
   );
@@ -370,18 +391,24 @@ void main() {
     'didUpdateWidget mints a fresh owned watcher when caller drops the supplied one',
     (tester) async {
       // First pump: caller supplies a watcher.
+      final supplied = _FakePermissionWatcher();
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
           recentFrequenciesStore: _FakeRecentFrequenciesStore(),
           discoveryService: _FakeDiscoveryService(),
-          permissionWatcher: _FakePermissionWatcher(),
+          permissionWatcher: supplied,
           settingsStore: _FakeSettingsStore(),
         ),
       );
       await tester.pump();
+      expect(supplied.disposed, isFalse);
 
       // Re-pump with no watcher — exercises !wasOwning && stillOwning.
+      // The caller is now no longer supplying their watcher; it's the
+      // *caller's* responsibility to dispose it (matches the `dispose()`
+      // doc on _WalkieTalkieAppState). We assert the widget didn't
+      // erroneously dispose the previously-supplied watcher.
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
@@ -392,6 +419,9 @@ void main() {
       );
       await tester.pump();
 
+      expect(supplied.disposed, isFalse);
+      // The widget must remain mounted — if the new owned-watcher branch
+      // failed to mint a default, the build() null-coalesce would throw.
       expect(find.byType(WalkieTalkieApp), findsOneWidget);
     },
   );
@@ -423,9 +453,32 @@ void main() {
   testWidgets(
     'completing onboarding hands the name to the cubit and shows Discovery',
     (tester) async {
+      // The onboarding flow's step 2 hits permission_handler's platform
+      // channel via `DefaultOnboardingPermissionGateway`. Stub the channel
+      // so all three Bluetooth perms + microphone resolve to "granted"
+      // without involving the OS.
+      const permsChannel =
+          MethodChannel('flutter.baseflow.com/permissions/methods');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(permsChannel, (call) async {
+            switch (call.method) {
+              case 'requestPermissions':
+                final ids = (call.arguments as List).cast<int>();
+                return <int, int>{for (final id in ids) id: 1}; // granted
+              case 'checkPermissionStatus':
+                return 1; // granted
+            }
+            return null;
+          });
+      addTearDown(() => TestDefaultBinaryMessengerBinding
+          .instance
+          .defaultBinaryMessenger
+          .setMockMethodCallHandler(permsChannel, null));
+
+      final identity = _FakeIdentityStore();
       await tester.pumpWidget(
         WalkieTalkieApp(
-          identityStore: _FakeIdentityStore(),
+          identityStore: identity,
           recentFrequenciesStore: _FakeRecentFrequenciesStore(),
           discoveryService: _FakeDiscoveryService(),
           permissionWatcher: _FakePermissionWatcher(),
@@ -434,33 +487,67 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
-      // Onboarding → tap Get started, then pick / type a name and confirm.
-      // The screen has multiple steps; we drive only what's needed to exit
-      // onboarding. The exact widgets vary, so probe by widget types and
-      // use enterText on the first TextField, then tap a confirm button.
-      // Skip if the layout has changed — the cubit has its own coverage.
-      final getStarted = find.text('Get started');
-      if (getStarted.evaluate().isEmpty) return;
-      await tester.tap(getStarted);
+
+      // Step 0 — Welcome. Tap "Get started".
+      expect(find.text('Get started'), findsOneWidget);
+      await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle(const Duration(milliseconds: 600));
 
-      final nameField = find.byType(TextField);
-      if (nameField.evaluate().isNotEmpty) {
-        await tester.enterText(nameField.first, 'Maya');
-        await tester.pumpAndSettle(const Duration(milliseconds: 300));
-        // Re-tap any visible submit button.
-        for (final label in ['Done', "I'm in", 'Confirm', 'Continue', 'Get started']) {
+      // Step 1 — Explainer (3 pages). Tap Next twice, then "Get started".
+      for (var i = 0; i < 5; i++) {
+        if (find.text('Continue').evaluate().isNotEmpty ||
+            find.byType(TextField).evaluate().isNotEmpty) {
+          break;
+        }
+        for (final label in ['Next', 'Get started']) {
           final btn = find.text(label);
           if (btn.evaluate().isNotEmpty) {
             await tester.tap(btn.first);
+            await tester.pumpAndSettle(const Duration(milliseconds: 400));
             break;
           }
         }
-        // A few frames for the cubit to settle.
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
       }
+
+      // Step 2 — Permissions. Tap the per-permission "Allow" buttons until
+      // both perms are granted, then Continue.
+      for (var i = 0; i < 6; i++) {
+        if (find.byType(TextField).evaluate().isNotEmpty) break;
+        final allow = find.text('Allow');
+        if (allow.evaluate().isNotEmpty) {
+          await tester.tap(allow.first);
+          await tester.pumpAndSettle(const Duration(milliseconds: 400));
+          continue;
+        }
+        final cont = find.text('Continue');
+        if (cont.evaluate().isNotEmpty) {
+          await tester.tap(cont.first);
+          await tester.pumpAndSettle(const Duration(milliseconds: 400));
+          continue;
+        }
+        break;
+      }
+
+      // Step 3 — Name picker. Enter the name and tap the continue button.
+      final nameField = find.byType(TextField);
+      if (nameField.evaluate().isEmpty) {
+        fail('Onboarding name TextField not found — layout changed');
+      }
+      await tester.enterText(nameField.first, 'Maya');
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      for (final label in ['Find a frequency', "I'm in", 'Done', 'Continue', 'Get started']) {
+        final btn = find.text(label);
+        if (btn.evaluate().isNotEmpty) {
+          await tester.tap(btn.first);
+          break;
+        }
+      }
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // Postcondition: cubit persisted the name to the identity store.
+      expect(await identity.getDisplayName(), 'Maya');
     },
   );
 
@@ -483,6 +570,9 @@ void main() {
       await tester.pump();
       await tester.pump();
 
+      // Pre-condition: Discovery is showing (RECENT label is unique to it).
+      expect(find.text('RECENT'), findsOneWidget);
+
       // Find a recent row and tap. The row text "Host on 100.1" identifies it.
       final freqRow = find.textContaining('Host on 100.1');
       expect(freqRow, findsOneWidget);
@@ -493,9 +583,11 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Either joinRoom fired (state moves) or stays — coverage of the
-      // onPick closure body is the value here. The tap reaches the
-      // callback, exercising lines 335–353 in main.dart.
+      // Postcondition: cubit transitioned out of Discovery — the unique
+      // RECENT label is gone, proving that the onPick callback fired
+      // joinRoom on the cubit and the state machine has moved off
+      // SessionDiscovery (the screen no longer renders).
+      expect(find.text('RECENT'), findsNothing);
     },
   );
 
@@ -515,6 +607,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
+      // Snapshot read count after bootstrap settles.
+      final readsAfterBoot = settings.pttReadCalls;
+      expect(readsAfterBoot, greaterThanOrEqualTo(1));
+
       // Toggle the underlying setting then dispatch resumed lifecycle —
       // the FrequencyApp's didChangeAppLifecycleState handler should
       // re-read the value from the store.
@@ -528,10 +624,10 @@ void main() {
         (_) {},
       );
       await tester.pump();
+      await tester.pump();
 
-      // No public surface to assert on — coverage of the lifecycle handler
-      // is the value here.
-      expect(find.byType(WalkieTalkieApp), findsOneWidget);
+      // The lifecycle handler must have triggered an additional read.
+      expect(settings.pttReadCalls, greaterThan(readsAfterBoot));
     },
   );
 }

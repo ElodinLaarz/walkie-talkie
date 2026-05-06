@@ -61,13 +61,23 @@ void main() {
         _wrap(PushToTalkButton(holding: false, onChange: events.add)),
       );
 
+      // Wrap in try/finally so the handle is released even if expect()
+      // throws — Flutter checks for leaked semantics handles in
+      // _endOfTestVerifications, which runs *before* addTearDown.
       final handle = tester.ensureSemantics();
-      final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
-      tester.binding.pipelineOwner.semanticsOwner!
-          .performAction(id, SemanticsAction.tap);
-      await tester.pump();
-      expect(events, [true, false]);
-      handle.dispose();
+      try {
+        final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
+        // pipelineOwner is technically deprecated in favour of
+        // rootPipelineOwner, but the latter has a null semanticsOwner in
+        // standalone widget tests on Flutter 3.41.
+        // ignore: deprecated_member_use
+        tester.binding.pipelineOwner.semanticsOwner!
+            .performAction(id, SemanticsAction.tap);
+        await tester.pump();
+        expect(events, [true, false]);
+      } finally {
+        handle.dispose();
+      }
     });
 
     testWidgets('semantics onLongPress fires true then false', (tester) async {
@@ -77,12 +87,16 @@ void main() {
       );
 
       final handle = tester.ensureSemantics();
-      final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
-      tester.binding.pipelineOwner.semanticsOwner!
-          .performAction(id, SemanticsAction.longPress);
-      await tester.pump();
-      expect(events, [true, false]);
-      handle.dispose();
+      try {
+        final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
+        // ignore: deprecated_member_use
+        tester.binding.pipelineOwner.semanticsOwner!
+            .performAction(id, SemanticsAction.longPress);
+        await tester.pump();
+        expect(events, [true, false]);
+      } finally {
+        handle.dispose();
+      }
     });
 
     testWidgets('pointer cancel fires false', (tester) async {

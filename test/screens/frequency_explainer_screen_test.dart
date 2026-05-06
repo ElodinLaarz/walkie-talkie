@@ -113,6 +113,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // The wrapping Scaffold is the only one — embedded mode must not
+      // build its own.
+      expect(find.byType(Scaffold), findsOneWidget);
       // No Skip button in embedded mode (chrome is suppressed).
       expect(find.text('Skip'), findsNothing);
       // Next button still shows.
