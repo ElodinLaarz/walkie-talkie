@@ -178,9 +178,7 @@ MockFrequencySessionCubit _mockCubitForPermTest() {
   ).thenAnswer((_) => Stream<MediaCommand>.empty());
   when(
     () => cubit.weakSignalEvents,
-  ).thenAnswer(
-    (_) => Stream<({String peerId, String displayName})>.empty(),
-  );
+  ).thenAnswer((_) => Stream<({String peerId, String displayName})>.empty());
   when(
     () => cubit.sendMediaCommand(
       op: any(named: 'op'),
@@ -1062,10 +1060,7 @@ void main() {
 
         // Non-permission GATT setup failure → heartbeat watchdog handles it,
         // recheckPermissions must NOT be called (that would navigate away).
-        eventEmitter.emit({
-          'type': 'gattError',
-          'reason': 'GATT_SETUP_FAILED',
-        });
+        eventEmitter.emit({'type': 'gattError', 'reason': 'GATT_SETUP_FAILED'});
         await tester.pump();
 
         verifyNever(() => cubit.recheckPermissions());
