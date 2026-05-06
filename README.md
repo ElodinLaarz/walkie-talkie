@@ -43,7 +43,7 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
     * Onboarding, Discovery, and the Room screen.
     * Renders roster, talking-rings, mute / push-to-talk, shared-media
       controls.
-    * Persists display name + stable `peerId` via Hive
+    * Persists display name + stable `peerId` via sqflite
       ([lib/services/identity_store.dart](lib/services/identity_store.dart)).
 2.  **State Layer (BLoC / Cubit):**
     * [`DiscoveryCubit`](lib/bloc/discovery_cubit.dart) drives the
@@ -121,7 +121,7 @@ peer plays its own copy, the host only broadcasts control signals.
 The current screens (matching what's checked in under [lib/screens](lib/screens)):
 
 **Onboarding** — request the BT + mic permissions and capture a display name.
-Persisted to Hive so this only happens once.
+Persisted to sqflite so this only happens once.
 
 **Discovery** — radar-style list of nearby hosts advertising the Frequency
 service UUID. Each row shows host name + cosmetic MHz dial reading. Tap
@@ -193,8 +193,10 @@ graph TD
 
 1.  **`flutter_bloc`** — state management for Discovery and the Frequency
     session cubits.
-2.  **`hive` & `hive_flutter`** — local-only persistence for `peerId` and
-    display name. No cloud sync (intentional).
+2.  **`sqflite`** — local-only persistence for `peerId` and display name.
+    No cloud sync (intentional). Hive is retained only as a one-shot
+    migration source (see
+    [lib/services/storage_migration.dart](lib/services/storage_migration.dart)).
 3.  **`permission_handler`** — Bluetooth scan / connect / advertise + mic
     permissions. The runtime asks happen during onboarding
     ([lib/services/onboarding_permission_gateway.dart](lib/services/onboarding_permission_gateway.dart)).
@@ -232,7 +234,7 @@ that's the source of truth, this is the friendly map.
 
 ### Phase 1 — Dart skeleton ✅ done
 
-UI screens, onboarding + permissions, BLoC state, Hive persistence
+UI screens, onboarding + permissions, BLoC state, sqflite persistence
 (`peerId` + display name), wire-protocol Dart stubs (framing,
 sequence filter, message envelope, voice-frame), foreground service shell.
 
