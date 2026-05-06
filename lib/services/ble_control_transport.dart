@@ -53,9 +53,9 @@ class BleControlTransport {
   _subscription;
 
   /// Endpoint the next [send] should size against. The cubit sets this
-  /// to the host's BT MAC once a guest has connected; the host has no
-  /// outbound use of [send] today (it writes notifications via
-  /// `audio.writeNotification`), so the value stays null on that side.
+  /// to the host's BT MAC once a guest has connected; on the host side
+  /// this stays null because `audio.writeControlBytes` fans out to all
+  /// connected guests via `gattServerManager` notifications directly.
   String? _activeEndpoint;
 
   /// Serialiser for [send]. Each call chains its body onto this future
