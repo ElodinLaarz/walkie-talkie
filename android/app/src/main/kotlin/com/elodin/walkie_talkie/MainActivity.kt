@@ -361,15 +361,28 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "writeControlBytes" -> {
-                    // Alias for writeRequest used by BleControlTransport.
-                    // Guests write to the host's REQUEST characteristic.
+                    // Guests write to the host's REQUEST characteristic via
+                    // gattClientManager. Hosts fan-out via gattServerManager
+                    // notifications to every connected guest device.
                     val bytes = call.argument<ByteArray>("bytes")
                     if (bytes == null) {
                         result.error("INVALID_ARGUMENT", "bytes is required", null)
                     } else {
-                        Log.d(TAG, "Writing ${bytes.size} control bytes")
-                        val success = gattClientManager?.writeRequest(bytes) ?: false
-                        result.success(success)
+                        val server = gattServerManager
+                        if (server != null) {
+                            // Host path: notify each connected guest.
+                            val addresses = server.getConnectedAddresses()
+                            Log.d(TAG, "Host broadcasting ${bytes.size} control bytes to ${addresses.size} guest(s)")
+                            val success = addresses.fold(false) { any, addr ->
+                                server.notify(addr, bytes) || any
+                            }
+                            result.success(success)
+                        } else {
+                            // Guest path: write to the host's REQUEST characteristic.
+                            Log.d(TAG, "Writing ${bytes.size} control bytes")
+                            val success = gattClientManager?.writeRequest(bytes) ?: false
+                            result.success(success)
+                        }
                     }
                 }
                 "getNegotiatedMtu" -> {
