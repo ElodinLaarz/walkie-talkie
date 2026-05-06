@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:walkie_talkie/bloc/frequency_session_cubit.dart';
+import 'package:walkie_talkie/bloc/frequency_session_state.dart';
 import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
+import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/screens/frequency_privacy_policy_screen.dart';
 import 'package:walkie_talkie/screens/frequency_settings_screen.dart';
+import 'package:walkie_talkie/screens/security_faq_screen.dart';
+import 'package:walkie_talkie/services/blocked_peers_store.dart';
+import 'package:walkie_talkie/services/identity_store.dart';
+import 'package:walkie_talkie/services/recent_frequencies_store.dart';
 import 'package:walkie_talkie/services/settings_store.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/frequency_atoms.dart';
@@ -20,10 +28,16 @@ Widget _wrap(Widget child) {
 class _FakeSettingsStore implements SettingsStore {
   bool pttMode;
   bool keepScreenOn;
+  bool cleared = false;
+  final bool throwOnClear;
 
   final List<(String, bool)> calls = [];
 
-  _FakeSettingsStore({this.pttMode = false, this.keepScreenOn = false});
+  _FakeSettingsStore({
+    this.pttMode = false,
+    this.keepScreenOn = false,
+    this.throwOnClear = false,
+  });
 
   @override
   Future<bool> getPttModeEnabled() async => pttMode;
@@ -47,8 +61,10 @@ class _FakeSettingsStore implements SettingsStore {
 
   @override
   Future<void> clear() async {
+    if (throwOnClear) throw StateError('boom');
     pttMode = false;
     keepScreenOn = false;
+    cleared = true;
   }
 }
 
@@ -309,5 +325,283 @@ void main() {
       );
       expect(find.text('Open source licenses'), findsOneWidget);
     });
+
+    testWidgets(
+      'tapping Open source licenses opens the LicensePage',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.dragUntilVisible(
+          find.text('Open source licenses'),
+          find.byType(ListView),
+          const Offset(0, -200),
+        );
+        await tester.tap(find.text('Open source licenses'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(LicensePage), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping Privacy & Security FAQ link navigates to the SecurityFaqScreen',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.dragUntilVisible(
+          find.text('Privacy & Security FAQ'),
+          find.byType(ListView),
+          const Offset(0, -200),
+        );
+        await tester.tap(find.text('Privacy & Security FAQ'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SecurityFaqScreen), findsOneWidget);
+      },
+    );
   });
+
+  group('FrequencySettingsScreen reset-all-data flow', () {
+    testWidgets(
+      'cancel in confirmation dialog leaves stores untouched',
+      (tester) async {
+        final identity = _FakeIdentityStore();
+        final recents = _FakeRecentStore();
+        final blocked = _FakeBlockedStore();
+        final settings = _FakeSettingsStore(pttMode: true);
+        final cubit = _FakeCubit();
+
+        await tester.pumpWidget(
+          _ProvidedSettings(
+            identity: identity,
+            recents: recents,
+            blocked: blocked,
+            settings: settings,
+            cubit: cubit,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.scrollUntilVisible(
+          find.text('Reset all data'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.ensureVisible(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+
+        // Cancel button — no tap on the destructive option.
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(identity.cleared, isFalse);
+        expect(recents.cleared, isFalse);
+        expect(blocked.cleared, isFalse);
+        expect(settings.cleared, isFalse);
+        expect(cubit.resetCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'confirm in dialog clears every store and resets the cubit',
+      (tester) async {
+        final identity = _FakeIdentityStore();
+        final recents = _FakeRecentStore();
+        final blocked = _FakeBlockedStore();
+        final settings = _FakeSettingsStore(pttMode: true);
+        final cubit = _FakeCubit();
+
+        await tester.pumpWidget(
+          _ProvidedSettings(
+            identity: identity,
+            recents: recents,
+            blocked: blocked,
+            settings: settings,
+            cubit: cubit,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.scrollUntilVisible(
+          find.text('Reset all data'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.ensureVisible(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+
+        // Find the confirm action — uses the destructive label "Reset".
+        // Two "Reset all data" instances exist (link + dialog title), plus
+        // a single "Reset" button — tap by exact text "Reset".
+        await tester.tap(find.widgetWithText(TextButton, 'Reset'));
+        await tester.pumpAndSettle();
+
+        expect(identity.cleared, isTrue);
+        expect(recents.cleared, isTrue);
+        expect(blocked.cleared, isTrue);
+        expect(settings.cleared, isTrue);
+        expect(cubit.resetCalls, 1);
+      },
+    );
+
+    testWidgets(
+      'confirm tolerates store errors and still resets the cubit',
+      (tester) async {
+        final identity = _FakeIdentityStore(throwOnClear: true);
+        final recents = _FakeRecentStore(throwOnClear: true);
+        final blocked = _FakeBlockedStore(throwOnClear: true);
+        final settings = _FakeSettingsStore(throwOnClear: true);
+        final cubit = _FakeCubit();
+
+        await tester.pumpWidget(
+          _ProvidedSettings(
+            identity: identity,
+            recents: recents,
+            blocked: blocked,
+            settings: settings,
+            cubit: cubit,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.scrollUntilVisible(
+          find.text('Reset all data'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.ensureVisible(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Reset all data'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.widgetWithText(TextButton, 'Reset'));
+        await tester.pumpAndSettle();
+
+        // Tolerated errors → still reset.
+        expect(cubit.resetCalls, 1);
+      },
+    );
+  });
+}
+
+class _ProvidedSettings extends StatelessWidget {
+  final IdentityStore identity;
+  final RecentFrequenciesStore recents;
+  final BlockedPeersStore blocked;
+  final SettingsStore settings;
+  final FrequencySessionCubit cubit;
+
+  const _ProvidedSettings({
+    required this.identity,
+    required this.recents,
+    required this.blocked,
+    required this.settings,
+    required this.cubit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<IdentityStore>.value(value: identity),
+        RepositoryProvider<RecentFrequenciesStore>.value(value: recents),
+        RepositoryProvider<BlockedPeersStore>.value(value: blocked),
+      ],
+      child: BlocProvider<FrequencySessionCubit>.value(
+        value: cubit,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: FrequencySettingsScreen(settingsStore: settings),
+        ),
+      ),
+    );
+  }
+}
+
+class _FakeIdentityStore implements IdentityStore {
+  bool cleared = false;
+  final bool throwOnClear;
+  _FakeIdentityStore({this.throwOnClear = false});
+
+  @override
+  Future<String?> getDisplayName() async => null;
+  @override
+  Future<void> setDisplayName(String value) async {}
+  @override
+  Future<String> getPeerId() async => 'fake-peer';
+  @override
+  Future<void> clear() async {
+    if (throwOnClear) throw StateError('boom');
+    cleared = true;
+  }
+}
+
+class _FakeRecentStore implements RecentFrequenciesStore {
+  bool cleared = false;
+  final bool throwOnClear;
+  _FakeRecentStore({this.throwOnClear = false});
+
+  @override
+  Future<List<String>> getRecent() async => const [];
+  @override
+  Future<List<RecentFrequency>> getRecentDetailed() async => const [];
+  @override
+  Future<void> record(String freq, {String? sessionUuid}) async {}
+  @override
+  Future<void> setNickname(String freq, String? nickname) async {}
+  @override
+  Future<void> setPinned(String freq, bool pinned) async {}
+  @override
+  Future<void> delete(String freq) async {}
+  @override
+  Future<void> clear() async {
+    if (throwOnClear) throw StateError('boom');
+    cleared = true;
+  }
+}
+
+class _FakeBlockedStore implements BlockedPeersStore {
+  bool cleared = false;
+  final bool throwOnClear;
+  _FakeBlockedStore({this.throwOnClear = false});
+
+  @override
+  Future<Set<String>> getAll() async => const {};
+  @override
+  Future<void> block(String peerId) async {}
+  @override
+  Future<void> unblock(String peerId) async {}
+  @override
+  Future<void> clear() async {
+    if (throwOnClear) throw StateError('boom');
+    cleared = true;
+  }
+}
+
+class _FakeCubit extends Cubit<FrequencySessionState>
+    implements FrequencySessionCubit {
+  int resetCalls = 0;
+  _FakeCubit() : super(const SessionBooting());
+
+  @override
+  void resetToOnboarding() {
+    resetCalls++;
+    emit(const SessionOnboarding());
+  }
+
+  // Unused surface for these tests — let unimplemented members throw if hit.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

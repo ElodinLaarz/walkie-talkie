@@ -178,5 +178,29 @@ void main() {
       // The frame's payload must not reflect the mutation.
       expect(frame.payload[0], 0xAB);
     });
+
+    test('hashCode is stable for equal frames', () {
+      final a = VoiceFrame(
+        seq: 1,
+        senderTsMs: 2,
+        payload: Uint8List.fromList([1, 2, 3]),
+      );
+      final b = VoiceFrame(
+        seq: 1,
+        senderTsMs: 2,
+        payload: Uint8List.fromList([1, 2, 3]),
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('toString includes payload byte count', () {
+      final f = VoiceFrame(
+        seq: 5,
+        senderTsMs: 10,
+        payload: Uint8List(7),
+      );
+      expect(f.toString(), contains('payload=7B'));
+    });
   });
 }

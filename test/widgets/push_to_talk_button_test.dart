@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/push_to_talk_button.dart';
@@ -52,6 +53,53 @@ void main() {
         _wrap(PushToTalkButton(holding: false, onChange: (_) {})),
       );
       expect(find.bySemanticsLabel('Push to talk'), findsOneWidget);
+    });
+
+    testWidgets('semantics onTap fires true then false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      final handle = tester.ensureSemantics();
+      final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
+      tester.binding.pipelineOwner.semanticsOwner!
+          .performAction(id, SemanticsAction.tap);
+      await tester.pump();
+      expect(events, [true, false]);
+      handle.dispose();
+    });
+
+    testWidgets('semantics onLongPress fires true then false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      final handle = tester.ensureSemantics();
+      final id = tester.getSemantics(find.byType(PushToTalkButton)).id;
+      tester.binding.pipelineOwner.semanticsOwner!
+          .performAction(id, SemanticsAction.longPress);
+      await tester.pump();
+      expect(events, [true, false]);
+      handle.dispose();
+    });
+
+    testWidgets('pointer cancel fires false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PushToTalkButton)),
+      );
+      await tester.pump();
+      expect(events, [true]);
+
+      await gesture.cancel();
+      await tester.pump();
+      expect(events, [true, false]);
     });
   });
 }

@@ -84,5 +84,19 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('hashCode + toString cover terminal members', () {
+      const a = FrequencySession(
+        sessionUuid: '550e8400-e29b-41d4-a716-446655440000',
+        hostPeerId: 'h1',
+      );
+      const b = FrequencySession(
+        sessionUuid: '550e8400-e29b-41d4-a716-446655440000',
+        hostPeerId: 'h1',
+      );
+      expect(a.hashCode, b.hashCode);
+      expect(a.toString(), contains('FrequencySession('));
+      expect(a.toString(), contains('h1'));
+    });
   });
 }
