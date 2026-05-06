@@ -51,11 +51,12 @@ lib/l10n/generated/
 app.*.symbols
 
 # Android related
-**/android/**/gradle-wrapper.jar
+# Gradle wrapper (gradle-wrapper.jar, gradlew, gradlew.bat) is intentionally
+# committed so CI and contributors get a deterministic Gradle version without
+# a separate install step. Only the user's local Gradle cache and captures
+# are ignored.
 **/android/.gradle
 **/android/captures/
-**/android/gradlew
-**/android/gradlew.bat
 **/android/local.properties
 **/android/generated/
 **/android/key.properties
