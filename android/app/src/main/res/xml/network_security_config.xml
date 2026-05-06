@@ -16,6 +16,9 @@
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
+            <!-- Also trust user-installed CAs so devices behind enterprise
+                 TLS-inspection proxies can still upload crash reports. -->
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>

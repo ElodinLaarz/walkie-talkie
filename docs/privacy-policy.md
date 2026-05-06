@@ -77,9 +77,10 @@ Frequency includes an opt-in crash reporter powered by
 
 When enabled, anonymised crash stack traces and session health data (crash
 rate, session counts) are sent over TLS to Sentry. The sanitizer in
-`lib/services/sentry_event_sanitizer.dart` strips peer IDs, display names,
-Bluetooth MAC addresses, and IP addresses before transmission, so Sentry
-receives only stack trace frames and Sentry's own session identifiers.
+`lib/services/sentry_event_sanitizer.dart` strips peer IDs and display names
+from contexts, tags, and breadcrumbs before transmission, so Sentry's own
+SDK-generated session identifiers are used for crash correlation rather than
+any app-level identifier.
 
 When disabled (the default), no data leaves the device via the internet.
 Sentry is not analytics — it captures nothing about normal usage, only
