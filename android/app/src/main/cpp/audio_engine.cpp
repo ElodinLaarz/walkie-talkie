@@ -680,17 +680,4 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetDuckingVolume(
     g_duckingVolume.store(clamped, std::memory_order_relaxed);
 }
 
-// Legacy hooks — kept for now so AudioEngineManager.kt doesn't unsatisfied-
-// link. Both are no-ops; the native pipeline is internal to the audio
-// callback.
-JNIEXPORT jshortArray JNICALL
-Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeGetAudioData(
-    JNIEnv* env, jobject thiz, jint numFrames) {
-    return nullptr;
-}
-
-JNIEXPORT void JNICALL
-Java_com_elodin_walkie_1talkie_AudioEngineManager_nativePlayAudioData(
-    JNIEnv* env, jobject thiz, jshortArray audioData) {}
-
 }  // extern "C"

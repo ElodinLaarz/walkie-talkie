@@ -33,23 +33,6 @@ class AudioEngineManager {
     }
     
     /**
-     * Get captured audio data from the microphone.
-     * @param numFrames Number of audio frames to retrieve
-     * @return Audio data as 16-bit PCM samples
-     */
-    fun getAudioData(numFrames: Int): ShortArray? {
-        return nativeGetAudioData(numFrames)
-    }
-    
-    /**
-     * Play received audio data through the speaker.
-     * @param audioData 16-bit PCM audio samples
-     */
-    fun playAudioData(audioData: ShortArray) {
-        nativePlayAudioData(audioData)
-    }
-
-    /**
      * Gate whether captured mic frames are sent to the mixer / transport.
      * Keeps streams warm so unmuting is instant.
      * @param muted true to silence local mic in the audio path
@@ -105,8 +88,6 @@ class AudioEngineManager {
     // Native methods
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
-    private external fun nativeGetAudioData(numFrames: Int): ShortArray?
-    private external fun nativePlayAudioData(audioData: ShortArray)
     private external fun nativeSetMuted(muted: Boolean): Boolean
     private external fun nativePauseStreams(): Boolean
     private external fun nativeResumeStreams(): Boolean
