@@ -126,6 +126,10 @@ jobs:
               -o build/cpp_test/opus_codec_test
           build/cpp_test/opus_codec_test
 
+      - name: Run Kotlin unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
       # App size budget (issue #131): build a debug AAB and enforce the
       # < 30 MB download-size target. Uses the debug keystore so no signing
       # credentials are needed. `continue-on-error` keeps the main test
