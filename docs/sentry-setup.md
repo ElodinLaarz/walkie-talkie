@@ -73,10 +73,9 @@ The Sentry Gradle plugin will automatically:
 The following data **is** included in crash reports:
 - Stack traces (deobfuscated)
 - Device model, OS version, app version
-- `peerId` (anonymous UUID, documented as non-PII)
 
 The following data **is NOT** included:
-- Display names (redacted by `_sanitizeEvent`)
+- `peerId` and display names (both stripped by `SentryEventSanitizer` from contexts, tags, and breadcrumbs before transmission)
 - IP addresses (can be disabled in Sentry project settings)
 - Bluetooth MAC addresses
 - Any content from the frequency room (audio, messages, etc.)
