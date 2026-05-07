@@ -91,9 +91,43 @@ bash scripts/measure_app_size.sh
 
 ## presubmit.sh
 
-Runs the full local presubmit gate (formatting, analysis, tests, native
-C++ tests). Mirrors what CI runs on every push.
+Runs the full local presubmit gate. Mirrors what CI
+(`.github/workflows/flutter.yml`) runs on every push:
+
+1. Play Store metadata character-limit validation
+2. `dart format --set-exit-if-changed`
+3. `flutter analyze`
+4. `flutter test`
+5. Native C++ tests (`scripts/run_native_cpp_tests.sh`)
+6. Kotlin unit tests (`./gradlew :app:testDebugUnitTest --no-daemon`)
 
 ```bash
 bash scripts/presubmit.sh
 ```
+
+Step 6 is skipped automatically if `android/gradlew` is not executable
+(rare; once-per-clone fix is `chmod +x android/gradlew`). The CI AAB
+size measurement step is intentionally not mirrored — it requires a
+full JDK setup and a debug build, which add minutes for low local
+regression value.
+
+## install-git-hooks.sh
+
+Installs an opt-in `pre-push` git hook that runs `presubmit.sh` before
+every `git push`. A failing presubmit aborts the push so a CI
+round-trip is not spent on a regression a local run would have caught.
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+Idempotent (re-running replaces the hook in place). Bypass for
+emergencies:
+
+```bash
+git push --no-verify
+```
+
+The hook resolves the hooks directory via `git rev-parse --git-path
+hooks` so it works inside worktrees and with custom `core.hooksPath`
+configurations.
