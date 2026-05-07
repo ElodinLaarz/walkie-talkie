@@ -57,10 +57,20 @@ jobs:
         working-directory: android
         run: ./gradlew :app:testDebugUnitTest --no-daemon
 
-      # App size budget (issue #131): build a debug AAB and enforce the
-      # < 30 MB download-size target. Uses the debug keystore so no signing
-      # credentials are needed.
-      - name: Measure AAB size (< 30 MB budget)
+      # Debug AAB regression alarm (issue #131): build a debug AAB and fail
+      # fast on catastrophic on-disk bloat (e.g., accidentally vendored binary
+      # blob, fat-APK misconfig). Uses the debug keystore so no signing
+      # credentials are needed on PR builds from forks.
+      #
+      # NOT the per-device Play download number. A debug AAB intrinsically
+      # carries ~80 MiB of kernel_blob.bin + debug libflutter.so + Vulkan
+      # validation layer that a release AAB does not. The 30 MiB target from
+      # #131 is the per-device download served by Play after ABI/density/lang
+      # split — that number is measured by release.yml via bundletool against
+      # a signed release AAB. Holding a debug bundle to 30 MiB was a category
+      # error (every PR fails); this step keeps the cheap on-disk regression
+      # catch with a budget proportionate to debug-mode reality.
+      - name: Measure AAB size (debug, ≤ 100 MiB regression alarm)
         continue-on-error: false
         run: |
           set -euo pipefail
@@ -71,16 +81,17 @@ jobs:
 
           AAB="build/app/outputs/bundle/debug/app-debug.aab"
           if [ ! -f "$AAB" ]; then
-            echo "AAB not found at $AAB — skipping size check"; exit 0
+            echo "::error::AAB not found at $AAB — Gradle output path may have changed. Update this step rather than letting the regression alarm silently no-op."
+            exit 1
           fi
 
           SIZE_BYTES=$(stat -c%s "$AAB")
-          SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1048576" | bc)
-          echo "AAB size: ${SIZE_MB} MB  (${SIZE_BYTES} bytes)"
+          SIZE_MIB=$(awk "BEGIN { printf \"%.2f\", $SIZE_BYTES / 1048576 }")
+          echo "Debug AAB size: ${SIZE_MIB} MiB  (${SIZE_BYTES} bytes)"
 
-          LIMIT_BYTES=$((30 * 1048576))
+          LIMIT_BYTES=$((100 * 1048576))
           if [ "$SIZE_BYTES" -gt "$LIMIT_BYTES" ]; then
-            echo "::error::AAB exceeds 30 MB budget (${SIZE_MB} MB). Reduce dependencies or assets."
+            echo "::error::Debug AAB exceeds 100 MiB regression alarm (${SIZE_MIB} MiB). This is the on-disk debug bundle, not the Play download — see release.yml for the per-device number measured by bundletool."
             exit 1
           fi
-          echo "::notice::AAB size ${SIZE_MB} MB is within the 30 MB budget."
+          echo "::notice::Debug AAB ${SIZE_MIB} MiB is within the 100 MiB regression alarm."
