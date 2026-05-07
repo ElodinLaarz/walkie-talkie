@@ -29,6 +29,7 @@ typedef void* jarray;
 typedef void* jbyteArray;
 typedef void* jshortArray;
 typedef void* jintArray;
+typedef void* jobjectArray;
 
 // Boolean constants
 #define JNI_TRUE  ((jboolean)1)
@@ -76,6 +77,11 @@ struct JNIEnv {
     void      SetIntArrayRegion(jintArray, jsize, jsize, const jint*) {}
 
     jsize GetArrayLength(jarray) { return 0; }
+
+    jclass FindClass(const char*) { return nullptr; }
+
+    jobjectArray NewObjectArray(jsize, jclass, jobject) { return nullptr; }
+    void SetObjectArrayElement(jobjectArray, jsize, jobject) {}
 
     // Variadic overload so CallVoidMethod(obj, mid, arg1, arg2, ...) compiles.
     template<typename... Args>

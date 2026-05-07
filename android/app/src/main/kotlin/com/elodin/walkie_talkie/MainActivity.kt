@@ -213,6 +213,12 @@ class MainActivity : FlutterActivity() {
                                 voiceTransport?.sendToHost(frame)
                             }
                         }
+                        override fun onTalkingPeersChanged(peers: Set<String>) {
+                            sendEventToFlutter(mapOf(
+                                "type" to "talkingPeers",
+                                "peers" to peers.toList()
+                            ))
+                        }
                     })
                     pm.startMixerThread()
                     peerAudioManager = pm

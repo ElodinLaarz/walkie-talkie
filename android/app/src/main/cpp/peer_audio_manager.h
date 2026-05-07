@@ -14,6 +14,7 @@
 #include "audio_mixer.h"
 #include "jitter_buffer.h"
 #include "opus_codec.h"
+#include "vad_detector.h"
 
 // Owns the per-peer audio plumbing on the host (or the host's mirror image
 // running on a guest):
@@ -74,6 +75,12 @@ public:
     // Snapshot current link telemetry for a peer.
     LinkTelemetry getTelemetry(const std::string& macAddress);
 
+    // Returns true if the most recent decoded audio from this peer crossed the
+    // VAD threshold (i.e., the peer is currently detected as talking).
+    // Returns false if the peer is not registered or is silent.
+    // Thread-safe: acquires the per-peer mutex internally.
+    bool isPeerTalking(const std::string& macAddress);
+
     // Start / stop the mixer tick thread. The thread runs decode →
     // updateDeviceAudio → mix-minus → encode → JNI callback once every
     // audio_config::kFrameDurationMs ms.
@@ -110,6 +117,9 @@ private:
         // Two consecutive PLC frames sound increasingly mechanical; we use
         // this to bias toward popAny() on the third underrun in a row.
         int consecutiveUnderruns{0};
+            // Per-peer VAD. Guarded by `mutex` so reads from isPeerTalking() are
+        // race-free even when the mixer thread is running.
+        VadDetector peerVad{audio_config::kCodecSampleRate};
     };
 
     void mixerTickLoop();
@@ -120,10 +130,19 @@ private:
     void sendAudioToPeer(JNIEnv* env, const std::string& macAddress,
                          const uint8_t* opusData, int opusSize, uint32_t seq);
 
+    // Emit a talkingPeers event with the current set of active peer MACs.
+    // Called on the mixer thread when any peer's VAD state changes.
+    void sendTalkingPeersEvent(JNIEnv* env,
+                               const std::vector<std::string>& talkingMacs);
+
     std::mutex peerRegistryMutex_;
     std::map<std::string, std::shared_ptr<PeerState>> peers_;
     std::map<int, std::string> deviceIdToMac_;
     int nextDeviceId_{1};  // 0 reserved for local mic.
+
+    // Set to true by unregisterPeer() so the next mixer tick emits an updated
+    // talkingPeers set even if no VAD edge fires on a surviving peer.
+    std::atomic<bool> talkingPeersDirty_{false};
 
     std::thread mixerThread_;
     std::atomic<bool> mixerRunning_{false};

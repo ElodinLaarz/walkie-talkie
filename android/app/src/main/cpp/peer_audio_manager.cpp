@@ -3,6 +3,7 @@
 #include <android/log.h>
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <utility>
 
@@ -75,6 +76,10 @@ void PeerAudioManager::unregisterPeer(const std::string& macAddress) {
 
     deviceIdToMac_.erase(deviceId);
     peers_.erase(it);
+    // Signal the mixer tick to emit a fresh talkingPeers update even if no VAD
+    // edge fires on a surviving peer. Without this, a talking peer that leaves
+    // would remain in Flutter's last-known talking set indefinitely.
+    talkingPeersDirty_.store(true, std::memory_order_release);
     LOGI("Peer %s (device ID %d) unregistered", macAddress.c_str(), deviceId);
 }
 
@@ -157,6 +162,18 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
     t.currentBitrate = state->bitrate.load(std::memory_order_relaxed);
     t.valid = true;
     return t;
+}
+
+bool PeerAudioManager::isPeerTalking(const std::string& macAddress) {
+    std::shared_ptr<PeerState> state;
+    {
+        std::lock_guard<std::mutex> lock(peerRegistryMutex_);
+        auto it = peers_.find(macAddress);
+        if (it == peers_.end()) return false;
+        state = it->second;
+    }
+    std::lock_guard<std::mutex> stateLock(state->mutex);
+    return state->peerVad.talking();
 }
 
 bool PeerAudioManager::startMixerThread() {
@@ -278,6 +295,7 @@ void PeerAudioManager::mixerTickLoop() {
         // stuck-producer poison logic would never fire. Skipping it avoids
         // duplicating the gap detection that the buffer + this loop's PLC
         // path already handle.
+        bool anyTalkingChanged = false;
         for (size_t i = 0; i < peerSnapshot.size(); ++i) {
             auto& state = peerSnapshot[i];
             int decoded = -1;
@@ -285,35 +303,52 @@ void PeerAudioManager::mixerTickLoop() {
             // The decoder is touched only on this thread, so the lock is
             // really there to serialize the jitter buffer (push side runs
             // on the BLE thread).
-            std::lock_guard<std::mutex> stateLock(state->mutex);
-            state->jitterBuffer->tick();
+            {
+                std::lock_guard<std::mutex> stateLock(state->mutex);
+                state->jitterBuffer->tick();
 
-            auto frame = state->jitterBuffer->pop();
-            if (frame.has_value()) {
-                decoded = state->decoder->decode(
-                    frame->opusData.data(),
-                    static_cast<int>(frame->opusData.size()),
-                    decodedBuffer.data(),
-                    audio_config::kCodecMaxFrameSize);
-                state->consecutiveUnderruns = 0;
-            } else {
-                // Underrun. PLC for one frame; if we've already PLC'd twice in
-                // a row, prefer popAny() so the buffer doesn't grow stale.
-                if (state->consecutiveUnderruns >= 2) {
-                    auto any = state->jitterBuffer->popAny();
-                    if (any.has_value()) {
-                        decoded = state->decoder->decode(
-                            any->opusData.data(),
-                            static_cast<int>(any->opusData.size()),
-                            decodedBuffer.data(),
-                            audio_config::kCodecMaxFrameSize);
-                        state->consecutiveUnderruns = 0;
+                auto frame = state->jitterBuffer->pop();
+                if (frame.has_value()) {
+                    decoded = state->decoder->decode(
+                        frame->opusData.data(),
+                        static_cast<int>(frame->opusData.size()),
+                        decodedBuffer.data(),
+                        audio_config::kCodecMaxFrameSize);
+                    state->consecutiveUnderruns = 0;
+                } else {
+                    // Underrun. PLC for one frame; if we've already PLC'd twice in
+                    // a row, prefer popAny() so the buffer doesn't grow stale.
+                    if (state->consecutiveUnderruns >= 2) {
+                        auto any = state->jitterBuffer->popAny();
+                        if (any.has_value()) {
+                            decoded = state->decoder->decode(
+                                any->opusData.data(),
+                                static_cast<int>(any->opusData.size()),
+                                decodedBuffer.data(),
+                                audio_config::kCodecMaxFrameSize);
+                            state->consecutiveUnderruns = 0;
+                        }
+                    }
+                    if (decoded < 0) {
+                        decoded = state->decoder->decodeMissing(
+                            decodedBuffer.data(), kFrameSize);
+                        ++state->consecutiveUnderruns;
                     }
                 }
-                if (decoded < 0) {
-                    decoded = state->decoder->decodeMissing(
-                        decodedBuffer.data(), kFrameSize);
-                    ++state->consecutiveUnderruns;
+
+                // Per-peer VAD: compute RMS on decoded PCM and update hysteresis.
+                // Kept inside stateLock so isPeerTalking() reads are race-free.
+                if (decoded > 0) {
+                    double sum = 0.0;
+                    for (int j = 0; j < decoded; ++j) {
+                        double s = decodedBuffer[j] / 32768.0;
+                        sum += s * s;
+                    }
+                    double rms = std::sqrt(sum / decoded);
+                    if (state->peerVad.update(
+                            rms > VadDetector::kDefaultThreshold, decoded)) {
+                        anyTalkingChanged = true;
+                    }
                 }
             }
 
@@ -321,6 +356,20 @@ void PeerAudioManager::mixerTickLoop() {
                 mixer->updateDeviceAudio(state->deviceId,
                                          decodedBuffer.data(), decoded);
             }
+        }
+
+        // Emit talkingPeers event whenever any peer's VAD edge fires or a
+        // peer was removed (talkingPeersDirty_ set by unregisterPeer()).
+        const bool dirty =
+            talkingPeersDirty_.exchange(false, std::memory_order_acq_rel);
+        if ((anyTalkingChanged || dirty) && env != nullptr) {
+            std::vector<std::string> talkingMacs;
+            for (size_t i = 0; i < peerSnapshot.size(); ++i) {
+                if (peerSnapshot[i]->peerVad.talking()) {
+                    talkingMacs.push_back(macSnapshot[i]);
+                }
+            }
+            sendTalkingPeersEvent(env, talkingMacs);
         }
 
         // ---- Mix-minus + encode pass: produce one outbound frame per peer.
@@ -441,6 +490,76 @@ void PeerAudioManager::sendAudioToPeer(JNIEnv* env,
 
             if (jMac) env->DeleteLocalRef(jMac);
             if (jData) env->DeleteLocalRef(jData);
+        }
+        env->DeleteLocalRef(callbackClass);
+    }
+    env->DeleteLocalRef(callback);
+}
+
+void PeerAudioManager::sendTalkingPeersEvent(
+    JNIEnv* env, const std::vector<std::string>& talkingMacs) {
+    jobject callback = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (callbackObject_) {
+            callback = env->NewLocalRef(callbackObject_);
+        }
+    }
+    if (!callback) return;
+
+    jclass callbackClass = env->GetObjectClass(callback);
+    if (callbackClass) {
+        jmethodID method = env->GetMethodID(
+            callbackClass, "onTalkingPeersChanged", "([Ljava/lang/String;)V");
+        if (method) {
+            jclass stringClass = env->FindClass("java/lang/String");
+            if (stringClass == nullptr) {
+                LOGE("sendTalkingPeersEvent: FindClass(java/lang/String) failed");
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                }
+            } else {
+                jobjectArray peerArray = env->NewObjectArray(
+                    static_cast<jsize>(talkingMacs.size()), stringClass, nullptr);
+                if (peerArray == nullptr) {
+                    LOGE("sendTalkingPeersEvent: NewObjectArray failed");
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionDescribe();
+                        env->ExceptionClear();
+                    }
+                } else {
+                    bool arrayOk = true;
+                    for (size_t i = 0; i < talkingMacs.size(); ++i) {
+                        jstring s = env->NewStringUTF(talkingMacs[i].c_str());
+                        if (!s) {
+                            arrayOk = false;
+                            if (env->ExceptionCheck()) {
+                                env->ExceptionDescribe();
+                                env->ExceptionClear();
+                            }
+                            break;
+                        }
+                        env->SetObjectArrayElement(peerArray, static_cast<jsize>(i), s);
+                        env->DeleteLocalRef(s);
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionDescribe();
+                            env->ExceptionClear();
+                            arrayOk = false;
+                            break;
+                        }
+                    }
+                    if (arrayOk) {
+                        env->CallVoidMethod(callback, method, peerArray);
+                    }
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionDescribe();
+                        env->ExceptionClear();
+                    }
+                    env->DeleteLocalRef(peerArray);
+                }
+                env->DeleteLocalRef(stringClass);
+            }
         }
         env->DeleteLocalRef(callbackClass);
     }

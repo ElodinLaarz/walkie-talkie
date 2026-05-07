@@ -12,6 +12,8 @@
 # Claude Code local overrides (per-developer settings, not for the team)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+# Local CI sentinel written by the merge-guardrail workflow; not for VCS
+.claude-ci.json
 
 # IntelliJ related
 *.iml
