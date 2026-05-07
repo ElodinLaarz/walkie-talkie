@@ -7,18 +7,28 @@
 
   Policy:
   - Cleartext (HTTP) traffic is forbidden globally.
-  - TLS to any host is permitted (Sentry's ingestion endpoint hostname is
-    baked into the DSN at build time via dart-define and may vary per
-    deployment; host-specific pinning would break on cert rotation so we
-    rely on the system trust store and Sentry's TLS instead).
+  - User-installed CAs (enterprise TLS-inspection proxies) are trusted only
+    for Sentry's ingestion hosts; they are not trusted globally.
+  - Certificate pinning is intentionally omitted — the Sentry DSN host is
+    baked into the DSN at build time and may vary per deployment; pinning
+    would break on cert rotation.
 -->
 <network-security-config>
+    <!-- Global policy: no cleartext, system trust store only. -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
-            <!-- Also trust user-installed CAs so devices behind enterprise
-                 TLS-inspection proxies can still upload crash reports. -->
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
+
+    <!-- Sentry crash reporting — the only intended external endpoint.
+         Also trust user-installed CAs so devices behind enterprise
+         TLS-inspection proxies can still upload crash reports. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">sentry.io</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
 </network-security-config>
