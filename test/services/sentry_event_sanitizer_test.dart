@@ -178,7 +178,9 @@ void main() {
     test('redacts MAC addresses from breadcrumb messages', () {
       final event = SentryEvent(
         breadcrumbs: [
-          Breadcrumb(message: 'Error getting MTU for AA:BB:CC:DD:EE:FF: timeout'),
+          Breadcrumb(
+            message: 'Error getting MTU for AA:BB:CC:DD:EE:FF: timeout',
+          ),
         ],
       );
       final result = sanitizeSentryEvent(event)!;
@@ -360,7 +362,10 @@ void main() {
             value: 'SIGSEGV',
             stackTrace: SentryStackTrace(
               frames: [
-                SentryStackFrame(function: 'native_call', fileName: 'libfoo.so'),
+                SentryStackFrame(
+                  function: 'native_call',
+                  fileName: 'libfoo.so',
+                ),
               ],
               registers: {
                 'r0': '0xAABBCCDDEEFF',
@@ -374,7 +379,10 @@ void main() {
       final result = sanitizeSentryEvent(event)!;
       final regs = result.exceptions!.single.stackTrace!.registers;
       expect(regs['r1'], '[MAC_REDACTED]');
-      expect(regs['r0'], '0xAABBCCDDEEFF'); // 12-hex-digit literal — not a MAC shape
+      expect(
+        regs['r0'],
+        '0xAABBCCDDEEFF',
+      ); // 12-hex-digit literal — not a MAC shape
       expect(regs['pc'], '0x1234');
     });
   });
@@ -439,7 +447,9 @@ void main() {
   group('sanitizeSentryEvent — request', () {
     test('redacts MAC in request URL', () {
       final event = SentryEvent(
-        request: SentryRequest(url: 'https://api.example/peer/AA:BB:CC:DD:EE:FF'),
+        request: SentryRequest(
+          url: 'https://api.example/peer/AA:BB:CC:DD:EE:FF',
+        ),
       );
       final result = sanitizeSentryEvent(event)!;
       expect(result.request!.url, contains('[MAC_REDACTED]'));
