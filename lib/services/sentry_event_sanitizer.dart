@@ -207,10 +207,16 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event) {
     }
   }
 
-  // Strip PII-keyed tags.
+  // Strip PII-keyed tags AND redact PII inside surviving tag values. Without
+  // the value pass, a tag like `endpoint=AA:BB:CC:DD:EE:FF` or
+  // `route=peerId=abc-123` would forward verbatim — the docstring promises
+  // tags are covered, so cover them.
   final tags = event.tags;
-  if (tags != null && tags.keys.any(_isPiiKey)) {
-    event.tags = Map.fromEntries(tags.entries.where((e) => !_isPiiKey(e.key)));
+  if (tags != null) {
+    event.tags = <String, String>{
+      for (final e in tags.entries)
+        if (!_isPiiKey(e.key)) e.key: _redactMessage(e.value),
+    };
   }
 
   // Redact breadcrumbs in-place (Breadcrumb is mutable in sentry 9.x).
