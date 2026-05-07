@@ -81,7 +81,8 @@ jobs:
 
           AAB="build/app/outputs/bundle/debug/app-debug.aab"
           if [ ! -f "$AAB" ]; then
-            echo "AAB not found at $AAB — skipping size check"; exit 0
+            echo "::error::AAB not found at $AAB — Gradle output path may have changed. Update this step rather than letting the regression alarm silently no-op."
+            exit 1
           fi
 
           SIZE_BYTES=$(stat -c%s "$AAB")
