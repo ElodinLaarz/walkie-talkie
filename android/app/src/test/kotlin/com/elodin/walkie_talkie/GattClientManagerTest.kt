@@ -128,25 +128,22 @@ class GattClientManagerTest {
 
     @Test
     fun retryStopsAfterMaxConnectRetries() {
-        // MAX_CONNECT_RETRIES = 5 (total attempts = 1 initial + 5 retries = 6)
+        // MAX_CONNECT_RETRIES = 5; seed once and fire exactly MAX+1 disconnects.
         val mac = "AA:BB:CC:DD:EE:FF"
         val gatt = mockGatt(mac)
 
-        // Simulate 5 transient disconnects (retry count increments each time)
+        setPendingMac(mac)
+        // First 5 transient disconnects each increment the retry counter.
         repeat(5) {
-            setPendingMac(mac) // pendingMac is cleared after last retry exhausted
             gattCallback().onConnectionStateChange(gatt, 133, BluetoothProfile.STATE_DISCONNECTED)
         }
+        assertEquals("retryCount should be MAX_CONNECT_RETRIES after 5 retries", 5, retryCount())
+        assertEquals("pendingMac should still be set mid-retry", mac, pendingMac())
 
-        // On the 6th failure, retry counter has hit MAX_CONNECT_RETRIES so the
-        // manager gives up: pendingMacAddress is nulled out.
-        val macBeforeFinalFail = pendingMac()
-        if (macBeforeFinalFail != null) {
-            gattCallback().onConnectionStateChange(gatt, 133, BluetoothProfile.STATE_DISCONNECTED)
-            assertNull(pendingMac())
-        }
-        // Either way retry count must not exceed MAX_CONNECT_RETRIES (5)
-        assertTrue("retryCount ${retryCount()} exceeds MAX_CONNECT_RETRIES(5)", retryCount() <= 5)
+        // 6th disconnect exhausts the budget: counter resets and pending MAC is cleared.
+        gattCallback().onConnectionStateChange(gatt, 133, BluetoothProfile.STATE_DISCONNECTED)
+        assertNull("pendingMac should be null after retry exhaustion", pendingMac())
+        assertEquals("retryCount should reset to 0 on exhaustion", 0, retryCount())
     }
 
     @Test
