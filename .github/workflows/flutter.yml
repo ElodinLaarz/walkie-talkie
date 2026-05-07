@@ -60,11 +60,16 @@ jobs:
               test/cpp/talking_event_queue_test.cpp \
               test/cpp/ring_buffer_test.cpp \
               test/cpp/opus_codec_test.cpp \
+              test/cpp/vad_detector_test.cpp \
+              test/cpp/peer_audio_manager_test.cpp \
               android/app/src/main/cpp/audio_mixer.cpp \
               android/app/src/main/cpp/talking_event_queue.h \
               android/app/src/main/cpp/ring_buffer.h \
               android/app/src/main/cpp/opus_codec.h \
-              android/app/src/main/cpp/opus_codec.cpp; do
+              android/app/src/main/cpp/opus_codec.cpp \
+              android/app/src/main/cpp/vad_detector.h \
+              android/app/src/main/cpp/peer_audio_manager.cpp \
+              android/app/src/main/cpp/peer_audio_manager.h; do
             if [ ! -f "$required" ]; then
               echo "$required missing — failing fast"; exit 1
             fi
@@ -125,6 +130,31 @@ jobs:
               $(pkg-config --libs opus) \
               -o build/cpp_test/opus_codec_test
           build/cpp_test/opus_codec_test
+
+          # vad_detector_test exercises the two-sided hysteresis state machine
+          # extracted from audio_engine.cpp (#248). Header-only; no link deps.
+          ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+              -I test/cpp \
+              -I android/app/src/main/cpp \
+              test/cpp/vad_detector_test.cpp \
+              -o build/cpp_test/vad_detector_test
+          build/cpp_test/vad_detector_test
+
+          # peer_audio_manager_test exercises the JNI jlong→uint32_t seq cast
+          # and burst-loss handling (#247). Links audio_mixer, jitter_buffer,
+          # and opus_codec (for the per-peer encoder/decoder).
+          ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+              -I test/cpp \
+              -I android/app/src/main/cpp \
+              $(pkg-config --cflags opus) \
+              test/cpp/peer_audio_manager_test.cpp \
+              android/app/src/main/cpp/peer_audio_manager.cpp \
+              android/app/src/main/cpp/audio_mixer.cpp \
+              android/app/src/main/cpp/jitter_buffer.cpp \
+              android/app/src/main/cpp/opus_codec.cpp \
+              $(pkg-config --libs opus) \
+              -o build/cpp_test/peer_audio_manager_test
+          build/cpp_test/peer_audio_manager_test
 
       - name: Run Kotlin unit tests
         working-directory: android
