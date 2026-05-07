@@ -14,14 +14,30 @@ set -e
 cd "$(dirname "$0")/.."
 
 # Resolve the real hooks directory. Worktrees and core.hooksPath both
-# move it away from .git/hooks; ask git rather than guessing.
-HOOKS_DIR="$(git rev-parse --git-path hooks)"
+# move it away from .git/hooks; ask git rather than guessing. Force an
+# absolute path so the result survives the `cd` above — without
+# --path-format=absolute, linked worktrees can return a relative path
+# that resolves against the current working directory. Requires
+# git ≥ 2.31 (January 2021).
+HOOKS_DIR="$(git rev-parse --path-format=absolute --git-path hooks)"
 
 if [ ! -d "$HOOKS_DIR" ]; then
   mkdir -p "$HOOKS_DIR"
 fi
 
 HOOK="$HOOKS_DIR/pre-push"
+MARKER="Auto-installed by scripts/install-git-hooks.sh"
+
+# If a contributor already has their own pre-push hook (husky, lefthook,
+# manual setup, etc.) silently overwriting it would lose their work.
+# Back it up so they can merge in the presubmit step manually if they
+# want both. Re-running the installer over an already-installed hook is
+# fine — those carry the MARKER and get replaced in place.
+if [ -f "$HOOK" ] && ! grep -qF "$MARKER" "$HOOK"; then
+  BACKUP="$HOOK.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp "$HOOK" "$BACKUP"
+  echo "Existing pre-push hook (not auto-installed) backed up to $BACKUP"
+fi
 
 cat > "$HOOK" <<'EOF'
 #!/bin/bash
