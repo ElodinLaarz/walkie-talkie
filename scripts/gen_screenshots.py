@@ -301,8 +301,10 @@ def make_privacy():
     d.text((W - 220, 122), "Private", font=fnt(30), fill=(180, 230, 255))
     y = 192
 
-    # Hero band with cloud-off-style icon (crossed cloud over Wi-Fi arcs)
-    band_h = 720
+    # Hero band with cloud-off-style icon (crossed cloud over Wi-Fi arcs).
+    # Tall enough to fit two 72-px headline lines below the rings without
+    # spilling onto the white background.
+    band_h = 780
     d.rectangle([0, y, W, y + band_h], fill=BLUE)
     cx, cy = W // 2, y + 280
     # Concentric rings (Wi-Fi-style) behind the cloud, low-opacity look
@@ -319,38 +321,45 @@ def make_privacy():
             cx + cw // 2 + 60, cy + ch // 2 + 70],
            fill=RED_PTT, width=14)
 
-    # Headline beneath the icon
+    # Headline beneath the icon. The outer ring radius is 280 px from cy
+    # (= y + 280), so the rings extend down to y + 560. Place the first
+    # baseline at y + 565 to clear them.
+    f72b = fnt(72, True)
     headline1 = "No internet,"
     headline2 = "no account."
-    h1w = d.textlength(headline1, font=fnt(72, True))
-    h2w = d.textlength(headline2, font=fnt(72, True))
-    d.text((cx - int(h1w) // 2, y + 480), headline1, font=fnt(72, True), fill=WHITE)
-    d.text((cx - int(h2w) // 2, y + 562), headline2, font=fnt(72, True), fill=WHITE)
+    h1w = d.textlength(headline1, font=f72b)
+    h2w = d.textlength(headline2, font=f72b)
+    d.text((cx - int(h1w) // 2, y + 565), headline1, font=f72b, fill=WHITE)
+    d.text((cx - int(h2w) // 2, y + 647), headline2, font=f72b, fill=WHITE)
     y += band_h
 
-    # Body copy
+    # Body copy. Cache the font outside the loop — fnt() loads from disk
+    # on every call.
     y += 60
+    f36 = fnt(36)
     body_lines = [
         "Voice never leaves the devices.",
         "No server. No login. No cloud.",
         "Just Bluetooth and your microphone.",
     ]
     for line in body_lines:
-        lw = d.textlength(line, font=fnt(36))
-        d.text((W // 2 - int(lw) // 2, y), line, font=fnt(36), fill=TEXT1)
+        lw = d.textlength(line, font=f36)
+        d.text((W // 2 - int(lw) // 2, y), line, font=f36, fill=TEXT1)
         y += 56
 
-    # Privacy bullets
+    # Privacy bullets. Same font-caching reasoning as the body copy above.
     y += 60
+    f30b = fnt(30, True)
+    f28 = fnt(28)
     bullets = [
         ("Voice", "End-to-end on Bluetooth LE — never uploaded."),
         ("Identity", "Random peer ID, generated on-device."),
         ("Telemetry", "Crash reports off by default; no audio, ever."),
     ]
     for label, text in bullets:
-        d.rounded_rectangle([32, y, W - 32, y + 110], radius=16, fill=CARD_BG, outline=DIVIDER, width=1)
-        d.text((54, y + 18), label, font=fnt(30, True), fill=BLUE)
-        d.text((54, y + 60), text, font=fnt(28), fill=TEXT2)
+        rounded_rect(d, [32, y, W - 32, y + 110], r=16, fill=CARD_BG, outline=DIVIDER, width=1)
+        d.text((54, y + 18), label, font=f30b, fill=BLUE)
+        d.text((54, y + 60), text, font=f28, fill=TEXT2)
         y += 124
 
     nav_bar(d)
