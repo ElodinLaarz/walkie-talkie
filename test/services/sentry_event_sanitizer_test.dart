@@ -1,3 +1,7 @@
+// Tests cover redaction of SentryEvent.extra, which Sentry deprecated in favor
+// of structured contexts but still serializes — see the sanitizer for context.
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:walkie_talkie/services/sentry_event_sanitizer.dart';
@@ -384,6 +388,34 @@ void main() {
         '0xAABBCCDDEEFF',
       ); // 12-hex-digit literal — not a MAC shape
       expect(regs['pc'], '0x1234');
+    });
+  });
+
+  group('sanitizeSentryEvent — threads', () {
+    test('redacts peerId in thread stack frame vars', () {
+      final event = SentryEvent(
+        threads: [
+          SentryThread(
+            id: 1,
+            name: 'main',
+            stacktrace: SentryStackTrace(
+              frames: [
+                SentryStackFrame(
+                  function: 'tick',
+                  fileName: 'engine.dart',
+                  lineNo: 99,
+                  vars: {'peerId': 'abc-123', 'depth': 4},
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final frame = result.threads!.single.stacktrace!.frames.single;
+      expect(frame.vars['peerId'], '[REDACTED]');
+      expect(frame.vars['depth'], 4);
+      expect(frame.fileName, 'engine.dart');
     });
   });
 

@@ -1,3 +1,9 @@
+// Sanitizer reads + rewrites SentryEvent.extra to redact PII. Sentry deprecated
+// the `extra` API in favor of structured contexts, but the field still ships
+// in serialized events from upstream code paths we don't own — so we have to
+// continue to walk it.
+// ignore_for_file: deprecated_member_use
+
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 // Matches any key/field that is a display-name identifier.
@@ -168,9 +174,10 @@ SentryRequest _scrubRequest(SentryRequest r) {
     };
   }
   // r.data is final in sentry 9.x. Use copyWith so every shape (Map, List,
-  // String, primitive) flows through _redactDeep — mutating in place via
-  // clear()/addAll() would skip non-Map payloads entirely and throw on an
-  // immutable Map.
+  // String, primitive) flows through _redactDeep — mutating a Map via
+  // clear()/addAll() would skip non-Map shapes and throw on an immutable Map.
+  // The deprecation note tells callers to assign directly, but this field has
+  // no setter; copyWith remains the only path.
   final data = r.data;
   if (data != null) {
     return r.copyWith(data: _redactDeep(data));
