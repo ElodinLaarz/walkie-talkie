@@ -84,4 +84,21 @@ void main() {
     await cubit.stopDiscovery();
     expect(cubit.state, const DiscoveryStopped()); // empty sessions expected
   });
+
+  test(
+    'startDiscovery from DiscoveryStopped emits empty DiscoveryStopped on failure',
+    () async {
+      await cubit.startDiscovery();
+      await cubit.stopDiscovery();
+
+      when(mockService.startScan()).thenThrow(Exception('boom'));
+      await cubit.startDiscovery();
+
+      expect(cubit.state, const DiscoveryStopped());
+      // Pin the interaction — without this, an early return that never
+      // reached the service would still leave the state at
+      // DiscoveryStopped() and pass the assertion.
+      verify(mockService.startScan()).called(2);
+    },
+  );
 }

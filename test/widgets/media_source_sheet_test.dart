@@ -80,4 +80,54 @@ void main() {
       );
     });
   });
+
+  group('MediaSource enum metadata', () {
+    test('isPodcast is true for podcast sources', () {
+      expect(MediaSource.podcasts.isPodcast, isTrue);
+      expect(MediaSource.pocketCasts.isPodcast, isTrue);
+      expect(MediaSource.youtubeMusic.isPodcast, isFalse);
+      expect(MediaSource.spotify.isPodcast, isFalse);
+    });
+
+    test('appUri is null for the generic Podcasts source', () {
+      expect(MediaSource.podcasts.appUri, isNull);
+    });
+
+    test('appUri returns expected URIs for non-generic sources', () {
+      expect(
+        MediaSource.youtubeMusic.appUri,
+        Uri.parse('https://music.youtube.com/'),
+      );
+      expect(
+        MediaSource.spotify.appUri,
+        Uri.parse('https://open.spotify.com/'),
+      );
+      expect(MediaSource.pocketCasts.appUri, Uri.parse('https://pca.st/'));
+    });
+
+    test('fromWireKey resolves known keys', () {
+      for (final s in MediaSource.values) {
+        expect(MediaSourceExtension.fromWireKey(s.wireKey), s);
+      }
+    });
+
+    test('fromWireKey falls back to youtubeMusic for unknown keys', () {
+      expect(
+        MediaSourceExtension.fromWireKey('mystery-source'),
+        MediaSource.youtubeMusic,
+      );
+      expect(
+        MediaSourceExtension.fromWireKey(''),
+        MediaSource.youtubeMusic,
+      );
+    });
+  });
+
+  group('launchSourceApp', () {
+    test('returns false immediately for sources with null appUri', () async {
+      // Generic Podcasts has no canonical app — fast path, never hits
+      // url_launcher's platform channel.
+      expect(await launchSourceApp(MediaSource.podcasts), isFalse);
+    });
+  });
 }

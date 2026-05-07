@@ -53,5 +53,47 @@ void main() {
       );
       expect(find.bySemanticsLabel('Push to talk'), findsOneWidget);
     });
+
+    testWidgets('semantics onTap fires true then false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      // tester.semantics is the modern non-deprecated entry point; pair it
+      // with `find.semantics.byLabel(...)` to look up the SemanticsNode by
+      // its label rather than by widget type.
+      tester.semantics.tap(find.semantics.byLabel('Push to talk'));
+      await tester.pump();
+      expect(events, [true, false]);
+    });
+
+    testWidgets('semantics onLongPress fires true then false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      tester.semantics.longPress(find.semantics.byLabel('Push to talk'));
+      await tester.pump();
+      expect(events, [true, false]);
+    });
+
+    testWidgets('pointer cancel fires false', (tester) async {
+      final events = <bool>[];
+      await tester.pumpWidget(
+        _wrap(PushToTalkButton(holding: false, onChange: events.add)),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PushToTalkButton)),
+      );
+      await tester.pump();
+      expect(events, [true]);
+
+      await gesture.cancel();
+      await tester.pump();
+      expect(events, [true, false]);
+    });
   });
 }

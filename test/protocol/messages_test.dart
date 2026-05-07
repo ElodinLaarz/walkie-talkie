@@ -466,6 +466,94 @@ void main() {
       expect(round.talking, isFalse);
       expect(round.btDevice, isNull);
     });
+
+    test('hashCode + toString cover terminal members', () {
+      const a = ProtocolPeer(
+        peerId: 'p',
+        displayName: 'Maya',
+        btDevice: 'AirPods Pro',
+        muted: true,
+        talking: true,
+      );
+      const b = ProtocolPeer(
+        peerId: 'p',
+        displayName: 'Maya',
+        btDevice: 'AirPods Pro',
+        muted: true,
+        talking: true,
+      );
+      expect(a.hashCode, b.hashCode);
+      expect(a.toString(), contains('Maya'));
+      expect(a.toString(), contains('muted=true'));
+    });
+  });
+
+  group('JoinDenyReason.fromWire', () {
+    test('throws FormatException on unknown reason', () {
+      expect(
+        () => JoinDenyReasonWire.fromWire('moon-phase'),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('MediaOp.fromWire', () {
+    test('throws FormatException on unknown op', () {
+      expect(
+        () => MediaOpWire.fromWire('teleport'),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('MediaState equality + hashCode', () {
+    test('value-equal instances are equal', () {
+      const a = MediaState(
+        source: 'spotify',
+        trackIdx: 1,
+        playing: true,
+        positionMs: 4200,
+      );
+      const b = MediaState(
+        source: 'spotify',
+        trackIdx: 1,
+        playing: true,
+        positionMs: 4200,
+      );
+      expect(a, equals(b));
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('different field flips equality', () {
+      const a = MediaState(
+        source: 'spotify',
+        trackIdx: 1,
+        playing: true,
+        positionMs: 4200,
+      );
+      const b = MediaState(
+        source: 'spotify',
+        trackIdx: 1,
+        playing: false,
+        positionMs: 4200,
+      );
+      expect(a == b, isFalse);
+    });
+  });
+
+  group('NeighborSignal equality + hashCode', () {
+    test('value-equal instances are equal', () {
+      const a = NeighborSignal(peerId: 'p', rssi: -65);
+      const b = NeighborSignal(peerId: 'p', rssi: -65);
+      expect(a, equals(b));
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('different rssi flips equality', () {
+      const a = NeighborSignal(peerId: 'p', rssi: -65);
+      const b = NeighborSignal(peerId: 'p', rssi: -70);
+      expect(a == b, isFalse);
+    });
   });
 
   group('exhaustive switch on FrequencyMessage', () {

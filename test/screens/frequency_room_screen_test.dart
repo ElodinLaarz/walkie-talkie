@@ -987,6 +987,115 @@ void main() {
     );
 
     testWidgets(
+      'audioOutputChanged to bluetooth with btName flips chrome label + me-row',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // Pre-condition: speaker output → chrome shows "Speaker".
+        expect(find.text('Phone speaker'), findsWidgets);
+
+        eventEmitter.emit({
+          'type': 'audioOutputChanged',
+          'output': 'bluetooth',
+          'btName': 'AirPods Pro',
+        });
+        await tester.pump();
+
+        // Chrome label flips to "headphones"; the me-row's btDevice slot
+        // shows the device name from the event payload.
+        expect(find.text('headphones'), findsOneWidget);
+        expect(find.text('AirPods Pro'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'audioOutputChanged to bluetooth without btName falls back to placeholder',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        eventEmitter.emit({
+          'type': 'audioOutputChanged',
+          'output': 'bluetooth',
+        });
+        await tester.pump();
+
+        // No btName in payload + no prior btDevice → fallback "Bluetooth".
+        expect(find.text('headphones'), findsOneWidget);
+        expect(find.text('Bluetooth'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'audioOutputChanged away from bluetooth clears btDevice',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+
+        // First flip on with a name.
+        eventEmitter.emit({
+          'type': 'audioOutputChanged',
+          'output': 'bluetooth',
+          'btName': 'AirPods Pro',
+        });
+        await tester.pump();
+        expect(find.text('AirPods Pro'), findsOneWidget);
+
+        // Then flip back to speaker — the handler must clear btDevice
+        // so the device name disappears.
+        eventEmitter.emit({
+          'type': 'audioOutputChanged',
+          'output': 'speaker',
+        });
+        await tester.pump();
+
+        expect(find.text('AirPods Pro'), findsNothing);
+        expect(find.text('Phone speaker'), findsWidgets);
+      },
+    );
+
+    testWidgets(
+      'audioOutputChanged with unknown output keeps prior state (orElse branch)',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        await tester.pumpWidget(_wrap(_room()));
+        await tester.pump();
+        // Pre-condition: speaker.
+        expect(find.text('Phone speaker'), findsWidgets);
+
+        eventEmitter.emit({
+          'type': 'audioOutputChanged',
+          'output': 'martian-speaker',
+        });
+        await tester.pump();
+
+        // orElse returns the current output → still Speaker.
+        expect(find.text('Phone speaker'), findsWidgets);
+        expect(find.text('headphones'), findsNothing);
+      },
+    );
+
+    testWidgets(
       'audioError and error events trigger immediate permission recheck (#250)',
       (tester) async {
         final eventEmitter = _EventChannelEmitter(

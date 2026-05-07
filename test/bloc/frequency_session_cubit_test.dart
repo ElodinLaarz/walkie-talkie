@@ -346,6 +346,16 @@ void main() {
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'bootstrap tolerates getPeerId throwing and still advances state',
+      build: () => _makeCubit(
+        identityStore: _FakeStore(initial: 'Maya')..throwOnGetPeerId = true,
+      ),
+      act: (cubit) => cubit.bootstrap(),
+      expect: () =>
+          [isA<SessionDiscovery>().having((s) => s.myName, 'myName', 'Maya')],
+    );
+
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
       'completeOnboarding persists and advances to Discovery',
       build: () => _makeCubit(),
       seed: () => const SessionOnboarding(),
