@@ -159,6 +159,21 @@ void testDuplicateRejected() {
     std::cout << "Test Duplicate Rejected: PASSED" << std::endl;
 }
 
+// A freshly registered peer starts with peerVad in the silent state (not talking).
+void testPeerVadInitiallyNotTalking() {
+    PeerAudioManager mgr;
+    mgr.registerPeer(kMacA);
+
+    // Before any mixer tick the VAD hasn't seen any frames, so it must report
+    // not talking. isPeerTalking is safe to call outside stopMixerThread() here
+    // because the mixer thread was never started.
+    CHECK(!mgr.isPeerTalking(kMacA));
+    CHECK(!mgr.isPeerTalking(kMacB));  // unregistered peer also returns false
+
+    mgr.clear();
+    std::cout << "Test Peer VAD Initially Not Talking: PASSED" << std::endl;
+}
+
 // Two peers are independent: frames from peer A must not affect peer B's
 // jitter buffer, and vice versa.
 void testMultiplePeersAreIndependent() {
@@ -187,6 +202,7 @@ int main() {
         testSeqGapAcceptedByJitterBuffer();
         testDuplicateRejected();
         testMultiplePeersAreIndependent();
+        testPeerVadInitiallyNotTalking();
         std::cout << "All PeerAudioManager tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;

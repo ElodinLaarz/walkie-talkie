@@ -15,6 +15,7 @@ class PeerAudioManager {
 
     interface AudioCallback {
         fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int)
+        fun onTalkingPeersChanged(peers: Set<String>)
     }
 
     fun init() {
@@ -134,6 +135,12 @@ class PeerAudioManager {
     @Suppress("unused")
     private fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
         callback?.onMixedAudioReady(macAddress, opusData, seq)
+    }
+
+    // Called from native code (JNI callback) when any peer's VAD state changes.
+    @Suppress("unused")
+    private fun onTalkingPeersChanged(peers: Array<String>) {
+        callback?.onTalkingPeersChanged(peers.toSet())
     }
 
     // Native methods
