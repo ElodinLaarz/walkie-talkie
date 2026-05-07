@@ -73,6 +73,25 @@ void main() {
       expect(result.tags!['version'], '1.0');
     });
 
+    test('redacts MAC inside surviving tag values', () {
+      final event = SentryEvent(
+        tags: {'endpoint': 'AA:BB:CC:DD:EE:FF', 'version': '1.0'},
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.tags!['endpoint'], '[MAC_REDACTED]');
+      expect(result.tags!['version'], '1.0');
+    });
+
+    test('redacts peerId inside surviving tag values', () {
+      final event = SentryEvent(
+        tags: {'route': 'peerId=abc-123', 'version': '1.0'},
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.tags!['route'], contains('[REDACTED]'));
+      expect(result.tags!['route'], isNot(contains('abc-123')));
+      expect(result.tags!['version'], '1.0');
+    });
+
     test('redacts peerId key in breadcrumb data', () {
       final event = SentryEvent(
         breadcrumbs: [
