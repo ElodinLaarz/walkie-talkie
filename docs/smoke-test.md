@@ -17,7 +17,7 @@ Manual end-to-end test procedure for verifying BLE/L2CAP/voice functionality acr
    - `BLUETOOTH_CONNECT`
    - `BLUETOOTH_ADVERTISE`
    - `RECORD_AUDIO`
-   - `POST_NOTIFICATIONS` (Android 13+) — required for the foreground service notification; denial prevents FGS from starting (see step 11)
+   - `POST_NOTIFICATIONS` (Android 13+) — **not** prompted during onboarding; the OS prompts for it the first time the app starts its foreground service (when joining or creating a room). Denial prevents FGS from starting (see step 11)
 
 ### Test Environment Record
 Document for each test run:
@@ -251,7 +251,7 @@ Document for each test run:
 **Device A**:
 1. **Verify**: Snackbar appears: *"Crash reporting enabled. Restart the app to apply."*
 2. Fully close and relaunch the app
-3. **Verify**: App launches without crash, Sentry session is active (observable via Sentry dashboard or proxy: no crash on launch)
+3. **Verify**: Sentry session is active — observable as an outbound HTTPS envelope to `*.sentry.io` in a network proxy (e.g., Charles or mitmproxy), or as a live session appearing in the Sentry dashboard within 30 seconds of launch
 
 **Device A**:
 1. Navigate back to Settings → Privacy
@@ -285,7 +285,7 @@ Document for each test run:
 1. **Verify**: System email sheet opens with:
    - **To**: `support@formalizedchaos.com`
    - **Subject**: `Frequency abuse report`
-   - **Body**: Pre-filled sanitized abuse report (peer ID, timestamp, room context — no raw display names or PII beyond what the user typed)
+   - **Body**: Pre-filled sanitized abuse report containing: timestamp (UTC), frequency (MHz string), peer display name (control characters stripped), and peer BLE device name (control characters stripped)
 
 > **If no email app is installed**: Tap **Copy report** instead and verify the clipboard contains the report text.
 
