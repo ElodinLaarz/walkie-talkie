@@ -475,5 +475,61 @@ void main() {
       expect(result.request!.headers['X-PeerId'], '[REDACTED]');
       expect(result.request!.headers['X-Version'], '1.0');
     });
+
+    test('redacts PII inside Map request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          data: {'peerId': 'abc-123', 'displayName': 'Alice', 'kind': 'join'},
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as Map;
+      expect(redacted['peerId'], '[REDACTED]');
+      expect(redacted['displayName'], '[REDACTED]');
+      expect(redacted['kind'], 'join');
+    });
+
+    test('redacts PII inside String request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(data: 'peerId=abc-123 join AA:BB:CC:DD:EE:FF'),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as String;
+      expect(redacted, isNot(contains('abc-123')));
+      expect(redacted, isNot(contains('AA:BB:CC:DD:EE:FF')));
+    });
+
+    test('redacts PII inside immutable Map request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          data: Map.unmodifiable({'peerId': 'abc-123', 'kind': 'join'}),
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as Map;
+      expect(redacted['peerId'], '[REDACTED]');
+      expect(redacted['kind'], 'join');
+    });
+  });
+
+  group('sanitizeSentryEvent — extra', () {
+    test('redacts PII-keyed extra entries outright', () {
+      final event = SentryEvent()..extra = {'peerId': 'abc-123', 'op': 'send'};
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.extra!['peerId'], '[REDACTED]');
+      expect(result.extra!['op'], 'send');
+    });
+
+    test('deep-redacts PII nested inside extra values', () {
+      final event = SentryEvent()
+        ..extra = {
+          'context': 'peer AA:BB:CC:DD:EE:FF joined as Alice',
+          'roster': ['Alice', 'Bob'],
+        };
+      final result = sanitizeSentryEvent(event)!;
+      final ctx = result.extra!['context'] as String;
+      expect(ctx, isNot(contains('AA:BB:CC:DD:EE:FF')));
+      expect(ctx, contains('[MAC_REDACTED]'));
+    });
   });
 }

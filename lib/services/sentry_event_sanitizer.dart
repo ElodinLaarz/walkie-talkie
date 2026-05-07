@@ -167,7 +167,7 @@ void _scrubMessage(SentryMessage m) {
   }
 }
 
-void _scrubRequest(SentryRequest r) {
+SentryRequest _scrubRequest(SentryRequest r) {
   final url = r.url;
   if (url != null) r.url = _redactMessage(url);
   final qs = r.queryString;
@@ -183,17 +183,15 @@ void _scrubRequest(SentryRequest r) {
         e.key: _isPiiKey(e.key) ? '[REDACTED]' : _redactMessage(e.value),
     };
   }
-  // r.data is final in sentry 9.x; if a future Sentry integration sets it
-  // and it's a mutable Map, we redact in place. For other shapes (primitive,
-  // immutable List, etc.) the field is left untouched — the app does not
-  // populate it today, so the surface area is small.
+  // r.data is final in sentry 9.x. Use copyWith so every shape (Map, List,
+  // String, primitive) flows through _redactDeep — mutating in place via
+  // clear()/addAll() would skip non-Map payloads entirely and throw on an
+  // immutable Map.
   final data = r.data;
-  if (data is Map) {
-    final redacted = _redactDeep(data) as Map<String, dynamic>;
-    data
-      ..clear()
-      ..addAll(redacted);
+  if (data != null) {
+    return r.copyWith(data: _redactDeep(data));
   }
+  return r;
 }
 
 /// Sanitizes Sentry events to remove PII before they are sent.
@@ -201,7 +199,7 @@ void _scrubRequest(SentryRequest r) {
 /// Redacts display names, peer IDs, and Bluetooth MAC addresses from every
 /// load-bearing field of the event: contexts, tags, breadcrumbs, top-level
 /// `message`, `exceptions` (including stack-frame `vars`), `threads`, `user`,
-/// `request`, `fingerprint`, and `transaction`.
+/// `request`, `extra`, `fingerprint`, and `transaction`.
 ///
 /// Peer IDs are intentionally stripped even though they are random UUIDs:
 /// the privacy-first stance (and the Play Store Data Safety declaration)
@@ -268,7 +266,20 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event) {
   // Request — irrelevant in this app today (no HTTP), but defensive against
   // future code that uses `Sentry.configureScope((s) => s.setRequest(...))`.
   final request = event.request;
-  if (request != null) _scrubRequest(request);
+  if (request != null) event.request = _scrubRequest(request);
+
+  // Extra — arbitrary key/value attached via Sentry.captureEvent / scopes.
+  // setExtra is deprecated in favor of structured contexts but the field is
+  // still serialized, so a peerId / displayName nested in extra would
+  // otherwise bypass every other gate. Strip PII keys outright; deep-redact
+  // remaining values.
+  final extra = event.extra;
+  if (extra != null && extra.isNotEmpty) {
+    event.extra = <String, dynamic>{
+      for (final e in extra.entries)
+        e.key: _isPiiKey(e.key) ? '[REDACTED]' : _redactDeep(e.value),
+    };
+  }
 
   // Fingerprint is a list of user-controlled strings; we don't set it
   // ourselves but Sentry SDK / integrations can. Scrub each entry.
