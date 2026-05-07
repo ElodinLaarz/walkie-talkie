@@ -17,6 +17,7 @@ Manual end-to-end test procedure for verifying BLE/L2CAP/voice functionality acr
    - `BLUETOOTH_CONNECT`
    - `BLUETOOTH_ADVERTISE`
    - `RECORD_AUDIO`
+   - `POST_NOTIFICATIONS` (Android 13+) — **not** prompted during onboarding; the OS prompts for it the first time the app starts its foreground service (when joining or creating a room). Denial prevents FGS from starting (see step 11)
 
 ### Test Environment Record
 Document for each test run:
@@ -215,6 +216,84 @@ Document for each test run:
 
 ---
 
+### 11. POST_NOTIFICATIONS Denial Path (Android 13+ only)
+
+**Prerequisites**: Device running Android 13+ (API 33+). Fresh install or cleared app data so the permission prompt reappears.
+
+**Device A** (Alice):
+1. Launch app and proceed through onboarding
+2. When the notification permission dialog appears, tap **Don't allow**
+3. Tap **Start a new Frequency** to create a room
+
+**Device A**:
+1. **Verify**: App does not crash
+2. **Verify**: A descriptive error or warning is shown (toast, dialog, or permission-denied screen) — the app must not silently proceed as if the foreground service started normally
+3. **Verify**: Tapping the prompt (if shown) to open Settings lets the user grant the permission and retry
+
+> **Note:** On some OEM/Android combinations the foreground service notification may still appear due to OS-level exceptions. Document the outcome — pass or deviation — with device model and API level.
+
+**Pass/Fail**: ☐ Pass ☐ Fail  
+**Device model / API level**: _____________  
+**Observed behaviour**: _______________________________________________  
+**Notes**: _______________________________________________
+
+---
+
+### 12. Crash Reporting Toggle Round-Trip
+
+**Prerequisites**: Build compiled with a Sentry DSN (`kSentryConfigured = true`); otherwise the toggle is read-only and this section is not applicable.
+
+**Device A**:
+1. Navigate to **Settings** (gear icon or overflow menu in the room or discovery screen)
+2. Locate **Crash reporting** toggle under Privacy
+3. Enable the toggle
+
+**Device A**:
+1. **Verify**: Snackbar appears: *"Crash reporting enabled. Restart the app to apply."*
+2. Fully close and relaunch the app
+3. **Verify**: Sentry session is active — observable as an outbound HTTPS envelope to `*.sentry.io` in a network proxy (e.g., Charles or mitmproxy), or as a live session appearing in the Sentry dashboard within 30 seconds of launch
+
+**Device A**:
+1. Navigate back to Settings → Privacy
+2. Disable the **Crash reporting** toggle
+
+**Device A**:
+1. **Verify**: Snackbar appears: *"Crash reporting disabled. Restart the app to apply."*
+2. Fully close and relaunch the app
+3. **Verify**: No Sentry network traffic is initiated (no outbound connections to `*.sentry.io`)
+
+**Pass/Fail (enable)**: ☐ Pass ☐ Fail  
+**Pass/Fail (disable)**: ☐ Pass ☐ Fail  
+**Notes**: _______________________________________________
+
+---
+
+### 13. Block & Report
+
+**Prerequisites**: Two devices in the same Frequency room (Alice hosting, Bob joined).
+
+**Device A** (Alice):
+1. Tap **Bob's avatar** or name in the room roster to open the peer drawer
+2. Tap the **Report** button in the peer drawer
+
+**Device A**:
+1. **Verify**: "Bob blocked" dialog appears with message indicating Bob has been muted and blocked
+2. **Verify**: Bob's entry in the roster now shows a muted indicator
+3. Tap **Email report**
+
+**Device A**:
+1. **Verify**: System email sheet opens with:
+   - **To**: `support@formalizedchaos.com`
+   - **Subject**: `Frequency abuse report`
+   - **Body**: Pre-filled sanitized abuse report containing: timestamp (UTC), frequency (MHz string), peer display name (control characters stripped), and peer BLE device name (control characters stripped)
+
+> **If no email app is installed**: Tap **Copy report** instead and verify the clipboard contains the report text.
+
+**Pass/Fail**: ☐ Pass ☐ Fail  
+**Notes**: _______________________________________________
+
+---
+
 ## Known Risks & Failure Modes
 
 ### OEM Bluetooth Roulette
@@ -265,7 +344,7 @@ Document for each test run:
 
 ## Test Completion Checklist
 
-- ☐ All 10 test steps executed
+- ☐ All 13 test steps executed (steps 11–13 require specific device/build conditions — see prerequisites)
 - ☐ Device models + Android versions recorded
 - ☐ Pass/Fail status marked for each step
 - ☐ Timing measurements recorded (where applicable)
