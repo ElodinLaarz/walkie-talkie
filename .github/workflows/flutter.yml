@@ -11,6 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # opus is a git submodule at android/app/src/main/cpp/opus (see
+          # .gitmodules). Without this the Gradle CMake step in
+          # `Measure AAB size` fails with "does not contain a CMakeLists.txt
+          # file" on the opus path. oboe is vendored directly (not a
+          # submodule) so checkout already includes it.
+          submodules: recursive
 
       # Run before flutter-action so a metadata character-limit violation
       # fails fast without paying the cost of downloading and caching the
