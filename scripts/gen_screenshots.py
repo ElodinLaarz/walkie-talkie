@@ -282,9 +282,86 @@ def make_settings():
     print("  3.png (Settings) saved")
 
 
+# ──────────────────────────────────────────────────────────────
+# Screenshot 4 — Privacy / "No internet, no servers"
+# ──────────────────────────────────────────────────────────────
+def make_privacy():
+    """Render the privacy hero screen mockup and save to phoneScreenshots/4.png.
+
+    Mirrors the third explainer page ("No internet, no account") to surface
+    the app's strongest differentiator in the Play Store carousel.
+    """
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+
+    status_bar(d)
+    # App bar
+    d.rectangle([0, 80, W, 192], fill=BLUE)
+    d.text((54, 108), "Frequency", font=fnt(52, True), fill=WHITE)
+    d.text((W - 220, 122), "Private", font=fnt(30), fill=(180, 230, 255))
+    y = 192
+
+    # Hero band with cloud-off-style icon (crossed cloud over Wi-Fi arcs)
+    band_h = 720
+    d.rectangle([0, y, W, y + band_h], fill=BLUE)
+    cx, cy = W // 2, y + 280
+    # Concentric rings (Wi-Fi-style) behind the cloud, low-opacity look
+    for r in [180, 230, 280]:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(180, 230, 255), width=3)
+    # Cloud silhouette
+    cw, ch = 280, 150
+    d.rounded_rectangle([cx - cw // 2, cy - ch // 2 + 20,
+                         cx + cw // 2, cy + ch // 2 + 20], radius=70, fill=WHITE)
+    d.ellipse([cx - cw // 2 - 20, cy - 30, cx - cw // 2 + 100, cy + 60], fill=WHITE)
+    d.ellipse([cx + cw // 2 - 100, cy - 50, cx + cw // 2 + 20, cy + 60], fill=WHITE)
+    # Diagonal "no" slash through the cloud
+    d.line([cx - cw // 2 - 60, cy - ch // 2 - 30,
+            cx + cw // 2 + 60, cy + ch // 2 + 70],
+           fill=RED_PTT, width=14)
+
+    # Headline beneath the icon
+    headline1 = "No internet,"
+    headline2 = "no account."
+    h1w = d.textlength(headline1, font=fnt(72, True))
+    h2w = d.textlength(headline2, font=fnt(72, True))
+    d.text((cx - int(h1w) // 2, y + 480), headline1, font=fnt(72, True), fill=WHITE)
+    d.text((cx - int(h2w) // 2, y + 562), headline2, font=fnt(72, True), fill=WHITE)
+    y += band_h
+
+    # Body copy
+    y += 60
+    body_lines = [
+        "Voice never leaves the devices.",
+        "No server. No login. No cloud.",
+        "Just Bluetooth and your microphone.",
+    ]
+    for line in body_lines:
+        lw = d.textlength(line, font=fnt(36))
+        d.text((W // 2 - int(lw) // 2, y), line, font=fnt(36), fill=TEXT1)
+        y += 56
+
+    # Privacy bullets
+    y += 60
+    bullets = [
+        ("Voice", "End-to-end on Bluetooth LE — never uploaded."),
+        ("Identity", "Random peer ID, generated on-device."),
+        ("Telemetry", "Crash reports off by default; no audio, ever."),
+    ]
+    for label, text in bullets:
+        d.rounded_rectangle([32, y, W - 32, y + 110], radius=16, fill=CARD_BG, outline=DIVIDER, width=1)
+        d.text((54, y + 18), label, font=fnt(30, True), fill=BLUE)
+        d.text((54, y + 60), text, font=fnt(28), fill=TEXT2)
+        y += 124
+
+    nav_bar(d)
+    img.save(os.path.join(OUT, "4.png"), "PNG", optimize=True)
+    print("  4.png (Privacy) saved")
+
+
 if __name__ == "__main__":
     print("Generating screenshots...")
     make_discovery()
     make_room()
     make_settings()
+    make_privacy()
     print("Done.")

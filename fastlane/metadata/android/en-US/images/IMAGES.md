@@ -35,18 +35,20 @@ Design used:
 - Taglines: "Voice rooms. No internet. Just Bluetooth." and "No accounts | No cloud | No server"
 - Decorative concentric arcs (right half, low-opacity white)
 
-## Phone screenshots (required — at least 2)
+## Phone screenshots (required — at least 2; 4+ unlocks Play promotion eligibility)
 
-File names: `phoneScreenshots/1.png`, `2.png`, `3.png`
+File names: `phoneScreenshots/1.png`, `2.png`, `3.png`, `4.png`
 Required size: Between 320 px and 3840 px on the longest side; aspect ratio 16:9 or 9:16 recommended.
+Promotion eligibility: at least 4 screenshots with the shorter side ≥ 1080 px.
 
-**Status: committed** — three 1080x1920 mockups generated from `scripts/gen_screenshots.py`.
+**Status: committed** — four 1080x1920 mockups generated from `scripts/gen_screenshots.py`.
 Upload with `bundle exec fastlane android upload_images`.
 
 Screenshots:
 1. **Discovery screen** (`1.png`) — nearby frequency rows with radar animation, "Tune in" buttons, and "Start a new Frequency" card.
 2. **Frequency room** (`2.png`) — room header, local user card with PTT button, roster of two peer rows (talking-ring indicator, muted state), PTT mode hint.
 3. **Settings screen** (`3.png`) — Voice/Display/Privacy/About sections with toggles and links.
+4. **Privacy hero** (`4.png`) — "No internet, no account" cloud-off illustration plus Voice/Identity/Telemetry callouts; mirrors the third explainer page.
 
 To replace with real device captures:
 `adb exec-out screencap -p > phoneScreenshots/1.png` (repeat for each screen).
