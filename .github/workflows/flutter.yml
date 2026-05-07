@@ -132,11 +132,9 @@ jobs:
 
       # App size budget (issue #131): build a debug AAB and enforce the
       # < 30 MB download-size target. Uses the debug keystore so no signing
-      # credentials are needed. `continue-on-error` keeps the main test
-      # suite unblocked while the full NDK/Gradle/Opus build path is being
-      # validated; flip to `false` once the native build is stable in CI.
+      # credentials are needed.
       - name: Measure AAB size (< 30 MB budget)
-        continue-on-error: true
+        continue-on-error: false
         run: |
           set -euo pipefail
           sudo apt-get install -y -q openjdk-17-jdk-headless
