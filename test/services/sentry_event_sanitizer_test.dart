@@ -1,3 +1,7 @@
+// Tests cover redaction of SentryEvent.extra, which Sentry deprecated in favor
+// of structured contexts but still serializes — see the sanitizer for context.
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:walkie_talkie/services/sentry_event_sanitizer.dart';
@@ -172,5 +176,369 @@ void main() {
         expect(data['freq'], 7);
       },
     );
+  });
+
+  group('sanitizeSentryEvent — MAC address redaction', () {
+    test('redacts MAC addresses from breadcrumb messages', () {
+      final event = SentryEvent(
+        breadcrumbs: [
+          Breadcrumb(
+            message: 'Error getting MTU for AA:BB:CC:DD:EE:FF: timeout',
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.breadcrumbs!.single.message, contains('[MAC_REDACTED]'));
+      expect(
+        result.breadcrumbs!.single.message,
+        isNot(contains('AA:BB:CC:DD:EE:FF')),
+      );
+    });
+
+    test('redacts hyphen-separated MAC addresses', () {
+      final event = SentryEvent(
+        breadcrumbs: [
+          Breadcrumb(message: 'connect to aa-bb-cc-dd-ee-ff failed'),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.breadcrumbs!.single.message, contains('[MAC_REDACTED]'));
+      expect(
+        result.breadcrumbs!.single.message,
+        isNot(contains('aa-bb-cc-dd-ee-ff')),
+      );
+    });
+
+    test('redacts MAC addresses inside nested breadcrumb data', () {
+      final event = SentryEvent(
+        breadcrumbs: [
+          Breadcrumb(data: {'endpoint': '11:22:33:44:55:66', 'rssi': -70}),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final data = result.breadcrumbs!.single.data!;
+      expect(data['endpoint'], '[MAC_REDACTED]');
+      expect(data['rssi'], -70);
+    });
+
+    test('does not over-match short hex sequences', () {
+      final event = SentryEvent(
+        breadcrumbs: [Breadcrumb(message: 'opcode 0xAB:0xCD failed')],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(
+        result.breadcrumbs!.single.message,
+        equals('opcode 0xAB:0xCD failed'),
+      );
+    });
+  });
+
+  group('sanitizeSentryEvent — top-level message', () {
+    test('redacts peerId in formatted message', () {
+      final event = SentryEvent(
+        message: SentryMessage('host bootstrap failed peerId=abc-123'),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.message!.formatted, contains('[REDACTED]'));
+      expect(result.message!.formatted, isNot(contains('abc-123')));
+    });
+
+    test('redacts displayName in template', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'join attempt for displayName: Alice',
+          template: 'join attempt for displayName: %s',
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      // Template was the literal "%s" placeholder so it stays intact, but the
+      // "displayName:" key still triggers the message redactor.
+      expect(result.message!.template, contains('[REDACTED]'));
+    });
+
+    test('redacts MAC in message params', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'failed for AA:BB:CC:DD:EE:FF',
+          params: ['AA:BB:CC:DD:EE:FF'],
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.message!.params!.single, '[MAC_REDACTED]');
+      expect(result.message!.formatted, contains('[MAC_REDACTED]'));
+    });
+
+    test('redacts structured (Map) message params', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'join attempt for %s',
+          params: [
+            {'peerId': 'abc-123', 'role': 'guest'},
+          ],
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final param = result.message!.params!.single as Map<String, dynamic>;
+      expect(param['peerId'], '[REDACTED]');
+      expect(param['role'], 'guest');
+    });
+
+    test('redacts MAC inside List message params', () {
+      final event = SentryEvent(
+        message: SentryMessage(
+          'failed for %s',
+          params: [
+            ['AA:BB:CC:DD:EE:FF', 'rssi=-70'],
+          ],
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final list = result.message!.params!.single as List;
+      expect(list[0], '[MAC_REDACTED]');
+      expect(list[1], 'rssi=-70');
+    });
+  });
+
+  group('sanitizeSentryEvent — exceptions', () {
+    test('redacts peerId from exception value', () {
+      final event = SentryEvent(
+        exceptions: [
+          SentryException(
+            type: 'StateError',
+            value: 'JoinAccepted send failed peerId=abc-123',
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.exceptions!.single.value, contains('[REDACTED]'));
+      expect(result.exceptions!.single.value, isNot(contains('abc-123')));
+    });
+
+    test('redacts MAC from exception value', () {
+      final event = SentryEvent(
+        exceptions: [
+          SentryException(
+            type: 'PlatformException',
+            value: 'Error getting MTU for AA:BB:CC:DD:EE:FF',
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.exceptions!.single.value, contains('[MAC_REDACTED]'));
+      expect(
+        result.exceptions!.single.value,
+        isNot(contains('AA:BB:CC:DD:EE:FF')),
+      );
+    });
+
+    test('redacts displayName in stack frame vars', () {
+      final event = SentryEvent(
+        exceptions: [
+          SentryException(
+            type: 'Exception',
+            value: 'oops',
+            stackTrace: SentryStackTrace(
+              frames: [
+                SentryStackFrame(
+                  function: 'doThing',
+                  fileName: 'foo.dart',
+                  lineNo: 42,
+                  vars: {'displayName': 'Alice', 'count': 3},
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final frame = result.exceptions!.single.stackTrace!.frames.single;
+      expect(frame.vars['displayName'], '[REDACTED]');
+      expect(frame.vars['count'], 3);
+      expect(frame.fileName, 'foo.dart');
+      expect(frame.lineNo, 42);
+    });
+
+    test('redacts MAC inside stack-trace registers (native crashes)', () {
+      final event = SentryEvent(
+        exceptions: [
+          SentryException(
+            type: 'NativeCrash',
+            value: 'SIGSEGV',
+            stackTrace: SentryStackTrace(
+              frames: [
+                SentryStackFrame(
+                  function: 'native_call',
+                  fileName: 'libfoo.so',
+                ),
+              ],
+              registers: {
+                'r0': '0xAABBCCDDEEFF',
+                'r1': 'AA:BB:CC:DD:EE:FF',
+                'pc': '0x1234',
+              },
+            ),
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final regs = result.exceptions!.single.stackTrace!.registers;
+      expect(regs['r1'], '[MAC_REDACTED]');
+      expect(
+        regs['r0'],
+        '0xAABBCCDDEEFF',
+      ); // 12-hex-digit literal — not a MAC shape
+      expect(regs['pc'], '0x1234');
+    });
+  });
+
+  group('sanitizeSentryEvent — threads', () {
+    test('redacts peerId in thread stack frame vars', () {
+      final event = SentryEvent(
+        threads: [
+          SentryThread(
+            id: 1,
+            name: 'main',
+            stacktrace: SentryStackTrace(
+              frames: [
+                SentryStackFrame(
+                  function: 'tick',
+                  fileName: 'engine.dart',
+                  lineNo: 99,
+                  vars: {'peerId': 'abc-123', 'depth': 4},
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final frame = result.threads!.single.stacktrace!.frames.single;
+      expect(frame.vars['peerId'], '[REDACTED]');
+      expect(frame.vars['depth'], 4);
+      expect(frame.fileName, 'engine.dart');
+    });
+  });
+
+  group('sanitizeSentryEvent — user', () {
+    test('drops the entire user block', () {
+      final event = SentryEvent(
+        user: SentryUser(
+          id: 'abc-123',
+          username: 'alice',
+          email: 'alice@example.com',
+          ipAddress: '203.0.113.7',
+          name: 'Alice',
+          data: {'role': 'host'},
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.user, isNull);
+    });
+  });
+
+  group('sanitizeSentryEvent — fingerprint and transaction', () {
+    test('redacts MAC in fingerprint entries', () {
+      final event = SentryEvent(
+        fingerprint: ['ble-error', 'AA:BB:CC:DD:EE:FF'],
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.fingerprint, ['ble-error', '[MAC_REDACTED]']);
+    });
+
+    test('redacts peerId in transaction name', () {
+      final event = SentryEvent(transaction: '/room/peerId=abc-123/voice');
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.transaction, contains('[REDACTED]'));
+      expect(result.transaction, isNot(contains('abc-123')));
+    });
+  });
+
+  group('sanitizeSentryEvent — request', () {
+    test('redacts MAC in request URL', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          url: 'https://api.example/peer/AA:BB:CC:DD:EE:FF',
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.request!.url, contains('[MAC_REDACTED]'));
+      expect(result.request!.url, isNot(contains('AA:BB:CC:DD:EE:FF')));
+    });
+
+    test('redacts peerId in request query string', () {
+      final event = SentryEvent(
+        request: SentryRequest(queryString: 'peerId=abc-123&v=1'),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.request!.queryString, contains('[REDACTED]'));
+      expect(result.request!.queryString, isNot(contains('abc-123')));
+    });
+
+    test('redacts PII-keyed headers', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          headers: {'X-PeerId': 'abc-123', 'X-Version': '1.0'},
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.request!.headers['X-PeerId'], '[REDACTED]');
+      expect(result.request!.headers['X-Version'], '1.0');
+    });
+
+    test('redacts PII inside Map request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          data: {'peerId': 'abc-123', 'displayName': 'Alice', 'kind': 'join'},
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as Map;
+      expect(redacted['peerId'], '[REDACTED]');
+      expect(redacted['displayName'], '[REDACTED]');
+      expect(redacted['kind'], 'join');
+    });
+
+    test('redacts PII inside String request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(data: 'peerId=abc-123 join AA:BB:CC:DD:EE:FF'),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as String;
+      expect(redacted, isNot(contains('abc-123')));
+      expect(redacted, isNot(contains('AA:BB:CC:DD:EE:FF')));
+    });
+
+    test('redacts PII inside immutable Map request data', () {
+      final event = SentryEvent(
+        request: SentryRequest(
+          data: Map.unmodifiable({'peerId': 'abc-123', 'kind': 'join'}),
+        ),
+      );
+      final result = sanitizeSentryEvent(event)!;
+      final redacted = result.request!.data as Map;
+      expect(redacted['peerId'], '[REDACTED]');
+      expect(redacted['kind'], 'join');
+    });
+  });
+
+  group('sanitizeSentryEvent — extra', () {
+    test('redacts PII-keyed extra entries outright', () {
+      final event = SentryEvent()..extra = {'peerId': 'abc-123', 'op': 'send'};
+      final result = sanitizeSentryEvent(event)!;
+      expect(result.extra!['peerId'], '[REDACTED]');
+      expect(result.extra!['op'], 'send');
+    });
+
+    test('deep-redacts PII nested inside extra values', () {
+      final event = SentryEvent()
+        ..extra = {
+          'context': 'peer AA:BB:CC:DD:EE:FF joined as Alice',
+          'roster': ['Alice', 'Bob'],
+        };
+      final result = sanitizeSentryEvent(event)!;
+      final ctx = result.extra!['context'] as String;
+      expect(ctx, isNot(contains('AA:BB:CC:DD:EE:FF')));
+      expect(ctx, contains('[MAC_REDACTED]'));
+    });
   });
 }

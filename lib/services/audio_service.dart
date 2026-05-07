@@ -502,7 +502,13 @@ class AudioService {
         'endpointId': endpointId,
       });
     } catch (e) {
-      debugPrint('Error getting negotiated MTU for $endpointId: $e');
+      // Gate logging that interpolates `endpointId` (a BT MAC) so the MAC
+      // can't reach Sentry via auto-captured release-build breadcrumbs.
+      // The sanitizer also strips MACs from event payloads, but skipping
+      // the print outright in release is the cheaper defense.
+      if (kDebugMode) {
+        debugPrint('Error getting negotiated MTU for $endpointId: $e');
+      }
       return null;
     }
   }

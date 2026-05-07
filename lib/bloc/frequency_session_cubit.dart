@@ -322,8 +322,10 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           if (isClosed) return;
           _onPermissionsChanged(missing);
         } catch (error, stackTrace) {
-          debugPrint('Initial permission check failed: $error');
-          debugPrintStack(stackTrace: stackTrace);
+          if (kDebugMode) {
+            debugPrint('Initial permission check failed: $error');
+            debugPrintStack(stackTrace: stackTrace);
+          }
         }
       }());
     }
@@ -1667,22 +1669,28 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       try {
         await audio.stopVoice();
       } catch (error, stackTrace) {
-        debugPrint('stopVoice during permission revoke failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) {
+          debugPrint('stopVoice during permission revoke failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
       }
       try {
         await audio.stopVoiceTransport();
       } catch (error, stackTrace) {
-        debugPrint(
-          'stopVoiceTransport during permission revoke failed: $error',
-        );
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) {
+          debugPrint(
+            'stopVoiceTransport during permission revoke failed: $error',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+        }
       }
       try {
         await audio.stopService();
       } catch (error, stackTrace) {
-        debugPrint('stopService during permission revoke failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        if (kDebugMode) {
+          debugPrint('stopService during permission revoke failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
       }
     }
   }
