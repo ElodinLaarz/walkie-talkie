@@ -76,6 +76,10 @@ void PeerAudioManager::unregisterPeer(const std::string& macAddress) {
 
     deviceIdToMac_.erase(deviceId);
     peers_.erase(it);
+    // Signal the mixer tick to emit a fresh talkingPeers update even if no VAD
+    // edge fires on a surviving peer. Without this, a talking peer that leaves
+    // would remain in Flutter's last-known talking set indefinitely.
+    talkingPeersDirty_.store(true, std::memory_order_release);
     LOGI("Peer %s (device ID %d) unregistered", macAddress.c_str(), deviceId);
 }
 
@@ -161,10 +165,15 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
 }
 
 bool PeerAudioManager::isPeerTalking(const std::string& macAddress) {
-    std::lock_guard<std::mutex> lock(peerRegistryMutex_);
-    auto it = peers_.find(macAddress);
-    if (it == peers_.end()) return false;
-    return it->second->peerVad.talking();
+    std::shared_ptr<PeerState> state;
+    {
+        std::lock_guard<std::mutex> lock(peerRegistryMutex_);
+        auto it = peers_.find(macAddress);
+        if (it == peers_.end()) return false;
+        state = it->second;
+    }
+    std::lock_guard<std::mutex> stateLock(state->mutex);
+    return state->peerVad.talking();
 }
 
 bool PeerAudioManager::startMixerThread() {
@@ -326,31 +335,34 @@ void PeerAudioManager::mixerTickLoop() {
                         ++state->consecutiveUnderruns;
                     }
                 }
+
+                // Per-peer VAD: compute RMS on decoded PCM and update hysteresis.
+                // Kept inside stateLock so isPeerTalking() reads are race-free.
+                if (decoded > 0) {
+                    double sum = 0.0;
+                    for (int j = 0; j < decoded; ++j) {
+                        double s = decodedBuffer[j] / 32768.0;
+                        sum += s * s;
+                    }
+                    double rms = std::sqrt(sum / decoded);
+                    if (state->peerVad.update(
+                            rms > VadDetector::kDefaultThreshold, decoded)) {
+                        anyTalkingChanged = true;
+                    }
+                }
             }
 
             if (decoded > 0 && mixer) {
                 mixer->updateDeviceAudio(state->deviceId,
                                          decodedBuffer.data(), decoded);
             }
-
-            // Per-peer VAD: compute RMS on decoded PCM and update hysteresis.
-            // peerVad is mixer-thread-only so no additional lock is needed.
-            if (decoded > 0) {
-                double sum = 0.0;
-                for (int j = 0; j < decoded; ++j) {
-                    double s = decodedBuffer[j] / 32768.0;
-                    sum += s * s;
-                }
-                double rms = std::sqrt(sum / decoded);
-                if (state->peerVad.update(
-                        rms > VadDetector::kDefaultThreshold, decoded)) {
-                    anyTalkingChanged = true;
-                }
-            }
         }
 
-        // Emit talkingPeers event whenever any peer's VAD edge fires.
-        if (anyTalkingChanged && env != nullptr) {
+        // Emit talkingPeers event whenever any peer's VAD edge fires or a
+        // peer was removed (talkingPeersDirty_ set by unregisterPeer()).
+        const bool dirty =
+            talkingPeersDirty_.exchange(false, std::memory_order_acq_rel);
+        if ((anyTalkingChanged || dirty) && env != nullptr) {
             std::vector<std::string> talkingMacs;
             for (size_t i = 0; i < peerSnapshot.size(); ++i) {
                 if (peerSnapshot[i]->peerVad.talking()) {
@@ -501,29 +513,53 @@ void PeerAudioManager::sendTalkingPeersEvent(
             callbackClass, "onTalkingPeersChanged", "([Ljava/lang/String;)V");
         if (method) {
             jclass stringClass = env->FindClass("java/lang/String");
-            jobjectArray peerArray = env->NewObjectArray(
-                static_cast<jsize>(talkingMacs.size()), stringClass, nullptr);
-            if (peerArray) {
-                bool ok = true;
-                for (size_t i = 0; i < talkingMacs.size(); ++i) {
-                    jstring s = env->NewStringUTF(talkingMacs[i].c_str());
-                    if (!s) {
-                        ok = false;
-                        break;
-                    }
-                    env->SetObjectArrayElement(peerArray, static_cast<jsize>(i), s);
-                    env->DeleteLocalRef(s);
+            if (stringClass == nullptr) {
+                LOGE("sendTalkingPeersEvent: FindClass(java/lang/String) failed");
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
                 }
-                if (ok) {
-                    env->CallVoidMethod(callback, method, peerArray);
+            } else {
+                jobjectArray peerArray = env->NewObjectArray(
+                    static_cast<jsize>(talkingMacs.size()), stringClass, nullptr);
+                if (peerArray == nullptr) {
+                    LOGE("sendTalkingPeersEvent: NewObjectArray failed");
                     if (env->ExceptionCheck()) {
                         env->ExceptionDescribe();
                         env->ExceptionClear();
                     }
+                } else {
+                    bool arrayOk = true;
+                    for (size_t i = 0; i < talkingMacs.size(); ++i) {
+                        jstring s = env->NewStringUTF(talkingMacs[i].c_str());
+                        if (!s) {
+                            arrayOk = false;
+                            if (env->ExceptionCheck()) {
+                                env->ExceptionDescribe();
+                                env->ExceptionClear();
+                            }
+                            break;
+                        }
+                        env->SetObjectArrayElement(peerArray, static_cast<jsize>(i), s);
+                        env->DeleteLocalRef(s);
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionDescribe();
+                            env->ExceptionClear();
+                            arrayOk = false;
+                            break;
+                        }
+                    }
+                    if (arrayOk) {
+                        env->CallVoidMethod(callback, method, peerArray);
+                    }
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionDescribe();
+                        env->ExceptionClear();
+                    }
+                    env->DeleteLocalRef(peerArray);
                 }
-                env->DeleteLocalRef(peerArray);
+                env->DeleteLocalRef(stringClass);
             }
-            env->DeleteLocalRef(stringClass);
         }
         env->DeleteLocalRef(callbackClass);
     }

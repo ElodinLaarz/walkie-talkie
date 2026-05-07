@@ -78,8 +78,7 @@ public:
     // Returns true if the most recent decoded audio from this peer crossed the
     // VAD threshold (i.e., the peer is currently detected as talking).
     // Returns false if the peer is not registered or is silent.
-    // Reads peerVad which is mixer-thread-only; call from the mixer thread or
-    // after stopMixerThread() to avoid a data race.
+    // Thread-safe: acquires the per-peer mutex internally.
     bool isPeerTalking(const std::string& macAddress);
 
     // Start / stop the mixer tick thread. The thread runs decode →
@@ -118,7 +117,8 @@ private:
         // Two consecutive PLC frames sound increasingly mechanical; we use
         // this to bias toward popAny() on the third underrun in a row.
         int consecutiveUnderruns{0};
-        // Per-peer VAD — touched only on the mixer thread.
+            // Per-peer VAD. Guarded by `mutex` so reads from isPeerTalking() are
+        // race-free even when the mixer thread is running.
         VadDetector peerVad{audio_config::kCodecSampleRate};
     };
 
@@ -139,6 +139,10 @@ private:
     std::map<std::string, std::shared_ptr<PeerState>> peers_;
     std::map<int, std::string> deviceIdToMac_;
     int nextDeviceId_{1};  // 0 reserved for local mic.
+
+    // Set to true by unregisterPeer() so the next mixer tick emits an updated
+    // talkingPeers set even if no VAD edge fires on a surviving peer.
+    std::atomic<bool> talkingPeersDirty_{false};
 
     std::thread mixerThread_;
     std::atomic<bool> mixerRunning_{false};
