@@ -217,6 +217,7 @@ Document for each test run:
 ---
 
 ### 11. POST_NOTIFICATIONS Denial Path (Android 13+ only)
+
 **Prerequisites**: Device running Android 13+ (API 33+). Fresh install or cleared app data so the permission prompt reappears.
 
 **Device A** (Alice):
@@ -239,6 +240,7 @@ Document for each test run:
 ---
 
 ### 12. Crash Reporting Toggle Round-Trip
+
 **Prerequisites**: Build compiled with a Sentry DSN (`kSentryConfigured = true`); otherwise the toggle is read-only and this section is not applicable.
 
 **Device A**:
@@ -267,6 +269,7 @@ Document for each test run:
 ---
 
 ### 13. Block & Report
+
 **Prerequisites**: Two devices in the same Frequency room (Alice hosting, Bob joined).
 
 **Device A** (Alice):
