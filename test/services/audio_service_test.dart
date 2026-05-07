@@ -606,10 +606,7 @@ void main() {
 
       test('writeNotification returns false', () async {
         installFailing();
-        expect(
-          await audioService.writeNotification('AA:BB', [1, 2, 3]),
-          false,
-        );
+        expect(await audioService.writeNotification('AA:BB', [1, 2, 3]), false);
       });
 
       test('connectVoiceClient returns false', () async {
@@ -639,7 +636,9 @@ void main() {
 
       test('writeControlBytes swallows error', () async {
         installFailing();
-        await audioService.writeControlBytes(Uint8List.fromList([1])); // no throw
+        await audioService.writeControlBytes(
+          Uint8List.fromList([1]),
+        ); // no throw
       });
 
       test('getNegotiatedMtu returns null', () async {
@@ -771,10 +770,7 @@ void main() {
         log.clear();
         expect(await audioService.getNegotiatedMtu('AA:BB'), 247);
         expect(log, [
-          isMethodCall(
-            'getNegotiatedMtu',
-            arguments: {'endpointId': 'AA:BB'},
-          ),
+          isMethodCall('getNegotiatedMtu', arguments: {'endpointId': 'AA:BB'}),
         ]);
       });
 
@@ -821,10 +817,13 @@ void main() {
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 
-      test('getLinkTelemetry returns null when native returns non-list', () async {
-        handler = (_) async => 'nope';
-        expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
-      });
+      test(
+        'getLinkTelemetry returns null when native returns non-list',
+        () async {
+          handler = (_) async => 'nope';
+          expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
+        },
+      );
     });
 
     group('LinkTelemetrySnapshot equality + hashCode', () {
@@ -899,8 +898,7 @@ void main() {
 
     group('controlBytes stream', () {
       test('emits typed records for Uint8List events', () async {
-        const eventChannelName =
-            'com.elodin.walkie_talkie/control_bytes';
+        const eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
         final codec = const StandardMethodCodec();
 
         final received = <({String endpointId, Uint8List bytes})>[];
@@ -924,8 +922,7 @@ void main() {
       });
 
       test('emits typed records for List<int> bytes (codec branch)', () async {
-        const eventChannelName =
-            'com.elodin.walkie_talkie/control_bytes';
+        const eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
         final codec = const StandardMethodCodec();
 
         final received = <({String endpointId, Uint8List bytes})>[];
@@ -949,8 +946,7 @@ void main() {
       });
 
       test('drops malformed events (missing fields)', () async {
-        const eventChannelName =
-            'com.elodin.walkie_talkie/control_bytes';
+        const eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
         final codec = const StandardMethodCodec();
 
         final received = <({String endpointId, Uint8List bytes})>[];
@@ -966,7 +962,9 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
               eventChannelName,
-              codec.encodeSuccessEnvelope({'bytes': [1]}), // no endpointId
+              codec.encodeSuccessEnvelope({
+                'bytes': [1],
+              }), // no endpointId
               (_) {},
             );
         await Future<void>.microtask(() {});

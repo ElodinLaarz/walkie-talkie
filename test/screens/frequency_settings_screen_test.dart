@@ -328,25 +328,24 @@ void main() {
       expect(find.text('Open source licenses'), findsOneWidget);
     });
 
-    testWidgets(
-      'tapping Open source licenses opens the LicensePage',
-      (tester) async {
-        await tester.pumpWidget(
-          _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('tapping Open source licenses opens the LicensePage', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(FrequencySettingsScreen(settingsStore: _FakeSettingsStore())),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.dragUntilVisible(
-          find.text('Open source licenses'),
-          find.byType(ListView),
-          const Offset(0, -200),
-        );
-        await tester.tap(find.text('Open source licenses'));
-        await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.text('Open source licenses'),
+        find.byType(ListView),
+        const Offset(0, -200),
+      );
+      await tester.tap(find.text('Open source licenses'));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(LicensePage), findsOneWidget);
-      },
-    );
+      expect(find.byType(LicensePage), findsOneWidget);
+    });
 
     testWidgets(
       'tapping Privacy & Security FAQ link navigates to the SecurityFaqScreen',
@@ -370,137 +369,134 @@ void main() {
   });
 
   group('FrequencySettingsScreen reset-all-data flow', () {
-    testWidgets(
-      'cancel in confirmation dialog leaves stores untouched',
-      (tester) async {
-        final identity = _FakeIdentityStore();
-        final recents = _FakeRecentStore();
-        final blocked = _FakeBlockedStore();
-        final settings = _FakeSettingsStore(pttMode: true);
-        final cubit = _FakeCubit();
-        addTearDown(cubit.close);
+    testWidgets('cancel in confirmation dialog leaves stores untouched', (
+      tester,
+    ) async {
+      final identity = _FakeIdentityStore();
+      final recents = _FakeRecentStore();
+      final blocked = _FakeBlockedStore();
+      final settings = _FakeSettingsStore(pttMode: true);
+      final cubit = _FakeCubit();
+      addTearDown(cubit.close);
 
-        await tester.pumpWidget(
-          _ProvidedSettings(
-            identity: identity,
-            recents: recents,
-            blocked: blocked,
-            settings: settings,
-            cubit: cubit,
-          ),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _ProvidedSettings(
+          identity: identity,
+          recents: recents,
+          blocked: blocked,
+          settings: settings,
+          cubit: cubit,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.scrollUntilVisible(
-          find.text('Reset all data'),
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.ensureVisible(find.text('Reset all data'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Reset all data'));
-        await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Reset all data'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(find.text('Reset all data'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset all data'));
+      await tester.pumpAndSettle();
 
-        // Cancel button — no tap on the destructive option.
-        await tester.tap(find.text('Cancel'));
-        await tester.pumpAndSettle();
+      // Cancel button — no tap on the destructive option.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
 
-        expect(identity.cleared, isFalse);
-        expect(recents.cleared, isFalse);
-        expect(blocked.cleared, isFalse);
-        expect(settings.cleared, isFalse);
-        expect(cubit.resetCalls, 0);
-      },
-    );
+      expect(identity.cleared, isFalse);
+      expect(recents.cleared, isFalse);
+      expect(blocked.cleared, isFalse);
+      expect(settings.cleared, isFalse);
+      expect(cubit.resetCalls, 0);
+    });
 
-    testWidgets(
-      'confirm in dialog clears every store and resets the cubit',
-      (tester) async {
-        final identity = _FakeIdentityStore();
-        final recents = _FakeRecentStore();
-        final blocked = _FakeBlockedStore();
-        final settings = _FakeSettingsStore(pttMode: true);
-        final cubit = _FakeCubit();
-        addTearDown(cubit.close);
+    testWidgets('confirm in dialog clears every store and resets the cubit', (
+      tester,
+    ) async {
+      final identity = _FakeIdentityStore();
+      final recents = _FakeRecentStore();
+      final blocked = _FakeBlockedStore();
+      final settings = _FakeSettingsStore(pttMode: true);
+      final cubit = _FakeCubit();
+      addTearDown(cubit.close);
 
-        await tester.pumpWidget(
-          _ProvidedSettings(
-            identity: identity,
-            recents: recents,
-            blocked: blocked,
-            settings: settings,
-            cubit: cubit,
-          ),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _ProvidedSettings(
+          identity: identity,
+          recents: recents,
+          blocked: blocked,
+          settings: settings,
+          cubit: cubit,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.scrollUntilVisible(
-          find.text('Reset all data'),
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.ensureVisible(find.text('Reset all data'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Reset all data'));
-        await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Reset all data'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(find.text('Reset all data'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset all data'));
+      await tester.pumpAndSettle();
 
-        // Find the confirm action — uses the destructive label "Reset".
-        // Two "Reset all data" instances exist (link + dialog title), plus
-        // a single "Reset" button — tap by exact text "Reset".
-        await tester.tap(find.widgetWithText(TextButton, 'Reset'));
-        await tester.pumpAndSettle();
+      // Find the confirm action — uses the destructive label "Reset".
+      // Two "Reset all data" instances exist (link + dialog title), plus
+      // a single "Reset" button — tap by exact text "Reset".
+      await tester.tap(find.widgetWithText(TextButton, 'Reset'));
+      await tester.pumpAndSettle();
 
-        expect(identity.cleared, isTrue);
-        expect(recents.cleared, isTrue);
-        expect(blocked.cleared, isTrue);
-        expect(settings.cleared, isTrue);
-        expect(cubit.resetCalls, 1);
-      },
-    );
+      expect(identity.cleared, isTrue);
+      expect(recents.cleared, isTrue);
+      expect(blocked.cleared, isTrue);
+      expect(settings.cleared, isTrue);
+      expect(cubit.resetCalls, 1);
+    });
 
-    testWidgets(
-      'confirm tolerates store errors and still resets the cubit',
-      (tester) async {
-        final identity = _FakeIdentityStore(throwOnClear: true);
-        final recents = _FakeRecentStore(throwOnClear: true);
-        final blocked = _FakeBlockedStore(throwOnClear: true);
-        final settings = _FakeSettingsStore(throwOnClear: true);
-        final cubit = _FakeCubit();
-        addTearDown(cubit.close);
+    testWidgets('confirm tolerates store errors and still resets the cubit', (
+      tester,
+    ) async {
+      final identity = _FakeIdentityStore(throwOnClear: true);
+      final recents = _FakeRecentStore(throwOnClear: true);
+      final blocked = _FakeBlockedStore(throwOnClear: true);
+      final settings = _FakeSettingsStore(throwOnClear: true);
+      final cubit = _FakeCubit();
+      addTearDown(cubit.close);
 
-        await tester.pumpWidget(
-          _ProvidedSettings(
-            identity: identity,
-            recents: recents,
-            blocked: blocked,
-            settings: settings,
-            cubit: cubit,
-          ),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _ProvidedSettings(
+          identity: identity,
+          recents: recents,
+          blocked: blocked,
+          settings: settings,
+          cubit: cubit,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.scrollUntilVisible(
-          find.text('Reset all data'),
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.ensureVisible(find.text('Reset all data'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Reset all data'));
-        await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Reset all data'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(find.text('Reset all data'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset all data'));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.widgetWithText(TextButton, 'Reset'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Reset'));
+      await tester.pumpAndSettle();
 
-        // Tolerated errors → every store's clear() was attempted, and
-        // the cubit reset still ran exactly once.
-        expect(identity.clearCalls, 1);
-        expect(recents.clearCalls, 1);
-        expect(blocked.clearCalls, 1);
-        expect(settings.clearCalls, 1);
-        expect(cubit.resetCalls, 1);
-      },
-    );
+      // Tolerated errors → every store's clear() was attempted, and
+      // the cubit reset still ran exactly once.
+      expect(identity.clearCalls, 1);
+      expect(recents.clearCalls, 1);
+      expect(blocked.clearCalls, 1);
+      expect(settings.clearCalls, 1);
+      expect(cubit.resetCalls, 1);
+    });
   });
 }
 

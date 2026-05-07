@@ -13,11 +13,10 @@ Widget _wrap(Widget child) => MaterialApp(
 
 void main() {
   group('FrequencyExplainerScreen non-embedded (default)', () {
-    testWidgets('renders Scaffold with Skip + Next on the first page',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(FrequencyExplainerScreen(onDone: () {})),
-      );
+    testWidgets('renders Scaffold with Skip + Next on the first page', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(FrequencyExplainerScreen(onDone: () {})));
       await tester.pumpAndSettle();
 
       expect(find.byType(Scaffold), findsOneWidget);
@@ -41,11 +40,10 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('Next advances to last page where Get started appears',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(FrequencyExplainerScreen(onDone: () {})),
-      );
+    testWidgets('Next advances to last page where Get started appears', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(FrequencyExplainerScreen(onDone: () {})));
       await tester.pumpAndSettle();
 
       // Three pages — tap Next twice to reach the end.
@@ -58,11 +56,10 @@ void main() {
       expect(find.text('Skip'), findsNothing);
     });
 
-    testWidgets('Back from page 2 returns to page 1 (exercises previousPage)',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(FrequencyExplainerScreen(onDone: () {})),
-      );
+    testWidgets('Back from page 2 returns to page 1 (exercises previousPage)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(FrequencyExplainerScreen(onDone: () {})));
       await tester.pumpAndSettle();
 
       // Advance once.
@@ -104,10 +101,7 @@ void main() {
           // Wrap in a Scaffold so MediaQuery + Material are available; the
           // screen under test must NOT add its own.
           Scaffold(
-            body: FrequencyExplainerScreen(
-              onDone: () {},
-              embedded: true,
-            ),
+            body: FrequencyExplainerScreen(onDone: () {}, embedded: true),
           ),
         ),
       );

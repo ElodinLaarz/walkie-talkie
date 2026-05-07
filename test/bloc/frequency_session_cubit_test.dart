@@ -351,8 +351,9 @@ void main() {
         identityStore: _FakeStore(initial: 'Maya')..throwOnGetPeerId = true,
       ),
       act: (cubit) => cubit.bootstrap(),
-      expect: () =>
-          [isA<SessionDiscovery>().having((s) => s.myName, 'myName', 'Maya')],
+      expect: () => [
+        isA<SessionDiscovery>().having((s) => s.myName, 'myName', 'Maya'),
+      ],
     );
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(

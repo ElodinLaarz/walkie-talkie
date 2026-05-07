@@ -499,10 +499,7 @@ void main() {
 
   group('MediaOp.fromWire', () {
     test('throws FormatException on unknown op', () {
-      expect(
-        () => MediaOpWire.fromWire('teleport'),
-        throwsFormatException,
-      );
+      expect(() => MediaOpWire.fromWire('teleport'), throwsFormatException);
     });
   });
 

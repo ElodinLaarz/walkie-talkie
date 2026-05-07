@@ -187,21 +187,18 @@ void main() {
       },
     );
 
-    test(
-      'mhzDisplay falls back to 88.0 on an odd-length sessionUuidLow8',
-      () {
-        // hex.length.isOdd → _hexToBytes returns an empty Uint8List.
-        final s = DiscoveredSession(
-          protocolVersion: 1,
-          isHost: true,
-          sessionUuidLow8: 'ABC',
-          flags: 0,
-          hostName: 'oddLen',
-          rssi: -55,
-          macAddress: 'AA:BB:CC:DD:EE:FF',
-        );
-        expect(s.mhzDisplay, '88.0');
-      },
-    );
+    test('mhzDisplay falls back to 88.0 on an odd-length sessionUuidLow8', () {
+      // hex.length.isOdd → _hexToBytes returns an empty Uint8List.
+      final s = DiscoveredSession(
+        protocolVersion: 1,
+        isHost: true,
+        sessionUuidLow8: 'ABC',
+        flags: 0,
+        hostName: 'oddLen',
+        rssi: -55,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
+      expect(s.mhzDisplay, '88.0');
+    });
   });
 }

@@ -13,7 +13,10 @@ void main() {
     // Mirror the integer codes used by permission_handler's PermissionStatus enum.
     // 0 = denied, 1 = granted, 2 = restricted, 3 = limited,
     // 4 = permanentlyDenied, 5 = provisional.
-    void install({required Map<int, int> permsToStatus, bool openSettingsResult = true}) {
+    void install({
+      required Map<int, int> permsToStatus,
+      bool openSettingsResult = true,
+    }) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             log.add(call);
@@ -44,60 +47,69 @@ void main() {
           .setMockMethodCallHandler(channel, null);
     });
 
-    test('requestBluetooth requests all three perms and reduces to granted', () async {
-      install(permsToStatus: {
-        ph.Permission.bluetoothScan.value: 1,
-        ph.Permission.bluetoothConnect.value: 1,
-        ph.Permission.bluetoothAdvertise.value: 1,
-      });
-      final result =
-          await const DefaultOnboardingPermissionGateway().requestBluetooth();
-      expect(result, OnboardingPermissionStatus.granted);
-      // The package may issue a checkPermissionStatus before the request, so
-      // assert that requestPermissions was invoked at least once with all
-      // three Bluetooth perms.
-      final reqCall = log.firstWhere((c) => c.method == 'requestPermissions');
-      final ids = (reqCall.arguments as List).cast<int>().toSet();
-      expect(ids, {
-        ph.Permission.bluetoothScan.value,
-        ph.Permission.bluetoothConnect.value,
-        ph.Permission.bluetoothAdvertise.value,
-      });
-    });
+    test(
+      'requestBluetooth requests all three perms and reduces to granted',
+      () async {
+        install(
+          permsToStatus: {
+            ph.Permission.bluetoothScan.value: 1,
+            ph.Permission.bluetoothConnect.value: 1,
+            ph.Permission.bluetoothAdvertise.value: 1,
+          },
+        );
+        final result = await const DefaultOnboardingPermissionGateway()
+            .requestBluetooth();
+        expect(result, OnboardingPermissionStatus.granted);
+        // The package may issue a checkPermissionStatus before the request, so
+        // assert that requestPermissions was invoked at least once with all
+        // three Bluetooth perms.
+        final reqCall = log.firstWhere((c) => c.method == 'requestPermissions');
+        final ids = (reqCall.arguments as List).cast<int>().toSet();
+        expect(ids, {
+          ph.Permission.bluetoothScan.value,
+          ph.Permission.bluetoothConnect.value,
+          ph.Permission.bluetoothAdvertise.value,
+        });
+      },
+    );
 
     test('requestBluetooth reduces to denied when one is denied', () async {
-      install(permsToStatus: {
-        ph.Permission.bluetoothScan.value: 1,
-        ph.Permission.bluetoothConnect.value: 0, // denied
-        ph.Permission.bluetoothAdvertise.value: 1,
-      });
-      final result =
-          await const DefaultOnboardingPermissionGateway().requestBluetooth();
+      install(
+        permsToStatus: {
+          ph.Permission.bluetoothScan.value: 1,
+          ph.Permission.bluetoothConnect.value: 0, // denied
+          ph.Permission.bluetoothAdvertise.value: 1,
+        },
+      );
+      final result = await const DefaultOnboardingPermissionGateway()
+          .requestBluetooth();
       expect(result, OnboardingPermissionStatus.denied);
     });
 
     test('requestBluetooth reduces to permanentlyDenied', () async {
-      install(permsToStatus: {
-        ph.Permission.bluetoothScan.value: 4, // permanentlyDenied
-        ph.Permission.bluetoothConnect.value: 1,
-        ph.Permission.bluetoothAdvertise.value: 1,
-      });
-      final result =
-          await const DefaultOnboardingPermissionGateway().requestBluetooth();
+      install(
+        permsToStatus: {
+          ph.Permission.bluetoothScan.value: 4, // permanentlyDenied
+          ph.Permission.bluetoothConnect.value: 1,
+          ph.Permission.bluetoothAdvertise.value: 1,
+        },
+      );
+      final result = await const DefaultOnboardingPermissionGateway()
+          .requestBluetooth();
       expect(result, OnboardingPermissionStatus.permanentlyDenied);
     });
 
     test('requestMicrophone returns granted', () async {
       install(permsToStatus: {ph.Permission.microphone.value: 1});
-      final result =
-          await const DefaultOnboardingPermissionGateway().requestMicrophone();
+      final result = await const DefaultOnboardingPermissionGateway()
+          .requestMicrophone();
       expect(result, OnboardingPermissionStatus.granted);
     });
 
     test('requestMicrophone returns denied', () async {
       install(permsToStatus: {ph.Permission.microphone.value: 0});
-      final result =
-          await const DefaultOnboardingPermissionGateway().requestMicrophone();
+      final result = await const DefaultOnboardingPermissionGateway()
+          .requestMicrophone();
       expect(result, OnboardingPermissionStatus.denied);
     });
 
