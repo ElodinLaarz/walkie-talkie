@@ -195,11 +195,7 @@ void main() {
     });
 
     test('toString includes payload byte count', () {
-      final f = VoiceFrame(
-        seq: 5,
-        senderTsMs: 10,
-        payload: Uint8List(7),
-      );
+      final f = VoiceFrame(seq: 5, senderTsMs: 10, payload: Uint8List(7));
       expect(f.toString(), contains('payload=7B'));
     });
   });

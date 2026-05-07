@@ -1037,38 +1037,34 @@ void main() {
       },
     );
 
-    testWidgets(
-      'audioOutputChanged away from bluetooth clears btDevice',
-      (tester) async {
-        final eventEmitter = _EventChannelEmitter(
-          'com.elodin.walkie_talkie/audio_events',
-        );
-        addTearDown(eventEmitter.dispose);
+    testWidgets('audioOutputChanged away from bluetooth clears btDevice', (
+      tester,
+    ) async {
+      final eventEmitter = _EventChannelEmitter(
+        'com.elodin.walkie_talkie/audio_events',
+      );
+      addTearDown(eventEmitter.dispose);
 
-        await tester.pumpWidget(_wrap(_room()));
-        await tester.pump();
+      await tester.pumpWidget(_wrap(_room()));
+      await tester.pump();
 
-        // First flip on with a name.
-        eventEmitter.emit({
-          'type': 'audioOutputChanged',
-          'output': 'bluetooth',
-          'btName': 'AirPods Pro',
-        });
-        await tester.pump();
-        expect(find.text('AirPods Pro'), findsOneWidget);
+      // First flip on with a name.
+      eventEmitter.emit({
+        'type': 'audioOutputChanged',
+        'output': 'bluetooth',
+        'btName': 'AirPods Pro',
+      });
+      await tester.pump();
+      expect(find.text('AirPods Pro'), findsOneWidget);
 
-        // Then flip back to speaker — the handler must clear btDevice
-        // so the device name disappears.
-        eventEmitter.emit({
-          'type': 'audioOutputChanged',
-          'output': 'speaker',
-        });
-        await tester.pump();
+      // Then flip back to speaker — the handler must clear btDevice
+      // so the device name disappears.
+      eventEmitter.emit({'type': 'audioOutputChanged', 'output': 'speaker'});
+      await tester.pump();
 
-        expect(find.text('AirPods Pro'), findsNothing);
-        expect(find.text('Phone speaker'), findsWidgets);
-      },
-    );
+      expect(find.text('AirPods Pro'), findsNothing);
+      expect(find.text('Phone speaker'), findsWidgets);
+    });
 
     testWidgets(
       'audioOutputChanged with unknown output keeps prior state (orElse branch)',

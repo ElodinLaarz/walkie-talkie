@@ -449,9 +449,9 @@ void main() {
   testWidgets(
     'permission watcher reporting missing perms routes to permission denied screen',
     (tester) async {
-      final watcher = _DenyingPermissionWatcher(
-        const [AppPermission.bluetooth],
-      );
+      final watcher = _DenyingPermissionWatcher(const [
+        AppPermission.bluetooth,
+      ]);
       await tester.pumpWidget(
         WalkieTalkieApp(
           identityStore: _FakeIdentityStore(initial: 'Maya'),
@@ -477,8 +477,9 @@ void main() {
       // channel via `DefaultOnboardingPermissionGateway`. Stub the channel
       // so all three Bluetooth perms + microphone resolve to "granted"
       // without involving the OS.
-      const permsChannel =
-          MethodChannel('flutter.baseflow.com/permissions/methods');
+      const permsChannel = MethodChannel(
+        'flutter.baseflow.com/permissions/methods',
+      );
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(permsChannel, (call) async {
             switch (call.method) {
@@ -490,10 +491,10 @@ void main() {
             }
             return null;
           });
-      addTearDown(() => TestDefaultBinaryMessengerBinding
-          .instance
-          .defaultBinaryMessenger
-          .setMockMethodCallHandler(permsChannel, null));
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(permsChannel, null),
+      );
 
       final identity = _FakeIdentityStore();
       await tester.pumpWidget(
@@ -555,7 +556,13 @@ void main() {
       }
       await tester.enterText(nameField.first, 'Maya');
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
-      for (final label in ['Find a frequency', "I'm in", 'Done', 'Continue', 'Get started']) {
+      for (final label in [
+        'Find a frequency',
+        "I'm in",
+        'Done',
+        'Continue',
+        'Get started',
+      ]) {
         final btn = find.text(label);
         if (btn.evaluate().isNotEmpty) {
           await tester.tap(btn.first);
@@ -611,43 +618,40 @@ void main() {
     },
   );
 
-  testWidgets(
-    'app lifecycle resumed re-reads PTT mode setting',
-    (tester) async {
-      final settings = _FakeSettingsStore();
-      await tester.pumpWidget(
-        WalkieTalkieApp(
-          identityStore: _FakeIdentityStore(initial: 'Maya'),
-          recentFrequenciesStore: _FakeRecentFrequenciesStore(),
-          discoveryService: _FakeDiscoveryService(),
-          permissionWatcher: _FakePermissionWatcher(),
-          settingsStore: settings,
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+  testWidgets('app lifecycle resumed re-reads PTT mode setting', (
+    tester,
+  ) async {
+    final settings = _FakeSettingsStore();
+    await tester.pumpWidget(
+      WalkieTalkieApp(
+        identityStore: _FakeIdentityStore(initial: 'Maya'),
+        recentFrequenciesStore: _FakeRecentFrequenciesStore(),
+        discoveryService: _FakeDiscoveryService(),
+        permissionWatcher: _FakePermissionWatcher(),
+        settingsStore: settings,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
 
-      // Snapshot read count after bootstrap settles.
-      final readsAfterBoot = settings.pttReadCalls;
-      expect(readsAfterBoot, greaterThanOrEqualTo(1));
+    // Snapshot read count after bootstrap settles.
+    final readsAfterBoot = settings.pttReadCalls;
+    expect(readsAfterBoot, greaterThanOrEqualTo(1));
 
-      // Toggle the underlying setting then dispatch resumed lifecycle —
-      // the FrequencyApp's didChangeAppLifecycleState handler should
-      // re-read the value from the store.
-      await settings.setPttModeEnabled(true);
-      // Send AppLifecycleState.resumed via the platform message channel.
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        'flutter/lifecycle',
-        const StringCodec().encodeMessage(
-          AppLifecycleState.resumed.toString(),
-        ),
-        (_) {},
-      );
-      await tester.pump();
-      await tester.pump();
+    // Toggle the underlying setting then dispatch resumed lifecycle —
+    // the FrequencyApp's didChangeAppLifecycleState handler should
+    // re-read the value from the store.
+    await settings.setPttModeEnabled(true);
+    // Send AppLifecycleState.resumed via the platform message channel.
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/lifecycle',
+      const StringCodec().encodeMessage(AppLifecycleState.resumed.toString()),
+      (_) {},
+    );
+    await tester.pump();
+    await tester.pump();
 
-      // The lifecycle handler must have triggered an additional read.
-      expect(settings.pttReadCalls, greaterThan(readsAfterBoot));
-    },
-  );
+    // The lifecycle handler must have triggered an additional read.
+    expect(settings.pttReadCalls, greaterThan(readsAfterBoot));
+  });
 }

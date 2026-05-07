@@ -116,10 +116,7 @@ void main() {
         MediaSourceExtension.fromWireKey('mystery-source'),
         MediaSource.youtubeMusic,
       );
-      expect(
-        MediaSourceExtension.fromWireKey(''),
-        MediaSource.youtubeMusic,
-      );
+      expect(MediaSourceExtension.fromWireKey(''), MediaSource.youtubeMusic);
     });
   });
 
