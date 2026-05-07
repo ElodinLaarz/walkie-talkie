@@ -70,7 +70,7 @@ jobs:
       # a signed release AAB. Holding a debug bundle to 30 MiB was a category
       # error (every PR fails); this step keeps the cheap on-disk regression
       # catch with a budget proportionate to debug-mode reality.
-      - name: Measure AAB size (debug, < 100 MiB regression alarm)
+      - name: Measure AAB size (debug, ≤ 100 MiB regression alarm)
         continue-on-error: false
         run: |
           set -euo pipefail
