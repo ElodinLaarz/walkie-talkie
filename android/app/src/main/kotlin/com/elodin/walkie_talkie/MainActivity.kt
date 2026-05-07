@@ -494,6 +494,35 @@ class MainActivity : FlutterActivity() {
                     voiceTransport = null
                     result.success(true)
                 }
+                "getLinkTelemetry" -> {
+                    val mac = call.argument<String>("macAddress")
+                    if (mac == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
+                    } else {
+                        val t = peerAudioManager?.getTelemetry(mac)
+                        if (t == null) {
+                            result.success(null)
+                        } else {
+                            result.success(intArrayOf(
+                                t.underrunCount,
+                                t.lateFrameCount,
+                                t.targetDepthFrames,
+                                t.currentDepthFrames,
+                                t.currentBitrateBps,
+                            ))
+                        }
+                    }
+                }
+                "setPeerBitrate" -> {
+                    val mac = call.argument<String>("macAddress")
+                    val bps = call.argument<Int>("bps")
+                    if (mac == null || bps == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress and bps are required", null)
+                    } else {
+                        val applied = peerAudioManager?.setPeerBitrate(mac, bps) ?: -1
+                        result.success(applied)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
