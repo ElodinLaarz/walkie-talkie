@@ -388,7 +388,7 @@ void main() {
   });
 
   group('sanitizeSentryEvent — user', () {
-    test('drops every PII field from event.user', () {
+    test('drops the entire user block', () {
       final event = SentryEvent(
         user: SentryUser(
           id: 'abc-123',
@@ -396,34 +396,11 @@ void main() {
           email: 'alice@example.com',
           ipAddress: '203.0.113.7',
           name: 'Alice',
+          data: {'role': 'host'},
         ),
       );
       final result = sanitizeSentryEvent(event)!;
-      final user = result.user!;
-      expect(user.id, isNull);
-      expect(user.username, isNull);
-      expect(user.email, isNull);
-      expect(user.ipAddress, isNull);
-      expect(user.name, isNull);
-    });
-
-    test('redacts PII keys inside user.data', () {
-      // SentryUser asserts that at least one identifier is set at construction
-      // time, so we satisfy the assertion with a placeholder id; the scrubber
-      // is expected to clear it as part of the redact pass.
-      final event = SentryEvent(
-        user: SentryUser(
-          id: 'placeholder',
-          data: {'displayName': 'Alice', 'peerId': 'abc-123', 'role': 'host'},
-        ),
-      );
-      final result = sanitizeSentryEvent(event)!;
-      final user = result.user!;
-      expect(user.id, isNull);
-      final data = user.data!;
-      expect(data['displayName'], '[REDACTED]');
-      expect(data['peerId'], '[REDACTED]');
-      expect(data['role'], 'host');
+      expect(result.user, isNull);
     });
   });
 

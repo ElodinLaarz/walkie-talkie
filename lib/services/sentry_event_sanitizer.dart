@@ -71,22 +71,6 @@ dynamic _redactDeep(dynamic value) {
   return value;
 }
 
-// Drop every PII-bearing field on a SentryUser. Sentry's server-side
-// enrichment can resolve `ipAddress = "{{auto}}"` to the device's public IP,
-// so even an apparently-empty user object is risky to forward.
-void _scrubUser(SentryUser user) {
-  user.id = null;
-  user.username = null;
-  user.email = null;
-  user.ipAddress = null;
-  user.name = null;
-  user.geo = null;
-  final data = user.data;
-  if (data != null) {
-    user.data = (_redactDeep(data) as Map<String, dynamic>);
-  }
-}
-
 // Rebuild a stack frame with PII-redacted `vars`. SentryStackFrame exposes
 // `vars` as an unmodifiable view (no setter) in sentry 9.x, so we have to
 // reconstruct the frame to update them. Filenames / line numbers / function
@@ -257,11 +241,14 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event) {
     _scrubThread(t);
   }
 
-  // User PII. Sentry's server can resolve `ipAddress = "{{auto}}"` to the
-  // device's public IP. Always drop the user block — the app does not have
-  // accounts, and SDK-generated session IDs cover crash-frequency.
-  final user = event.user;
-  if (user != null) _scrubUser(user);
+  // User PII. Drop the entire SentryUser block — the app has no accounts,
+  // and Sentry's server can resolve `ipAddress = "{{auto}}"` to the device's
+  // public IP. Field-by-field scrubbing leaks anything we forgot to enumerate
+  // (arbitrary `data` keys, future SDK fields), so null the whole thing.
+  // SDK-generated session identifiers still cover crash-frequency.
+  if (event.user != null) {
+    event.user = null;
+  }
 
   // Request — irrelevant in this app today (no HTTP), but defensive against
   // future code that uses `Sentry.configureScope((s) => s.setRequest(...))`.
