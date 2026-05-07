@@ -368,6 +368,18 @@ void main() {
     );
   });
 
+  Future<void> openResetDialog(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.text('Reset all data'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('Reset all data'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reset all data'));
+    await tester.pumpAndSettle();
+  }
+
   group('FrequencySettingsScreen reset-all-data flow', () {
     testWidgets('cancel in confirmation dialog leaves stores untouched', (
       tester,
@@ -390,15 +402,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(
-        find.text('Reset all data'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.ensureVisible(find.text('Reset all data'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Reset all data'));
-      await tester.pumpAndSettle();
+      await openResetDialog(tester);
 
       // Cancel button — no tap on the destructive option.
       await tester.tap(find.text('Cancel'));
@@ -432,15 +436,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(
-        find.text('Reset all data'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.ensureVisible(find.text('Reset all data'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Reset all data'));
-      await tester.pumpAndSettle();
+      await openResetDialog(tester);
 
       // Find the confirm action — uses the destructive label "Reset".
       // Two "Reset all data" instances exist (link + dialog title), plus
@@ -476,15 +472,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(
-        find.text('Reset all data'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.ensureVisible(find.text('Reset all data'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Reset all data'));
-      await tester.pumpAndSettle();
+      await openResetDialog(tester);
 
       await tester.tap(find.widgetWithText(TextButton, 'Reset'));
       await tester.pumpAndSettle();
