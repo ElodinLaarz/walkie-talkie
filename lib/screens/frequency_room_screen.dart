@@ -128,9 +128,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late MediaSourceLib _lib;
   Track get _track => _lib.queue[_trackIdx];
 
-  /// Live track metadata from the native MediaSession bridge (YouTube Music only).
-  /// Non-null only when notification listener access is granted and YT Music is active.
-  ({String title, String artist, int durationMs})? _liveYtMusicMeta;
+  /// Live track metadata from the native MediaSession bridge.
+  /// Non-null only when notification listener access is granted and a supported app is active.
+  ({String title, String artist, int durationMs})? _liveSourceMeta;
+
+  /// Wire key of the app supplying [_liveSourceMeta] (e.g. 'YouTube Music', 'pocket_casts').
+  String? _liveSourceKey;
 
   bool get _meEffectivelyMuted => widget.pttMode ? !_holdingPtt : _meMuted;
 
@@ -302,15 +305,17 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           unawaited(cubit.recheckPermissions());
         }
       } else if (type == 'mediaMetadata') {
-        // Live playback metadata from the native MediaSessionBridge (YouTube Music).
+        // Live playback metadata from the native MediaSessionBridge.
         // Only surfaces on the host device when notification listener access is
         // granted; guests still see placeholder track data.
         final available = event['available'] as bool? ?? false;
         if (!available) {
-          if (_liveYtMusicMeta != null) {
+          if (_liveSourceMeta != null) {
             setState(() {
-              _liveYtMusicMeta = null;
-              if (_source == 'YouTube Music') {
+              _liveSourceMeta = null;
+              final key = _liveSourceKey;
+              _liveSourceKey = null;
+              if (_source == key) {
                 _lib = _buildPlaceholderLib(
                   source: _source,
                   trackIdx: _trackIdx,
@@ -321,18 +326,21 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           }
           return;
         }
+        final sourceWireKey = event['sourceWireKey'] as String? ?? '';
+        if (sourceWireKey.isEmpty) return;
         final title = event['title'] as String? ?? '';
         final artist = event['artist'] as String? ?? '';
         final durationMs = (event['durationMs'] as num?)?.toInt() ?? 0;
         final positionMs = (event['positionMs'] as num?)?.toInt() ?? 0;
         final playing = event['playing'] as bool? ?? false;
         setState(() {
-          _liveYtMusicMeta = (
+          _liveSourceMeta = (
             title: title,
             artist: artist,
             durationMs: durationMs,
           );
-          if (_source == 'YouTube Music') {
+          _liveSourceKey = sourceWireKey;
+          if (_source == sourceWireKey) {
             _lib = _buildPlaceholderLib(source: _source, trackIdx: _trackIdx);
             _progress = (positionMs / 1000).floor().clamp(
               0,
@@ -459,13 +467,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
     // showing raw wire keys like "spotify" or "pocket_casts". Unknown future
     // keys fall back to the raw wireKey string rather than defaulting to
-    // "YouTube Music" (which fromWireKey does for backward compat).
+    // the YouTube Music fallback that fromWireKey returns for backward compat.
     final displayName = _sourceDisplayName(source);
 
-    // When the native MediaSession bridge has live YouTube Music metadata,
-    // substitute real title/artist/duration for the current track so the host
-    // sees actual playback info rather than "Track N / YouTube Music".
-    final meta = (source == 'YouTube Music') ? _liveYtMusicMeta : null;
+    // When the native MediaSession bridge has live metadata for the current source,
+    // substitute real title/artist/duration so the host sees actual playback info.
+    final meta = (source == _liveSourceKey) ? _liveSourceMeta : null;
     if (meta != null) {
       // Fall back to the placeholder heuristic when the MediaSession doesn't
       // expose duration (durationMs=0) — a 1-second clamp would break the
