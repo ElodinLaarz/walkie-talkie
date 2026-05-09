@@ -59,13 +59,22 @@ class MainActivity : FlutterActivity() {
     private var gattClientManager: GattClientManager? = null
     private var hostAdvertiser: HostAdvertiser? = null
     private var voiceTransport: L2capVoiceTransport? = null
-    private var peerAudioManager: PeerAudioManager? = null
-    private var audioMixerManager: AudioMixerManager? = null
+    // @Volatile so background threads (L2CAP accept loop, mixer JNI callback)
+    // see up-to-date values without data races on write-once / null-on-stop
+    // transitions that happen on the main thread.
+    @Volatile private var peerAudioManager: PeerAudioManager? = null
+    @Volatile private var audioMixerManager: AudioMixerManager? = null
     private var isVoiceHost: Boolean = false
-    // Per-session first-frame sentinels. Cleared in stopVoice so re-entering
-    // a room re-emits the events and the Dart side can detect recovery.
-    private val firstEncodedFramePeers = mutableSetOf<String>()
-    private val firstDecodedFramePeers = mutableSetOf<String>()
+    // Incremented in stopVoice so any in-flight registerVoicePeer retries
+    // from a prior session become no-ops in the new one.
+    @Volatile private var voiceSessionId: Int = 0
+    // Per-session first-frame sentinels. ConcurrentHashMap.newKeySet gives
+    // a thread-safe Set (mutated from JNI mixer + L2CAP recv threads and
+    // cleared on the main thread in stopVoice).
+    private val firstEncodedFramePeers: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val firstDecodedFramePeers: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
@@ -247,6 +256,7 @@ class MainActivity : FlutterActivity() {
                     audioMixerManager = null
                     firstEncodedFramePeers.clear()
                     firstDecodedFramePeers.clear()
+                    voiceSessionId++  // invalidate any in-flight registerVoicePeer retries
                     // Stop and release the L2CAP transport so stale sockets
                     // don't bleed into the next session (Dart has no separate
                     // stopVoiceTransport call-site in the room exit path).
@@ -622,12 +632,16 @@ class MainActivity : FlutterActivity() {
     // Retries up to 5 times (at 200 ms intervals) if peerAudioManager hasn't
     // been created yet — guards the race where the L2CAP channel opens before
     // startVoice has completed on the main thread.
-    private fun registerVoicePeer(addr: String, attempt: Int = 0) {
+    //
+    // sessionId is captured at the call site so pending retries from a prior
+    // session become no-ops once stopVoice increments voiceSessionId.
+    private fun registerVoicePeer(addr: String, attempt: Int = 0, sessionId: Int = voiceSessionId) {
+        if (sessionId != voiceSessionId) return  // stale retry from previous session
         val pm = peerAudioManager
         if (pm == null) {
             if (attempt < 5) {
                 Handler(Looper.getMainLooper()).postDelayed(
-                    { registerVoicePeer(addr, attempt + 1) },
+                    { registerVoicePeer(addr, attempt + 1, sessionId) },
                     200,
                 )
             } else {
