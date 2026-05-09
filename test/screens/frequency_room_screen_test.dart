@@ -264,7 +264,8 @@ void main() {
 
         // No mock peer roster — single-user room shows just the local user
         // (acceptance criterion for #105). SectionLabel uppercases its text.
-        expect(find.text('ON THIS FREQUENCY · 1'), findsOneWidget);
+        // freq is embedded in the label so users see the actual channel (#363).
+        expect(find.text('ON 104.3 MHZ · 1'), findsOneWidget);
       },
     );
 
