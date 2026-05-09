@@ -806,7 +806,8 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SectionLabel(
-                              text: 'On this frequency · ${peers.length + 1}',
+                              text:
+                                  'On ${widget.freq} MHz · ${peers.length + 1}',
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
