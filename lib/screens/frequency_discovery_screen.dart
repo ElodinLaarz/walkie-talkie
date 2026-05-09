@@ -107,6 +107,11 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
   /// disappears from the UI immediately on success.
   final void Function(String freq)? onDeleteRecent;
 
+  /// When non-null the discovery screen shows a banner prompting the user
+  /// to wait for the named frequency to appear in the scan results. Set by
+  /// the invite-link deep-link handler in [FrequencyApp].
+  final String? pendingInviteFreq;
+
   const FrequencyDiscoveryScreen({
     super.key,
     required this.onPick,
@@ -116,6 +121,7 @@ class FrequencyDiscoveryScreen extends StatefulWidget {
     this.onSetRecentNickname,
     this.onSetRecentPinned,
     this.onDeleteRecent,
+    this.pendingInviteFreq,
   });
 
   @override
@@ -193,6 +199,20 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                   children: [
+                    if (widget.pendingInviteFreq != null)
+                      BlocBuilder<DiscoveryCubit, DiscoveryState>(
+                        buildWhen: (p, n) =>
+                            (p is DiscoveryScanning) !=
+                            (n is DiscoveryScanning),
+                        builder: (context, state) {
+                          if (state is! DiscoveryScanning) {
+                            return const SizedBox.shrink();
+                          }
+                          return _InviteLinkBanner(
+                            freq: widget.pendingInviteFreq!,
+                          );
+                        },
+                      ),
                     _buildHero(context),
                     const SizedBox(height: 24),
                     _buildCreateCard(context),
@@ -1348,6 +1368,43 @@ class _RenameSheetState extends State<_RenameSheet> {
             padding: const EdgeInsets.symmetric(vertical: 14),
             fontSize: 15,
             onPressed: hasName ? _submit : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InviteLinkBanner extends StatelessWidget {
+  final String freq;
+
+  const _InviteLinkBanner({required this.freq});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: c.accent.withAlpha(20),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: c.accent.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_tethering, size: 16, color: c.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Looking for $freq MHz…',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: c.accent,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       ),

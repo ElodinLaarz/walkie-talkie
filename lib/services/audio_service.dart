@@ -702,4 +702,16 @@ class AudioService {
       return false;
     }
   }
+
+  /// Returns the freq query param from a cold-start invite deep link
+  /// (`walkietalkie://join?freq=<name>`), or null when the app was not
+  /// opened via an invite link. Call once after engine startup.
+  Future<String?> getInitialLink() async {
+    try {
+      return await _methodChannel.invokeMethod<String>('getInitialLink');
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error reading initial link: $e');
+      return null;
+    }
+  }
 }

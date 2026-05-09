@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
@@ -105,11 +106,23 @@ class _InviteSheetState extends State<InviteSheet> {
             label: _copied ? 'Copied invite' : 'Copy invite link',
             padding: const EdgeInsets.symmetric(vertical: 12),
             onPressed: () {
+              final link =
+                  'walkietalkie://join?freq=${Uri.encodeComponent(widget.freq)}';
+              final messenger = ScaffoldMessenger.of(context);
+              // Fire-and-forget: clipboard writes rarely fail and the UX
+              // confirmation (label + snackbar) should be instantaneous.
+              unawaited(Clipboard.setData(ClipboardData(text: link)));
               setState(() => _copied = true);
               _copiedReset?.cancel();
               _copiedReset = Timer(const Duration(milliseconds: 1600), () {
                 if (mounted) setState(() => _copied = false);
               });
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Invite link copied'),
+                  duration: Duration(milliseconds: 1600),
+                ),
+              );
             },
           ),
           const SizedBox(height: 12),
