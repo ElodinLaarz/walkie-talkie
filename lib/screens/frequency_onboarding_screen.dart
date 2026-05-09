@@ -38,6 +38,12 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen>
   OnboardingPermissionStatus _micStatus = OnboardingPermissionStatus.denied;
   bool _btRequestInFlight = false;
   bool _micRequestInFlight = false;
+
+  // Monotonically increasing counter. Incremented at the start of every
+  // background check AND before every user-initiated request so a stale
+  // check result cannot overwrite a newer request result.
+  int _statusEpoch = 0;
+
   final TextEditingController _nameCtrl = TextEditingController();
   late final OnboardingPermissionGateway _gateway =
       widget.permissionGateway ?? const DefaultOnboardingPermissionGateway();
@@ -64,12 +70,15 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen>
   }
 
   Future<void> _checkCurrentStatuses() async {
-    final btStatus = await _gateway.checkBluetooth();
-    final micStatus = await _gateway.checkMicrophone();
-    if (!mounted) return;
+    final epoch = ++_statusEpoch;
+    final results = await Future.wait([
+      _gateway.checkBluetooth(),
+      _gateway.checkMicrophone(),
+    ]);
+    if (!mounted || epoch != _statusEpoch) return;
     setState(() {
-      _btStatus = btStatus;
-      _micStatus = micStatus;
+      _btStatus = results[0];
+      _micStatus = results[1];
     });
   }
 
@@ -79,6 +88,7 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen>
 
   Future<void> _requestBluetooth() async {
     if (_btRequestInFlight) return;
+    _statusEpoch++;
     setState(() => _btRequestInFlight = true);
     try {
       final result = await _gateway.requestBluetooth();
@@ -91,6 +101,7 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen>
 
   Future<void> _requestMicrophone() async {
     if (_micRequestInFlight) return;
+    _statusEpoch++;
     setState(() => _micRequestInFlight = true);
     try {
       final result = await _gateway.requestMicrophone();
