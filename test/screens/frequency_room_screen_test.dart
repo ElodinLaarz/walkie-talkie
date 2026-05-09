@@ -807,7 +807,7 @@ void main() {
           hostPeerId: 'p-host',
           roster: const [],
           mediaState: const MediaState(
-            source: 'Spotify',
+            source: 'spotify',
             trackIdx: 1,
             playing: false,
             positionMs: 91000,
@@ -884,7 +884,7 @@ void main() {
               // 91s into the 2nd track on the wire — trackIdx must ride
               // through so outgoing media commands keep referencing the
               // same index the host published.
-              source: 'Spotify',
+              source: 'spotify',
               trackIdx: 1,
               playing: true,
               positionMs: 91000,
@@ -1485,7 +1485,7 @@ void main() {
           hostPeerId: 'p-host',
           roster: const [],
           mediaState: const MediaState(
-            source: 'Spotify',
+            source: 'spotify',
             trackIdx: 2,
             playing: true,
             positionMs: 0,
@@ -1523,7 +1523,7 @@ void main() {
             hostPeerId: 'p-host',
             roster: const [],
             mediaState: const MediaState(
-              source: 'Spotify',
+              source: 'spotify',
               trackIdx: 2,
               playing: true,
               positionMs: 0,
