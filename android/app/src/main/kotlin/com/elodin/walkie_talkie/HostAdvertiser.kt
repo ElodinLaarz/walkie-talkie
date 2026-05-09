@@ -203,23 +203,33 @@ class HostAdvertiser(private val context: Context) {
             }
         }
 
-        // The 31-byte legacy ADV_IND budget can't fit *all* of: flags (auto),
-        // 128-bit service UUID (18 bytes including header), 16-byte
-        // manufacturer payload (20 bytes including header), and the adapter
-        // device name. 18 + 20 alone overflows. Split across primary adv
-        // (service UUID — keeps passive scanners able to filter) and scan
-        // response (manufacturer payload + device name — only fetched on the
-        // SCAN_REQ that active scanners issue, which is what the Dart
-        // DiscoveryService does). The Android stack merges both records into
-        // ScanRecord, so DiscoveredSession.fromManufacturerData reassembles
-        // them transparently.
+        // Budget split across the two 31-byte legacy PDUs:
+        //
+        //   Primary ADV_IND (3 flags + 18 UUID = 21 bytes used, 10 remaining):
+        //     - Service UUID: keeps hardware scan filters working on Pixel/Qualcomm.
+        //     - Device name via setIncludeDeviceName(true): up to 8 chars fit in
+        //       the remaining 10 bytes; Android auto-uses Shortened Local Name
+        //       (AD 0x08) for longer names so they still advertise instead of
+        //       triggering ADVERTISE_FAILED_DATA_TOO_LARGE. Previously the name
+        //       lived in the scan response alongside the 20-byte manufacturer
+        //       payload; combined they overflowed 31 bytes on any device whose
+        //       BT name exceeded 9 chars (e.g. "moto g power (2022)"), silently
+        //       preventing advertising from starting on Motorola hosts.
+        //
+        //   Scan response SCAN_RSP (20 bytes used):
+        //     - Manufacturer payload only. The Android stack merges both PDUs
+        //       into ScanRecord, so DiscoveredSession.fromManufacturerData
+        //       reassembles them transparently.
+        val payloadHex = payload.joinToString("") { "%02x".format(it) }
+        Log.d(TAG, "adv payload: mfg_id=0x%04x bytes=%s".format(MANUFACTURER_ID, payloadHex))
+
         val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .setIncludeDeviceName(true)
             .build()
 
         val scanResponse = AdvertiseData.Builder()
             .addManufacturerData(MANUFACTURER_ID, payload)
-            .setIncludeDeviceName(true)
             .build()
 
         val settings = AdvertiseSettings.Builder()

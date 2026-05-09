@@ -241,6 +241,24 @@ void main() {
       expect(session2!.sessionUuidLow8, uuid2.toLowerCase());
     });
 
+    test('parseResult accepts production company ID 0xFFFF', () {
+      // HostAdvertiser uses MANUFACTURER_ID = 0xFFFF. parseResult iterates all
+      // manufacturer data entries and applies protocol-level filtering, so the
+      // company ID is irrelevant — any value that carries a valid v1 payload
+      // is accepted. This test pins the round-trip with the production ID.
+      final scanResult = makeScanResult(
+        manufacturerData: {0xFFFF: validV1Payload().toList()},
+        advName: 'Moto G',
+        rssi: -68,
+      );
+
+      final session = service.parseResult(scanResult);
+
+      expect(session, isNotNull);
+      expect(session!.hostName, 'Moto G');
+      expect(session.sessionUuidLow8, '0011223344556677');
+    });
+
     test(
       'parseResult returns first valid session from multiple mfg entries',
       () {
