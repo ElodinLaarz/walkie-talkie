@@ -46,11 +46,6 @@ class DiscoveryService {
     _discovered.clear();
     _emit();
 
-    // Prune stale entries on a regular cadence so closed rooms disappear even
-    // when the OS delivers no new scan events (e.g. the only host went away).
-    _pruneTimer?.cancel();
-    _pruneTimer = Timer.periodic(freshnessWindow ~/ 2, (_) => _emit());
-
     // 2. Listen for scan results.
     // onScanResults is preferred over scanResults: it does not replay stale
     // results after scanning stops, avoiding a spurious re-emission on the
@@ -82,6 +77,12 @@ class DiscoveryService {
       // We remove the timeout to let the user control pausing/scanning
       // and prevent silent timeout failures (Thread 5, 11).
     );
+
+    // Start prune timer only after scan starts successfully. This prevents a
+    // resource leak where a failed startScan leaves the timer firing into a
+    // scan-less void.
+    _pruneTimer?.cancel();
+    _pruneTimer = Timer.periodic(freshnessWindow ~/ 2, (_) => _emit());
   }
 
   /// Stops the active scan.
