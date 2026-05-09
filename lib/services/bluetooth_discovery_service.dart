@@ -70,12 +70,21 @@ class DiscoveryService {
     // (e.g. adapter turned off, or platform scan timeout).
     FlutterBluePlus.cancelWhenScanComplete(_scanSubscription!);
 
-    // 3. Start scanning.
-    // We filter by the service UUID defined in the protocol.
+    // 3. Start scanning without a hardware service-UUID filter.
+    //
+    // Some OEM BLE stacks (notably MediaTek-based Motorola devices) advertise
+    // 128-bit UUIDs in non-standard byte order or do not honour hardware UUID
+    // scan filters from other vendors' chipsets. A withServices filter here
+    // silently drops those advertisements before parseResult ever sees them.
+    //
+    // parseResult already performs software filtering — it only accepts payloads
+    // whose first byte is protocol version 0x01 and second byte is role 0x01
+    // (see DiscoveredSession.fromManufacturerData). Content-based filtering is
+    // more reliable than UUID-based filtering because it checks the actual
+    // payload regardless of how the advertising metadata is encoded by the
+    // host's BLE stack.
     await FlutterBluePlus.startScan(
-      withServices: [Guid(kWalkieTalkieServiceUuid)],
-      // We remove the timeout to let the user control pausing/scanning
-      // and prevent silent timeout failures (Thread 5, 11).
+      // No timeout — user controls start/stop; avoids silent timeout failures.
     );
 
     // Start prune timer only after scan starts successfully. This prevents a
