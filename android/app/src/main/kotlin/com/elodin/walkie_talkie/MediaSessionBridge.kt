@@ -61,6 +61,27 @@ class MediaSessionBridge(
         }
 
         override fun onPlaybackStateChanged(state: PlaybackState?) {
+            // OnActiveSessionsChangedListener does not fire for in-place play/pause
+            // toggles. When the active session leaves STATE_PLAYING, check whether
+            // another supported app is currently playing and switch to it so the
+            // bridge doesn't stay locked on a paused session.
+            if (isListenerRegistered &&
+                state?.state != PlaybackState.STATE_PLAYING &&
+                activeController != null) {
+                val notifComponent = ComponentName(context, WalkieTalkieNotificationListener::class.java)
+                try {
+                    val playing = sessionManager.getActiveSessions(notifComponent)
+                        ?.firstOrNull {
+                            PKG_TO_WIRE_KEY.containsKey(it.packageName) &&
+                                it.sessionToken != activeController?.sessionToken &&
+                                it.playbackState?.state == PlaybackState.STATE_PLAYING
+                        }
+                    if (playing != null) {
+                        switchTo(playing)
+                        return
+                    }
+                } catch (_: SecurityException) {}
+            }
             dispatchMetadata(activeController, activeController?.metadata)
         }
 
@@ -164,12 +185,16 @@ class MediaSessionBridge(
     /**
      * Pick the best controller from [controllers]: prefers a supported app that is
      * actively playing; falls back to the first supported app in the list.
+     * Single-pass: tracks the first supported controller while scanning for a playing one.
      */
     private fun bestController(controllers: List<MediaController>?): MediaController? {
-        val supported = controllers?.filter { PKG_TO_WIRE_KEY.containsKey(it.packageName) }
-            ?: return null
-        return supported.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: supported.firstOrNull()
+        var first: MediaController? = null
+        controllers?.forEach { c ->
+            if (!PKG_TO_WIRE_KEY.containsKey(c.packageName)) return@forEach
+            if (c.playbackState?.state == PlaybackState.STATE_PLAYING) return c
+            if (first == null) first = c
+        }
+        return first
     }
 
     private fun scanForBestSession() {
