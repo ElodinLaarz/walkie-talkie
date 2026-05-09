@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/frequency_models.dart';
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
+import 'media_source_sheet.dart';
 
 class NowPlayingCard extends StatelessWidget {
   final Track track;
@@ -19,6 +20,9 @@ class NowPlayingCard extends StatelessWidget {
   final ValueChanged<double> onScrub;
   final VoidCallback onOpenQueue;
 
+  /// Host-only: opens the source picker. Null for guests (chip not shown).
+  final VoidCallback? onChangeSource;
+
   const NowPlayingCard({
     super.key,
     required this.track,
@@ -34,7 +38,27 @@ class NowPlayingCard extends StatelessWidget {
     required this.onPrev,
     required this.onScrub,
     required this.onOpenQueue,
+    this.onChangeSource,
   });
+
+  /// Returns the user-facing label for [wireKey], falling back to the raw key
+  /// for unknown/future sources so no wrong source name is shown.
+  static String _sourceLabel(String wireKey) {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == wireKey) return s.label;
+    }
+    return wireKey;
+  }
+
+  /// Returns the [MediaSource] for [wireKey] via exact match, or null for
+  /// unknown keys so callers can apply a neutral fallback instead of silently
+  /// misrepresenting an unknown source as YouTube Music.
+  static MediaSource? _trySource(String wireKey) {
+    for (final s in MediaSource.values) {
+      if (s.wireKey == wireKey) return s;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,16 +76,18 @@ class NowPlayingCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  'LISTENING TOGETHER · ${source.toUpperCase()}',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 1.0,
-                    color: c.ink3,
-                  ),
-                ),
+                child: onChangeSource != null
+                    ? _SourceChip(source: source, onTap: onChangeSource!)
+                    : Text(
+                        'LISTENING TOGETHER · ${_sourceLabel(source).toUpperCase()}',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 1.0,
+                          color: c.ink3,
+                        ),
+                      ),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -225,6 +251,74 @@ class NowPlayingCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Prominent chip button showing the current media source icon + name.
+/// Meets the ≥48dp tap-target requirement via [_kChipHeight].
+class _SourceChip extends StatelessWidget {
+  final String source;
+  final VoidCallback onTap;
+
+  static const double _kChipHeight = 48.0;
+  static const _kRadius = BorderRadius.all(Radius.circular(8));
+
+  const _SourceChip({required this.source, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final ms = NowPlayingCard._trySource(source);
+    final label = ms?.label ?? source;
+    final icon = ms?.icon ?? Icons.music_note;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: _kChipHeight),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        // Semantics wraps Material so the node's RenderObject centre sits
+        // on the actual tap target, not the wider ConstrainedBox boundary.
+        child: Semantics(
+          button: true,
+          label: 'Change source, currently $label',
+          excludeSemantics: true,
+          // Material sits above FreqCard's own Material so the InkWell
+          // splash is painted over the chip background (not clipped by it).
+          child: Material(
+            color: c.surface2,
+            shape: RoundedRectangleBorder(
+              borderRadius: _kRadius,
+              side: BorderSide(color: c.line),
+            ),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: _kRadius,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 12, color: c.ink2),
+                    const SizedBox(width: 5),
+                    Text(
+                      label.toUpperCase(),
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 1.0,
+                        color: c.ink2,
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Icon(Icons.arrow_drop_down, size: 14, color: c.ink3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -29,15 +29,17 @@ NowPlayingCard _card({
   Track track = _track,
   bool playing = false,
   int progress = 0,
+  String source = 'spotify',
   VoidCallback? onPlay,
   VoidCallback? onNext,
   VoidCallback? onPrev,
   VoidCallback? onOpenQueue,
   ValueChanged<double>? onScrub,
+  VoidCallback? onChangeSource,
 }) {
   return NowPlayingCard(
     track: track,
-    source: 'Spotify',
+    source: source,
     isPodcast: false,
     playing: playing,
     progress: progress,
@@ -49,6 +51,7 @@ NowPlayingCard _card({
     onPrev: onPrev ?? () {},
     onScrub: onScrub ?? (_) {},
     onOpenQueue: onOpenQueue ?? () {},
+    onChangeSource: onChangeSource,
   );
 }
 
@@ -113,6 +116,50 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('guest: no source chip, shows plain text label', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(_card(source: 'spotify')));
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel(RegExp(r'Change source', caseSensitive: false)),
+        findsNothing,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data ?? '').contains('SPOTIFY'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('host: source chip shows source label', (tester) async {
+      await tester.pumpWidget(
+        _wrap(_card(source: 'spotify', onChangeSource: () {})),
+      );
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel(RegExp(r'Change source.*Spotify')),
+        findsOneWidget,
+      );
+      expect(find.text('SPOTIFY'), findsOneWidget);
+    });
+
+    testWidgets('host: tapping source chip fires onChangeSource', (
+      tester,
+    ) async {
+      var called = false;
+      await tester.pumpWidget(
+        _wrap(_card(source: 'spotify', onChangeSource: () => called = true)),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.bySemanticsLabel(RegExp(r'Change source.*Spotify')),
+      );
+      await tester.pump();
+      expect(called, isTrue);
     });
   });
 }
