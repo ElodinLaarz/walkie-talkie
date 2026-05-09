@@ -239,6 +239,7 @@ void main() {
       (tester) async {
         final gateway = _FakeGateway(
           btCheckResult: OnboardingPermissionStatus.permanentlyDenied,
+          micCheckResult: OnboardingPermissionStatus.denied,
         );
 
         await tester.pumpWidget(
