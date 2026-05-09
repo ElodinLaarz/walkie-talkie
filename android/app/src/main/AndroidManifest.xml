@@ -72,6 +72,18 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone|connectedDevice" />
+        <!-- Notification Listener: grants permission to call MediaSessionManager.getActiveSessions()
+             so the host can read live playback metadata from YouTube Music (and future sources).
+             The user must enable this in Settings → Apps → Special app access → Notification access. -->
+        <service
+            android:name=".WalkieTalkieNotificationListener"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

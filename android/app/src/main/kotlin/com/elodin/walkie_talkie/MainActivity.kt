@@ -53,6 +53,7 @@ class MainActivity : FlutterActivity() {
     private var eventChannel: EventChannel? = null
     private var controlBytesEventChannel: EventChannel? = null
     private var bluetoothManager: BluetoothLeAudioManager? = null
+    private var mediaSessionBridge: MediaSessionBridge? = null
     private var audioRoutingManager: AudioRoutingManager? = null
     private var gattServerManager: GattServerManager? = null
     private var gattClientManager: GattClientManager? = null
@@ -543,6 +544,10 @@ class MainActivity : FlutterActivity() {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 Log.i(TAG, "EventChannel listener attached")
                 eventSink = events
+                // Replay the last known media metadata in case it was dispatched
+                // before Flutter attached its listener (bridge attaches at engine start
+                // but Flutter's EventChannel listen() call comes later).
+                mediaSessionBridge?.replayLastMetadata()
             }
 
             override fun onCancel(arguments: Any?) {
@@ -564,6 +569,14 @@ class MainActivity : FlutterActivity() {
                 controlBytesSink = null
             }
         })
+
+        // Wire the MediaSession bridge so the host sees real YouTube Music metadata
+        // when notification listener access is granted.
+        mediaSessionBridge = MediaSessionBridge(applicationContext) { metadata ->
+            @Suppress("UNCHECKED_CAST")
+            sendEventToFlutter(metadata as Map<String, Any>)
+        }
+        mediaSessionBridge?.attach()
     }
 
     // Parse the 8-byte VoiceFrame header and push the Opus payload into the
@@ -635,6 +648,13 @@ class MainActivity : FlutterActivity() {
         ))
     }
 
+    // Re-attach the MediaSession bridge on resume so a notification-access grant
+    // that happened while the user was in system settings takes effect immediately.
+    override fun onResume() {
+        super.onResume()
+        mediaSessionBridge?.attach()
+    }
+
     // Called when the notification's Leave action brings this activity back
     // to the foreground (singleTop launchMode prevents a new instance). PTT
     // and Mute go through [WalkieTalkieService] → [dispatchEventFromService]
@@ -668,6 +688,8 @@ class MainActivity : FlutterActivity() {
             instance = null
         }
         nativeUnregisterCallbacks()
+        mediaSessionBridge?.detach()
+        mediaSessionBridge = null
         audioRoutingManager?.cleanup()
         bluetoothManager?.cleanup()
         peerAudioManager?.clear()

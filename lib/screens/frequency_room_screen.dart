@@ -128,6 +128,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late MediaSourceLib _lib;
   Track get _track => _lib.queue[_trackIdx];
 
+  /// Live track metadata from the native MediaSession bridge (YouTube Music only).
+  /// Non-null only when notification listener access is granted and YT Music is active.
+  ({String title, String artist, int durationMs})? _liveYtMusicMeta;
+
   bool get _meEffectivelyMuted => widget.pttMode ? !_holdingPtt : _meMuted;
 
   late final AudioService _audio;
@@ -297,6 +301,46 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
             reason.contains('AUTHORIZATION_DENIED')) {
           unawaited(cubit.recheckPermissions());
         }
+      } else if (type == 'mediaMetadata') {
+        // Live playback metadata from the native MediaSessionBridge (YouTube Music).
+        // Only surfaces on the host device when notification listener access is
+        // granted; guests still see placeholder track data.
+        final available = event['available'] as bool? ?? false;
+        if (!available) {
+          if (_liveYtMusicMeta != null) {
+            setState(() {
+              _liveYtMusicMeta = null;
+              if (_source == 'YouTube Music') {
+                _lib = _buildPlaceholderLib(
+                  source: _source,
+                  trackIdx: _trackIdx,
+                  positionSec: _progress,
+                );
+              }
+            });
+          }
+          return;
+        }
+        final title = event['title'] as String? ?? '';
+        final artist = event['artist'] as String? ?? '';
+        final durationMs = (event['durationMs'] as num?)?.toInt() ?? 0;
+        final positionMs = (event['positionMs'] as num?)?.toInt() ?? 0;
+        final playing = event['playing'] as bool? ?? false;
+        setState(() {
+          _liveYtMusicMeta = (
+            title: title,
+            artist: artist,
+            durationMs: durationMs,
+          );
+          if (_source == 'YouTube Music') {
+            _lib = _buildPlaceholderLib(source: _source, trackIdx: _trackIdx);
+            _progress = (positionMs / 1000).floor().clamp(
+              0,
+              _lib.queue[_trackIdx].durationSeconds,
+            );
+            _playing = playing;
+          }
+        });
       }
     });
 
@@ -411,13 +455,48 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     int positionSec = 0,
   }) {
     final clampedIdx = trackIdx < 0 ? 0 : trackIdx;
-    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
     // Use the human-readable display label for MediaSourceLib.name so UI
     // surfaces ("From Spotify", "Open Spotify") are user-facing rather than
     // showing raw wire keys like "spotify" or "pocket_casts". Unknown future
     // keys fall back to the raw wireKey string rather than defaulting to
     // "YouTube Music" (which fromWireKey does for backward compat).
     final displayName = _sourceDisplayName(source);
+
+    // When the native MediaSession bridge has live YouTube Music metadata,
+    // substitute real title/artist/duration for the current track so the host
+    // sees actual playback info rather than "Track N / YouTube Music".
+    final meta = (source == 'YouTube Music') ? _liveYtMusicMeta : null;
+    if (meta != null) {
+      // Fall back to the placeholder heuristic when the MediaSession doesn't
+      // expose duration (durationMs=0) — a 1-second clamp would break the
+      // progress slider and timer (Copilot review on PR #380).
+      final durationSec = meta.durationMs > 0
+          ? (meta.durationMs / 1000).ceil().clamp(1, 86400)
+          : (positionSec * 2 < 60 ? 60 : positionSec * 2);
+      return MediaSourceLib(
+        name: displayName,
+        kind: emptyMediaLib.kind,
+        queue: [
+          for (var i = 0; i < clampedIdx; i++)
+            Track(
+              title: 'Track ${i + 1}',
+              artist: displayName,
+              durationSeconds: durationSec,
+              tag: '',
+            ),
+          Track(
+            title: meta.title.isNotEmpty
+                ? meta.title
+                : 'Track ${clampedIdx + 1}',
+            artist: meta.artist.isNotEmpty ? meta.artist : displayName,
+            durationSeconds: durationSec,
+            tag: '',
+          ),
+        ],
+      );
+    }
+
+    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
     return MediaSourceLib(
       name: displayName,
       kind: emptyMediaLib.kind,
