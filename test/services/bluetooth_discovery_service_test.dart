@@ -241,11 +241,12 @@ void main() {
       expect(session2!.sessionUuidLow8, uuid2.toLowerCase());
     });
 
-    test('parseResult accepts production company ID 0xFFFF', () {
-      // HostAdvertiser uses MANUFACTURER_ID = 0xFFFF. parseResult iterates all
-      // manufacturer data entries and applies protocol-level filtering, so the
-      // company ID is irrelevant — any value that carries a valid v1 payload
-      // is accepted. This test pins the round-trip with the production ID.
+    test('parseResult accepts test/internal manufacturer ID 0xFFFF', () {
+      // HostAdvertiser uses MANUFACTURER_ID = 0xFFFF (Bluetooth SIG test/internal
+      // range). parseResult iterates all manufacturer data entries and applies
+      // protocol-level filtering, so the company ID is irrelevant — any value
+      // that carries a valid v1 payload is accepted. This test pins the
+      // round-trip with the actual HostAdvertiser ID.
       final scanResult = makeScanResult(
         manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'Moto G',

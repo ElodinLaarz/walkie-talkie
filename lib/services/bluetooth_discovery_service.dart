@@ -73,11 +73,16 @@ class DiscoveryService {
     // 3. Start scanning without a hardware service-UUID filter.
     //
     // Some OEM BLE stacks (notably MediaTek-based Motorola devices) advertise
-    // 128-bit UUIDs in non-standard byte order or do not respond to hardware
-    // UUID scan filters from other vendors' chipsets. A withServices filter
-    // here silently drops those advertisements before parseResult ever sees
-    // them. parseResult already filters by protocol version and role, so
-    // software filtering is both safe and cross-OEM reliable.
+    // 128-bit UUIDs in non-standard byte order or do not honour hardware UUID
+    // scan filters from other vendors' chipsets. A withServices filter here
+    // silently drops those advertisements before parseResult ever sees them.
+    //
+    // parseResult already performs software filtering — it only accepts payloads
+    // whose first byte is protocol version 0x01 and second byte is role 0x01
+    // (see DiscoveredSession.fromManufacturerData). Content-based filtering is
+    // more reliable than UUID-based filtering because it checks the actual
+    // payload regardless of how the advertising metadata is encoded by the
+    // host's BLE stack.
     await FlutterBluePlus.startScan(
       // No timeout — user controls start/stop; avoids silent timeout failures.
     );

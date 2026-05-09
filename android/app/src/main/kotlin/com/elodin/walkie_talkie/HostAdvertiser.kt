@@ -206,7 +206,8 @@ class HostAdvertiser(private val context: Context) {
         // Budget split across the two 31-byte legacy PDUs:
         //
         //   Primary ADV_IND (3 flags + 18 UUID = 21 bytes used, 10 remaining):
-        //     - Service UUID: keeps hardware scan filters working on Pixel/Qualcomm.
+        //     - Service UUID: allows passive BLE scanners and third-party apps to
+        //       identify this as a Frequency host without decoding the payload.
         //     - Device name via setIncludeDeviceName(true): up to 8 chars fit in
         //       the remaining 10 bytes; Android auto-uses Shortened Local Name
         //       (AD 0x08) for longer names so they still advertise instead of
@@ -220,7 +221,7 @@ class HostAdvertiser(private val context: Context) {
         //     - Manufacturer payload only. The Android stack merges both PDUs
         //       into ScanRecord, so DiscoveredSession.fromManufacturerData
         //       reassembles them transparently.
-        val payloadHex = payload.joinToString("") { "%02x".format(it) }
+        val payloadHex = payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         Log.d(TAG, "adv payload: mfg_id=0x%04x bytes=%s".format(MANUFACTURER_ID, payloadHex))
 
         val advData = AdvertiseData.Builder()
