@@ -136,7 +136,7 @@ class _InviteSheetState extends State<InviteSheet> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Anyone within ~30 metres (100 ft) can tune in.',
+            'Anyone within ~30 metres (100 feet) can tune in.',
             style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
           ),
         ],
