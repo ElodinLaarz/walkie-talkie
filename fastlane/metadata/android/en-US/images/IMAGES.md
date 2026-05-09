@@ -53,6 +53,40 @@ Screenshots:
 To replace with real device captures:
 `adb exec-out screencap -p > phoneScreenshots/1.png` (repeat for each screen).
 
+### Mockups vs. real app — known drift
+
+The current Pillow mockups in `scripts/gen_screenshots.py` are stylised
+representations and **do not match the in-app palette or typography**:
+
+| Aspect            | Mockup                  | Actual app (`lib/theme/app_theme.dart`)         |
+| ----------------- | ----------------------- | ----------------------------------------------- |
+| Accent colour     | `#3498DB` blue          | `#4DB47C` green (`FrequencyColors.light.accent`) |
+| Background        | `#FAFAFA`               | `#FAFAFB` (close)                               |
+| Text font         | Segoe UI / DejaVu Sans  | Inter (no font asset shipped — system fallback) |
+| Discovery hero    | "Tuning the dial" radio | Bluetooth-LE peer list with `PulseDot` scanning |
+| Room screen       | Two peer rows + PTT pill | `PushToTalkButton`, `PeerRow` linear list       |
+| MHz channel label | Mock                    | Real (`'$_newFreq MHz'` in `_buildCreateCard`)  |
+
+A path to faithful captures is tracked in
+[#359](https://github.com/ElodinLaarz/walkie-talkie/issues/359). Three
+viable approaches with trade-offs:
+
+1. **Widget-test capture** — pump each screen with mock cubits in a
+   `flutter test`, wrap in `RepaintBoundary`, call `toImage()`, save PNG.
+   Reuses existing mocks in `test/screens/*`. Pre-reqs: bundle Inter as
+   an asset (or load via `golden_toolkit`'s `loadAppFonts()`), still the
+   `PulseDot` / scanning animations, omit OS chrome (status + nav bars
+   are renderer overlays, not in the widget tree).
+2. **Emulator + `adb exec-out screencap`** — boot a Pixel-shaped AVD,
+   drive the app to each state, capture. Faithful chrome but slow,
+   harder to script deterministically, and animations need to be paused.
+3. **Hybrid** — capture widget body via #1, composite mock OS chrome
+   (status/nav bars) on top in Pillow. Best fidelity-to-cost ratio.
+
+Until that lands, the existing mockups satisfy Play's *graphic asset*
+requirement (and promotion-eligibility threshold of 4@1080) but should
+be regarded as marketing illustrations, not faithful captures.
+
 ## 7-inch tablet screenshots (recommended)
 
 File names: `sevenInchScreenshots/1.png`, `2.png`
