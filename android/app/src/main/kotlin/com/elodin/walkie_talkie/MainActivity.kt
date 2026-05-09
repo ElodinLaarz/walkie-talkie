@@ -62,6 +62,10 @@ class MainActivity : FlutterActivity() {
     private var peerAudioManager: PeerAudioManager? = null
     private var audioMixerManager: AudioMixerManager? = null
     private var isVoiceHost: Boolean = false
+    // Per-session first-frame sentinels. Cleared in stopVoice so re-entering
+    // a room re-emits the events and the Dart side can detect recovery.
+    private val firstEncodedFramePeers = mutableSetOf<String>()
+    private val firstDecodedFramePeers = mutableSetOf<String>()
     private var eventSink: EventChannel.EventSink? = null
     private var controlBytesSink: EventChannel.EventSink? = null
 
@@ -208,6 +212,12 @@ class MainActivity : FlutterActivity() {
                     pm.init()
                     pm.setCallback(object : PeerAudioManager.AudioCallback {
                         override fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
+                            if (firstEncodedFramePeers.add(macAddress)) {
+                                sendEventToFlutter(mapOf(
+                                    "type" to "firstEncodedFrame",
+                                    "address" to macAddress,
+                                ))
+                            }
                             val frame = buildVoiceFrame(opusData, seq)
                             if (isVoiceHost) {
                                 voiceTransport?.sendToClient(macAddress, frame)
@@ -235,6 +245,8 @@ class MainActivity : FlutterActivity() {
                     WalkieTalkieService.getRunning()?.stopAudioEngine()
                     audioMixerManager?.clear()
                     audioMixerManager = null
+                    firstEncodedFramePeers.clear()
+                    firstDecodedFramePeers.clear()
                     // Stop and release the L2CAP transport so stale sockets
                     // don't bleed into the next session (Dart has no separate
                     // stopVoiceTransport call-site in the room exit path).
@@ -434,6 +446,11 @@ class MainActivity : FlutterActivity() {
                                         "type" to "voiceClientConnected",
                                         "address" to addr,
                                     ))
+                                    sendEventToFlutter(mapOf(
+                                        "type" to "l2capOpen",
+                                        "address" to addr,
+                                        "role" to "host",
+                                    ))
                                 },
                                 onError = { msg ->
                                     sendEventToFlutter(mapOf("type" to "error", "message" to msg))
@@ -473,13 +490,20 @@ class MainActivity : FlutterActivity() {
                             Thread({
                                 try {
                                     val ok = transport.connectClient(mac, psm)
-                                    if (ok) {
-                                        // Register the host as our single peer so the mixer
-                                        // thread can decode inbound frames and encode the mic
-                                        // signal to send back.
-                                        Handler(Looper.getMainLooper()).post { registerVoicePeer(mac) }
+                                    Handler(Looper.getMainLooper()).post {
+                                        if (ok) {
+                                            // Register the host as our single peer so the mixer
+                                            // thread can decode inbound frames and encode the mic
+                                            // signal to send back.
+                                            registerVoicePeer(mac)
+                                            sendEventToFlutter(mapOf(
+                                                "type" to "l2capOpen",
+                                                "address" to mac,
+                                                "role" to "guest",
+                                            ))
+                                        }
+                                        result.success(ok)
                                     }
-                                    Handler(Looper.getMainLooper()).post { result.success(ok) }
                                 } catch (e: Exception) {
                                     Log.e(TAG, "connectVoiceClient thread error: ${e.message}")
                                     Handler(Looper.getMainLooper()).post {
@@ -588,12 +612,29 @@ class MainActivity : FlutterActivity() {
                   ((frameBytes[2].toInt() and 0xFF) shl 8) or
                   (frameBytes[3].toInt() and 0xFF)
         val opusPayload = frameBytes.copyOfRange(8, frameBytes.size)
+        if (firstDecodedFramePeers.add(addr)) {
+            sendEventToFlutter(mapOf("type" to "firstDecodedFrame", "address" to addr))
+        }
         peerAudioManager?.onVoiceFrameReceived(addr, opusPayload, seq.toLong() and 0xFFFFFFFFL)
     }
 
     // Register addr as a peer in the native manager and add its mixer slot.
-    private fun registerVoicePeer(addr: String) {
-        val pm = peerAudioManager ?: return
+    // Retries up to 5 times (at 200 ms intervals) if peerAudioManager hasn't
+    // been created yet — guards the race where the L2CAP channel opens before
+    // startVoice has completed on the main thread.
+    private fun registerVoicePeer(addr: String, attempt: Int = 0) {
+        val pm = peerAudioManager
+        if (pm == null) {
+            if (attempt < 5) {
+                Handler(Looper.getMainLooper()).postDelayed(
+                    { registerVoicePeer(addr, attempt + 1) },
+                    200,
+                )
+            } else {
+                Log.e(TAG, "registerVoicePeer: peerAudioManager null after $attempt retries; $addr lost")
+            }
+            return
+        }
         val deviceId = pm.registerPeer(addr)
         if (deviceId >= 0) {
             audioMixerManager?.addDevice(deviceId)
