@@ -544,6 +544,10 @@ class MainActivity : FlutterActivity() {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 Log.i(TAG, "EventChannel listener attached")
                 eventSink = events
+                // Replay the last known media metadata in case it was dispatched
+                // before Flutter attached its listener (bridge attaches at engine start
+                // but Flutter's EventChannel listen() call comes later).
+                mediaSessionBridge?.replayLastMetadata()
             }
 
             override fun onCancel(arguments: Any?) {

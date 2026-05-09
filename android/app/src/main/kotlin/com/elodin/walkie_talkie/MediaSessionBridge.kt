@@ -19,7 +19,13 @@ import android.util.Log
  * not been granted yet, [attach] logs a warning and returns without crashing;
  * the host falls back to placeholder track data.
  *
- * Call [attach] on Activity start/resume (idempotent), [detach] on destroy.
+ * Call [attach] on Activity start/resume — it is safe to call repeatedly.
+ * The sessions-changed listener is registered only once; the scan+dispatch runs
+ * on every call so that a permission grant or session change that occurred while
+ * backgrounded is picked up immediately on resume. Call [detach] on destroy.
+ *
+ * Call [replayLastMetadata] when the Flutter EventChannel listener first attaches
+ * so any metadata that was dispatched before Flutter started listening is replayed.
  */
 class MediaSessionBridge(
     private val context: Context,
@@ -32,7 +38,10 @@ class MediaSessionBridge(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeController: MediaController? = null
-    private var isAttached = false
+    private var isListenerRegistered = false
+
+    /** Last dispatched event; replayed to late Flutter listeners via [replayLastMetadata]. */
+    private var lastMetadata: Map<String, Any?>? = null
 
     private val sessionManager: MediaSessionManager by lazy {
         context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
@@ -51,9 +60,9 @@ class MediaSessionBridge(
             Log.i(TAG, "YouTube Music session destroyed")
             activeController?.unregisterCallback(this)
             activeController = null
-            onMetadata(mapOf("type" to "mediaMetadata", "available" to false))
-            // Scan remaining active sessions in case another YT Music instance exists
-            if (isAttached) scanForYtMusic()
+            emit(mapOf("type" to "mediaMetadata", "available" to false))
+            // Scan remaining active sessions in case another YT Music instance exists.
+            if (isListenerRegistered) scanForYtMusic()
         }
     }
 
@@ -68,29 +77,57 @@ class MediaSessionBridge(
                 Log.i(TAG, "YouTube Music session no longer active")
                 activeController?.unregisterCallback(controllerCallback)
                 activeController = null
-                onMetadata(mapOf("type" to "mediaMetadata", "available" to false))
+                emit(mapOf("type" to "mediaMetadata", "available" to false))
             }
         }
     }
 
     /**
-     * Subscribe to MediaSessionManager. Safe to call multiple times — only attaches once.
-     * Call on Activity resume so permission grants that happened while backgrounded are picked up.
+     * Scan for active YouTube Music sessions and dispatch metadata if found.
+     * Registers the sessions-changed listener only on the first successful call
+     * (guarded by [isListenerRegistered]).
+     *
+     * Safe to call from Activity.onResume() — re-registers nothing, but always
+     * re-scans so a YT Music session that appeared while backgrounded is picked
+     * up, and a SecurityException after a permission revoke cleans up state.
      */
     fun attach() {
-        if (isAttached) return
         val notifComponent = ComponentName(context, WalkieTalkieNotificationListener::class.java)
         try {
             val controllers = sessionManager.getActiveSessions(notifComponent)
-            sessionManager.addOnActiveSessionsChangedListener(
-                sessionsListener, notifComponent, mainHandler
-            )
-            isAttached = true
+
+            // Register the listener only once — repeated calls must not stack listeners.
+            if (!isListenerRegistered) {
+                sessionManager.addOnActiveSessionsChangedListener(
+                    sessionsListener, notifComponent, mainHandler
+                )
+                isListenerRegistered = true
+            }
+
+            // Always re-scan: a YT Music session may have started while we were backgrounded,
+            // or an existing session may have changed identity (new MediaSession token).
             val ytMusic = controllers.firstOrNull { it.packageName == YT_MUSIC_PKG }
-            if (ytMusic != null) switchTo(ytMusic)
+            when {
+                ytMusic != null && ytMusic.sessionToken != activeController?.sessionToken -> {
+                    switchTo(ytMusic)
+                }
+                ytMusic == null && activeController != null -> {
+                    // YT Music disappeared while backgrounded.
+                    activeController?.unregisterCallback(controllerCallback)
+                    activeController = null
+                    emit(mapOf("type" to "mediaMetadata", "available" to false))
+                }
+            }
         } catch (e: SecurityException) {
-            // User hasn't granted notification access yet — graceful degradation, placeholder shown.
             Log.w(TAG, "Notification listener not enabled: ${e.message}")
+            // Permission revoked while attached — tear down the registered listener and controller.
+            if (isListenerRegistered) {
+                isListenerRegistered = false
+                try { sessionManager.removeOnActiveSessionsChangedListener(sessionsListener) } catch (_: Exception) {}
+                activeController?.unregisterCallback(controllerCallback)
+                activeController = null
+                emit(mapOf("type" to "mediaMetadata", "available" to false))
+            }
         }
     }
 
@@ -99,12 +136,22 @@ class MediaSessionBridge(
      * Call from Activity.onDestroy().
      */
     fun detach() {
-        isAttached = false
+        isListenerRegistered = false
         try {
             sessionManager.removeOnActiveSessionsChangedListener(sessionsListener)
         } catch (_: Exception) {}
         activeController?.unregisterCallback(controllerCallback)
         activeController = null
+        lastMetadata = null
+    }
+
+    /**
+     * Re-dispatch the last known metadata event to a newly-attached Flutter listener.
+     * Call this from EventChannel.StreamHandler.onListen() so that metadata dispatched
+     * before Flutter started listening is not permanently lost.
+     */
+    fun replayLastMetadata() {
+        lastMetadata?.let { onMetadata(it) }
     }
 
     private fun scanForYtMusic() {
@@ -136,7 +183,7 @@ class MediaSessionBridge(
         val durationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)
             ?.takeIf { it > 0 } ?: 0L
 
-        onMetadata(
+        emit(
             mapOf(
                 "type" to "mediaMetadata",
                 "available" to true,
@@ -147,5 +194,10 @@ class MediaSessionBridge(
                 "playing" to playing,
             )
         )
+    }
+
+    private fun emit(event: Map<String, Any?>) {
+        lastMetadata = event
+        onMetadata(event)
     }
 }

@@ -334,7 +334,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           );
           if (_source == 'YouTube Music') {
             _lib = _buildPlaceholderLib(source: _source, trackIdx: _trackIdx);
-            _progress = (positionMs / 1000).round().clamp(
+            _progress = (positionMs / 1000).floor().clamp(
               0,
               _lib.queue[_trackIdx].durationSeconds,
             );
@@ -467,7 +467,12 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // sees actual playback info rather than "Track N / YouTube Music".
     final meta = (source == 'YouTube Music') ? _liveYtMusicMeta : null;
     if (meta != null) {
-      final durationSec = (meta.durationMs / 1000).ceil().clamp(1, 86400);
+      // Fall back to the placeholder heuristic when the MediaSession doesn't
+      // expose duration (durationMs=0) — a 1-second clamp would break the
+      // progress slider and timer (Copilot review on PR #380).
+      final durationSec = meta.durationMs > 0
+          ? (meta.durationMs / 1000).ceil().clamp(1, 86400)
+          : (positionSec * 2 < 60 ? 60 : positionSec * 2);
       return MediaSourceLib(
         name: displayName,
         kind: emptyMediaLib.kind,
