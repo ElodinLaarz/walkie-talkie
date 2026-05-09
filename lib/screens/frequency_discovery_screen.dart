@@ -190,6 +190,7 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               child: RefreshIndicator(
                 onRefresh: _refreshDiscovery,
                 child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                   children: [
                     _buildHero(context),
@@ -269,9 +270,9 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
   }
 
   Future<void> _refreshDiscovery() async {
-    final cubit = context.read<DiscoveryCubit>();
-    await cubit.stopDiscovery();
-    await cubit.startDiscovery();
+    await _cubit!.stopDiscovery();
+    if (!mounted) return;
+    await _cubit!.startDiscovery();
   }
 
   Widget _buildHero(BuildContext context) {

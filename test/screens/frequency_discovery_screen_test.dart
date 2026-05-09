@@ -1049,8 +1049,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(_settleWindow);
 
-      verify(() => mockCubit.stopDiscovery()).called(1);
-      verify(() => mockCubit.startDiscovery()).called(1);
+      verifyInOrder([
+        () => mockCubit.stopDiscovery(),
+        () => mockCubit.startDiscovery(),
+      ]);
     });
   });
 }
