@@ -1041,14 +1041,14 @@ void main() {
 
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({
-            'type': 'l2capOpen',
-            'address': 'AA:BB:CC:DD:EE:FF',
-            'role': 'guest',
-          }),
-          (_) {},
-        );
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'l2capOpen',
+                'address': 'AA:BB:CC:DD:EE:FF',
+                'role': 'guest',
+              }),
+              (_) {},
+            );
         await Future<void>.microtask(() {});
 
         expect(received, hasLength(1));
@@ -1063,14 +1063,14 @@ void main() {
 
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({
-            'type': 'l2capOpen',
-            'address': '11:22:33:44:55:66',
-            'role': 'host',
-          }),
-          (_) {},
-        );
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'l2capOpen',
+                'address': '11:22:33:44:55:66',
+                'role': 'host',
+              }),
+              (_) {},
+            );
         await Future<void>.microtask(() {});
 
         expect(received, hasLength(1));
@@ -1084,10 +1084,13 @@ void main() {
 
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({'type': 'talkingPeers', 'peers': []}),
-          (_) {},
-        );
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'talkingPeers',
+                'peers': [],
+              }),
+              (_) {},
+            );
         await Future<void>.microtask(() {});
 
         expect(received, isEmpty);
@@ -1100,13 +1103,13 @@ void main() {
 
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({
-            'type': 'firstEncodedFrame',
-            'address': 'AA:BB:CC:DD:EE:FF',
-          }),
-          (_) {},
-        );
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'firstEncodedFrame',
+                'address': 'AA:BB:CC:DD:EE:FF',
+              }),
+              (_) {},
+            );
         await Future<void>.microtask(() {});
 
         expect(received, hasLength(1));
@@ -1120,39 +1123,45 @@ void main() {
 
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({
-            'type': 'firstDecodedFrame',
-            'address': 'AA:BB:CC:DD:EE:FF',
-          }),
-          (_) {},
-        );
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'firstDecodedFrame',
+                'address': 'AA:BB:CC:DD:EE:FF',
+              }),
+              (_) {},
+            );
         await Future<void>.microtask(() {});
 
         expect(received, hasLength(1));
         expect(received.first['address'], 'AA:BB:CC:DD:EE:FF');
       });
 
-      test('firstEncodedFrame and firstDecodedFrame ignore unrelated events',
-          () async {
-        final encoded = <Map<String, dynamic>>[];
-        final decoded = <Map<String, dynamic>>[];
-        final s1 = audioService.firstEncodedFrame.listen(encoded.add);
-        final s2 = audioService.firstDecodedFrame.listen(decoded.add);
-        addTearDown(s1.cancel);
-        addTearDown(s2.cancel);
+      test(
+        'firstEncodedFrame and firstDecodedFrame ignore unrelated events',
+        () async {
+          final encoded = <Map<String, dynamic>>[];
+          final decoded = <Map<String, dynamic>>[];
+          final s1 = audioService.firstEncodedFrame.listen(encoded.add);
+          final s2 = audioService.firstDecodedFrame.listen(decoded.add);
+          addTearDown(s1.cancel);
+          addTearDown(s2.cancel);
 
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .handlePlatformMessage(
-          eventChannelName,
-          codec.encodeSuccessEnvelope({'type': 'l2capOpen', 'address': 'X', 'role': 'guest'}),
-          (_) {},
-        );
-        await Future<void>.microtask(() {});
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .handlePlatformMessage(
+                eventChannelName,
+                codec.encodeSuccessEnvelope({
+                  'type': 'l2capOpen',
+                  'address': 'X',
+                  'role': 'guest',
+                }),
+                (_) {},
+              );
+          await Future<void>.microtask(() {});
 
-        expect(encoded, isEmpty);
-        expect(decoded, isEmpty);
-      });
+          expect(encoded, isEmpty);
+          expect(decoded, isEmpty);
+        },
+      );
     });
   });
 }
