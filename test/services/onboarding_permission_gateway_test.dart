@@ -118,6 +118,53 @@ void main() {
       await const DefaultOnboardingPermissionGateway().openAppSettings();
       expect(log.any((c) => c.method == 'openAppSettings'), isTrue);
     });
+
+    test('checkBluetooth reads status without requesting', () async {
+      install(
+        permsToStatus: {
+          ph.Permission.bluetoothScan.value: 1,
+          ph.Permission.bluetoothConnect.value: 1,
+          ph.Permission.bluetoothAdvertise.value: 1,
+        },
+      );
+      final result = await const DefaultOnboardingPermissionGateway()
+          .checkBluetooth();
+      expect(result, OnboardingPermissionStatus.granted);
+      expect(log.any((c) => c.method == 'requestPermissions'), isFalse);
+    });
+
+    test(
+      'checkBluetooth returns permanentlyDenied without requesting',
+      () async {
+        install(
+          permsToStatus: {
+            ph.Permission.bluetoothScan.value: 4, // permanentlyDenied
+            ph.Permission.bluetoothConnect.value: 1,
+            ph.Permission.bluetoothAdvertise.value: 1,
+          },
+        );
+        final result = await const DefaultOnboardingPermissionGateway()
+            .checkBluetooth();
+        expect(result, OnboardingPermissionStatus.permanentlyDenied);
+        expect(log.any((c) => c.method == 'requestPermissions'), isFalse);
+      },
+    );
+
+    test('checkMicrophone reads status without requesting', () async {
+      install(permsToStatus: {ph.Permission.microphone.value: 1});
+      final result = await const DefaultOnboardingPermissionGateway()
+          .checkMicrophone();
+      expect(result, OnboardingPermissionStatus.granted);
+      expect(log.any((c) => c.method == 'requestPermissions'), isFalse);
+    });
+
+    test('checkMicrophone returns denied without requesting', () async {
+      install(permsToStatus: {ph.Permission.microphone.value: 0});
+      final result = await const DefaultOnboardingPermissionGateway()
+          .checkMicrophone();
+      expect(result, OnboardingPermissionStatus.denied);
+      expect(log.any((c) => c.method == 'requestPermissions'), isFalse);
+    });
   });
 
   group('OnboardingPermissionGateway.reduce', () {
