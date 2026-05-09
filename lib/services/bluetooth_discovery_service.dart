@@ -21,6 +21,10 @@ class DiscoveryService {
   _discovered = {};
   StreamSubscription? _scanSubscription;
 
+  /// Fires [_emit] on a fixed cadence so stale entries are pruned even when
+  /// no BLE advertisements arrive (e.g. every host went silent simultaneously).
+  Timer? _pruneTimer;
+
   /// Starts scanning for Frequency advertisements.
   Future<void> startScan() async {
     // 1. Check if Bluetooth is available and on.
@@ -73,10 +77,18 @@ class DiscoveryService {
       // We remove the timeout to let the user control pausing/scanning
       // and prevent silent timeout failures (Thread 5, 11).
     );
+
+    // Start prune timer only after scan starts successfully. This prevents a
+    // resource leak where a failed startScan leaves the timer firing into a
+    // scan-less void.
+    _pruneTimer?.cancel();
+    _pruneTimer = Timer.periodic(freshnessWindow ~/ 2, (_) => _emit());
   }
 
   /// Stops the active scan.
   Future<void> stopScan() async {
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
     await FlutterBluePlus.stopScan();
     await _scanSubscription?.cancel();
     _scanSubscription = null;

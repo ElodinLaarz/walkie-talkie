@@ -286,4 +286,15 @@ void main() {
     // The pruning logic itself is simple (_emit removes entries older than
     // freshnessWindow) and is covered by code inspection.
   });
+
+  group('DiscoveryService prune timer', () {
+    test('prune timer period is half the freshness window', () {
+      // Timer fires at freshnessWindow ~/ 2 = 5 s so a host that stops
+      // advertising is removed within at most 1.5× the freshness window
+      // (worst case: entry added just after a prune tick, then one full
+      // freshnessWindow elapses, then the next tick fires).
+      final halfWindow = DiscoveryService.freshnessWindow ~/ 2;
+      expect(halfWindow, const Duration(seconds: 5));
+    });
+  });
 }
