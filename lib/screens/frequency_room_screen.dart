@@ -771,6 +771,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                       onPrev: _prev,
                       onScrub: _scrub,
                       onOpenQueue: _showQueueSheet,
+                      onChangeSource: widget.isHost ? _showSourceSheet : null,
                     ),
                     BlocBuilder<FrequencySessionCubit, FrequencySessionState>(
                       buildWhen: (prev, next) {

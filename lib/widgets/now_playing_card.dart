@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/frequency_models.dart';
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
+import 'media_source_sheet.dart';
 
 class NowPlayingCard extends StatelessWidget {
   final Track track;
@@ -19,6 +20,9 @@ class NowPlayingCard extends StatelessWidget {
   final ValueChanged<double> onScrub;
   final VoidCallback onOpenQueue;
 
+  /// Host-only: opens the source picker. Null for guests (chip not shown).
+  final VoidCallback? onChangeSource;
+
   const NowPlayingCard({
     super.key,
     required this.track,
@@ -34,6 +38,7 @@ class NowPlayingCard extends StatelessWidget {
     required this.onPrev,
     required this.onScrub,
     required this.onOpenQueue,
+    this.onChangeSource,
   });
 
   @override
@@ -52,16 +57,18 @@ class NowPlayingCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  'LISTENING TOGETHER · ${source.toUpperCase()}',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 1.0,
-                    color: c.ink3,
-                  ),
-                ),
+                child: onChangeSource != null
+                    ? _SourceChip(source: source, onTap: onChangeSource!)
+                    : Text(
+                        'LISTENING TOGETHER · ${source.toUpperCase()}',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 1.0,
+                          color: c.ink3,
+                        ),
+                      ),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -225,6 +232,64 @@ class NowPlayingCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Prominent chip button showing the current media source icon + name.
+/// Meets the ≥48dp tap-target requirement via [_kChipHeight].
+class _SourceChip extends StatelessWidget {
+  final String source;
+  final VoidCallback onTap;
+
+  static const double _kChipHeight = 48.0;
+
+  const _SourceChip({required this.source, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = FrequencyTheme.of(context).colors;
+    final ms = MediaSourceExtension.fromWireKey(source);
+    return Semantics(
+      button: true,
+      label: 'Change source, currently ${ms.label}',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: _kChipHeight),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: c.line),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(ms.icon, size: 12, color: c.ink2),
+                  const SizedBox(width: 5),
+                  Text(
+                    ms.label.toUpperCase(),
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 1.0,
+                      color: c.ink2,
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Icon(Icons.arrow_drop_down, size: 14, color: c.ink3),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
