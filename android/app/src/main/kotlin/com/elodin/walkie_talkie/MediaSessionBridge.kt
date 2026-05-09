@@ -13,7 +13,7 @@ import android.util.Log
 /**
  * Bridges the Android MediaSessionManager to Flutter by subscribing to the active
  * MediaController for a supported music/podcast app and dispatching track metadata
- * via [onMetadata]. Supported apps: YouTube Music, Pocket Casts.
+ * via [onMetadata]. Supported apps: YouTube Music, Spotify, Pocket Casts.
  *
  * Requires the user to have granted notification listener access for this app
  * (Settings → Apps → Special app access → Notification access). If access has
@@ -35,11 +35,13 @@ class MediaSessionBridge(
     companion object {
         private const val TAG = "MediaSessionBridge"
         private const val YT_MUSIC_PKG = "com.google.android.apps.youtube.music"
+        private const val SPOTIFY_PKG = "com.spotify.music"
         private const val POCKET_CASTS_PKG = "au.com.shiftyjelly.pocketcasts"
 
         /** Maps package name → Flutter wire key (must match MediaSource.wireKey in Dart). */
         private val PKG_TO_WIRE_KEY = mapOf(
             YT_MUSIC_PKG to "YouTube Music",
+            SPOTIFY_PKG to "spotify",
             POCKET_CASTS_PKG to "pocket_casts",
         )
     }

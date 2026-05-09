@@ -1542,6 +1542,107 @@ void main() {
         expect(find.text('Track 3'), findsNothing);
       },
     );
+
+    // --- Spotify MediaSession bridge (#369) ---
+
+    testWidgets(
+      'mediaMetadata event with sourceWireKey=spotify surfaces live title/artist (#369)',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'spotify',
+              trackIdx: 0,
+              playing: true,
+              positionMs: 0,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        eventEmitter.emit({
+          'type': 'mediaMetadata',
+          'available': true,
+          'sourceWireKey': 'spotify',
+          'title': 'Blinding Lights',
+          'artist': 'The Weeknd',
+          'durationMs': 200000,
+          'positionMs': 10000,
+          'playing': true,
+        });
+        await tester.pump();
+
+        expect(find.text('Blinding Lights'), findsOneWidget);
+        expect(find.text('The Weeknd'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'mediaMetadata available=false clears live Spotify metadata (#369)',
+      (tester) async {
+        final eventEmitter = _EventChannelEmitter(
+          'com.elodin.walkie_talkie/audio_events',
+        );
+        addTearDown(eventEmitter.dispose);
+
+        final cubit = _seededCubit();
+        addTearDown(cubit.close);
+
+        await tester.pumpWidget(_wrap(_room(), cubit: cubit));
+        await tester.pump();
+
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [],
+            mediaState: const MediaState(
+              source: 'spotify',
+              trackIdx: 0,
+              playing: true,
+              positionMs: 0,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        eventEmitter.emit({
+          'type': 'mediaMetadata',
+          'available': true,
+          'sourceWireKey': 'spotify',
+          'title': 'Blinding Lights',
+          'artist': 'The Weeknd',
+          'durationMs': 200000,
+          'positionMs': 0,
+          'playing': true,
+        });
+        await tester.pump();
+        expect(find.text('Blinding Lights'), findsOneWidget);
+
+        eventEmitter.emit({'type': 'mediaMetadata', 'available': false});
+        await tester.pump();
+
+        expect(find.text('Blinding Lights'), findsNothing);
+      },
+    );
   });
 }
 
