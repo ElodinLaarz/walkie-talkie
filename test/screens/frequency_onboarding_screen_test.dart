@@ -8,8 +8,16 @@ import 'package:walkie_talkie/services/onboarding_permission_gateway.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 
 class _FakeGateway implements OnboardingPermissionGateway {
+  /// Returned by requestBluetooth / requestMicrophone (simulates dialog result).
   OnboardingPermissionStatus btResult;
   OnboardingPermissionStatus micResult;
+
+  /// Returned by checkBluetooth / checkMicrophone (simulates current OS state
+  /// without prompting). Defaults to denied so existing tests start in the
+  /// "not yet requested" state; override to test revoked-permission paths.
+  OnboardingPermissionStatus btCheckResult;
+  OnboardingPermissionStatus micCheckResult;
+
   int btRequests = 0;
   int micRequests = 0;
   int settingsOpens = 0;
@@ -17,6 +25,8 @@ class _FakeGateway implements OnboardingPermissionGateway {
   _FakeGateway({
     this.btResult = OnboardingPermissionStatus.granted,
     this.micResult = OnboardingPermissionStatus.granted,
+    this.btCheckResult = OnboardingPermissionStatus.denied,
+    this.micCheckResult = OnboardingPermissionStatus.denied,
   });
 
   @override
@@ -32,10 +42,10 @@ class _FakeGateway implements OnboardingPermissionGateway {
   }
 
   @override
-  Future<OnboardingPermissionStatus> checkBluetooth() async => btResult;
+  Future<OnboardingPermissionStatus> checkBluetooth() async => btCheckResult;
 
   @override
-  Future<OnboardingPermissionStatus> checkMicrophone() async => micResult;
+  Future<OnboardingPermissionStatus> checkMicrophone() async => micCheckResult;
 
   @override
   Future<void> openAppSettings() async {
@@ -228,7 +238,7 @@ void main() {
       'permanently-denied BT shows Open settings on mount without tapping Allow',
       (tester) async {
         final gateway = _FakeGateway(
-          btResult: OnboardingPermissionStatus.permanentlyDenied,
+          btCheckResult: OnboardingPermissionStatus.permanentlyDenied,
         );
 
         await tester.pumpWidget(
@@ -289,7 +299,7 @@ void main() {
         expect(find.text('Allow'), findsNWidgets(2));
 
         // User goes to system settings, grants BT, returns to app.
-        gateway.btResult = OnboardingPermissionStatus.granted;
+        gateway.btCheckResult = OnboardingPermissionStatus.granted;
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.resumed,
         );
@@ -352,7 +362,7 @@ class _SlowGateway implements OnboardingPermissionGateway {
 
   @override
   Future<OnboardingPermissionStatus> checkMicrophone() async =>
-      OnboardingPermissionStatus.granted;
+      OnboardingPermissionStatus.denied;
 
   @override
   Future<void> openAppSettings() async {}
