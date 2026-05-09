@@ -1000,4 +1000,57 @@ void main() {
       verify(() => mockCubit.stopDiscovery()).called(1);
     });
   });
+
+  group('pull-to-refresh', () {
+    testWidgets('discovery list has a RefreshIndicator', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(RefreshIndicator), findsOneWidget);
+    });
+
+    testWidgets('pull-to-refresh calls stopDiscovery then startDiscovery', (
+      tester,
+    ) async {
+      final mockCubit = MockDiscoveryCubit();
+      when(() => mockCubit.state).thenReturn(const DiscoveryScanning());
+      when(() => mockCubit.stream).thenAnswer((_) => const Stream.empty());
+      when(() => mockCubit.startDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.stopDiscovery()).thenAnswer((_) async {});
+      when(() => mockCubit.close()).thenAnswer((_) async {});
+
+      await tester.pumpWidget(
+        _wrap(
+          FrequencyDiscoveryScreen(
+            onPick: (_) {},
+            myName: 'Mo Ali',
+            onRename: (_) {},
+          ),
+          cubit: mockCubit,
+        ),
+      );
+      await tester.pump();
+      clearInteractions(mockCubit);
+
+      // Trigger via fling — show() requires pump() calls while awaiting, so
+      // use a gesture-based approach that runs within the normal pump cycle.
+      await tester.fling(find.byType(ListView), const Offset(0, 300), 1000);
+      // One pump to start the overscroll animation, one to reach the trigger
+      // threshold, one to call onRefresh, one to dismiss the indicator.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(_settleWindow);
+
+      verify(() => mockCubit.stopDiscovery()).called(1);
+      verify(() => mockCubit.startDiscovery()).called(1);
+    });
+  });
 }
