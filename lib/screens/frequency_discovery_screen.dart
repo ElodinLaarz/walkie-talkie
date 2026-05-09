@@ -1383,6 +1383,7 @@ class _InviteLinkBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1397,7 +1398,7 @@ class _InviteLinkBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Looking for $freq MHz…',
+              l10n.discoveryInviteBanner(freq),
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 13,

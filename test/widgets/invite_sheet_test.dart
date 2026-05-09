@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/invite_sheet.dart';
 
 Widget _wrap(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: child),
   );
 }
@@ -17,6 +20,14 @@ void _mockClipboard() {
         const MethodChannel('flutter/clipboard'),
         (MethodCall call) async => null,
       );
+  // Clear after the test so the mock doesn't leak into later tests.
+  addTearDown(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter/clipboard'),
+          null,
+        ),
+  );
 }
 
 void main() {
