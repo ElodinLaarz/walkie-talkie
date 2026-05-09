@@ -187,82 +187,92 @@ class _FrequencyDiscoveryScreenState extends State<FrequencyDiscoveryScreen> {
               ],
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-                children: [
-                  _buildHero(context),
-                  const SizedBox(height: 24),
-                  _buildCreateCard(context),
-                  if (widget.recentHostedFrequencies.isNotEmpty) ...[
-                    SectionLabel(text: l10n.discoverySectionRecent),
-                    _buildRecentList(context),
-                  ],
-                  SectionLabel(
-                    text: l10n.discoverySectionNearby,
-                    trailing: _buildScanIndicator(context),
-                  ),
-                  _buildNearbyList(context),
-                  const SizedBox(height: 14),
-                  Center(
-                    child: Text(
-                      l10n.discoveryFooter,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12,
-                        color: c.ink3,
+              child: RefreshIndicator(
+                onRefresh: _refreshDiscovery,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                  children: [
+                    _buildHero(context),
+                    const SizedBox(height: 24),
+                    _buildCreateCard(context),
+                    if (widget.recentHostedFrequencies.isNotEmpty) ...[
+                      SectionLabel(text: l10n.discoverySectionRecent),
+                      _buildRecentList(context),
+                    ],
+                    SectionLabel(
+                      text: l10n.discoverySectionNearby,
+                      trailing: _buildScanIndicator(context),
+                    ),
+                    _buildNearbyList(context),
+                    const SizedBox(height: 14),
+                    Center(
+                      child: Text(
+                        l10n.discoveryFooter,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: c.ink3,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  // Wrap instead of Row: three links + two separators may
-                  // overflow narrow viewports in a single row.
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _FooterLink(
-                        label: l10n.discoveryFooterPrivacy,
-                        onPressed: _openPrivacyPolicy,
-                      ),
-                      // Visual separator only — TalkBack would otherwise
-                      // announce "dot" between the footer buttons.
-                      ExcludeSemantics(
-                        child: Text(
-                          '·',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12,
-                            color: c.ink3,
+                    const SizedBox(height: 4),
+                    // Wrap instead of Row: three links + two separators may
+                    // overflow narrow viewports in a single row.
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _FooterLink(
+                          label: l10n.discoveryFooterPrivacy,
+                          onPressed: _openPrivacyPolicy,
+                        ),
+                        // Visual separator only — TalkBack would otherwise
+                        // announce "dot" between the footer buttons.
+                        ExcludeSemantics(
+                          child: Text(
+                            '·',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: c.ink3,
+                            ),
                           ),
                         ),
-                      ),
-                      _FooterLink(
-                        label: l10n.discoveryFooterSecurity,
-                        onPressed: _openSecurityFaq,
-                      ),
-                      ExcludeSemantics(
-                        child: Text(
-                          '·',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12,
-                            color: c.ink3,
+                        _FooterLink(
+                          label: l10n.discoveryFooterSecurity,
+                          onPressed: _openSecurityFaq,
+                        ),
+                        ExcludeSemantics(
+                          child: Text(
+                            '·',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: c.ink3,
+                            ),
                           ),
                         ),
-                      ),
-                      _FooterLink(
-                        label: l10n.discoveryFooterLicenses,
-                        onPressed: _openLicenses,
-                      ),
-                    ],
-                  ),
-                ],
+                        _FooterLink(
+                          label: l10n.discoveryFooterLicenses,
+                          onPressed: _openLicenses,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _refreshDiscovery() async {
+    await _cubit!.stopDiscovery();
+    if (!mounted) return;
+    await _cubit!.startDiscovery();
   }
 
   Widget _buildHero(BuildContext context) {
