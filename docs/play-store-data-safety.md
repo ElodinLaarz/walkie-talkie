@@ -32,7 +32,7 @@ All other data type rows answered **No**, including Audio (voice) and Device or 
 
 ## Why audio and peerId are not declared
 
-Voice audio and the local `peerId` UUID are transmitted over Bluetooth LE to other peers in the same Frequency room — peers the user explicitly chose to communicate with by joining a shared frequency. The developer never receives, processes, or stores either of these data types; they exist only on the user's device and on the devices of co-present peers within roughly 10–30 metres of BLE radio range.
+Voice audio and the local `peerId` UUID are transmitted over Bluetooth LE to other peers in the same Frequency room — peers the user explicitly chose to communicate with by joining a shared frequency. The developer never receives, processes, or stores either of these data types; they exist only on the user's device and on the devices of co-present peers within about 30 metres (100 feet) of BLE radio range.
 
 Per Google Play's Data Safety guidance:
 

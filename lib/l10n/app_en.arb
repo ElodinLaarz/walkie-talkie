@@ -44,7 +44,7 @@
     "@explainerPage2Headline": {
         "description": "Explainer page 2 headline. \\n preserved for two-line layout."
     },
-    "explainerPage2Body": "This app connects phones over Bluetooth, not Wi-Fi or cellular. Everyone needs to be within Bluetooth range (about 30 feet) to stay connected.",
+    "explainerPage2Body": "This app connects phones over Bluetooth, not Wi-Fi or cellular. Everyone needs to be within about 30 metres (100 feet) of Bluetooth range to stay connected.",
     "@explainerPage2Body": {
         "description": "Explainer page 2 body copy."
     },
@@ -616,7 +616,7 @@
     "@securityFaqQ2": {
         "description": "Security FAQ question 2."
     },
-    "securityFaqA2": "In v1, an attacker within Bluetooth range (roughly 10–30 metres) who obtains your session code could join the frequency and hear your conversation.\n\nThe host device sees all audio streams before mixing and rebroadcasting them — that's unavoidable in the current star-topology design. Only start a Frequency with people you trust, and treat the host's device like a room host.",
+    "securityFaqA2": "In v1, an attacker within about 30 metres (100 feet) of Bluetooth range who obtains your session code could join the frequency and hear your conversation.\n\nThe host device sees all audio streams before mixing and rebroadcasting them — that's unavoidable in the current star-topology design. Only start a Frequency with people you trust, and treat the host's device like a room host.",
     "@securityFaqA2": {
         "description": "Security FAQ answer 2."
     },
