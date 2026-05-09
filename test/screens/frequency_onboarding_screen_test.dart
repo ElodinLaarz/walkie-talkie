@@ -32,6 +32,12 @@ class _FakeGateway implements OnboardingPermissionGateway {
   }
 
   @override
+  Future<OnboardingPermissionStatus> checkBluetooth() async => btResult;
+
+  @override
+  Future<OnboardingPermissionStatus> checkMicrophone() async => micResult;
+
+  @override
   Future<void> openAppSettings() async {
     settingsOpens++;
   }
@@ -218,6 +224,82 @@ void main() {
       expect(doneName, isNull);
     });
 
+    testWidgets(
+      'permanently-denied BT shows Open settings on mount without tapping Allow',
+      (tester) async {
+        final gateway = _FakeGateway(
+          btResult: OnboardingPermissionStatus.permanentlyDenied,
+        );
+
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyOnboardingScreen(
+              permissionGateway: gateway,
+              onDone: (_) {},
+            ),
+          ),
+        );
+        await tester.tap(find.text('Get started'));
+        await tester.pumpAndSettle();
+
+        // Skip through explainer
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Get started'));
+        await tester.pumpAndSettle();
+
+        // No Allow tap needed — check() on mount detected permanentlyDenied.
+        expect(find.text('Open settings'), findsOneWidget);
+        expect(
+          find.text('Blocked — re-enable in system settings'),
+          findsOneWidget,
+        );
+        expect(gateway.btRequests, 0);
+      },
+    );
+
+    testWidgets(
+      'app resume after settings re-checks and updates denied → granted',
+      (tester) async {
+        final gateway = _FakeGateway(
+          btResult: OnboardingPermissionStatus.denied,
+        );
+
+        await tester.pumpWidget(
+          _wrap(
+            FrequencyOnboardingScreen(
+              permissionGateway: gateway,
+              onDone: (_) {},
+            ),
+          ),
+        );
+        await tester.tap(find.text('Get started'));
+        await tester.pumpAndSettle();
+
+        // Skip through explainer
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Get started'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Allow'), findsNWidgets(2));
+
+        // User goes to system settings, grants BT, returns to app.
+        gateway.btResult = OnboardingPermissionStatus.granted;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Allowed'), findsOneWidget);
+        expect(gateway.btRequests, 0);
+      },
+    );
+
     testWidgets('in-flight request label shows while gateway is pending', (
       tester,
     ) async {
@@ -262,6 +344,14 @@ class _SlowGateway implements OnboardingPermissionGateway {
 
   @override
   Future<OnboardingPermissionStatus> requestMicrophone() async =>
+      OnboardingPermissionStatus.granted;
+
+  @override
+  Future<OnboardingPermissionStatus> checkBluetooth() async =>
+      OnboardingPermissionStatus.denied;
+
+  @override
+  Future<OnboardingPermissionStatus> checkMicrophone() async =>
       OnboardingPermissionStatus.granted;
 
   @override

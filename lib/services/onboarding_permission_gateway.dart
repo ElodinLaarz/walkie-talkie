@@ -13,6 +13,13 @@ enum OnboardingPermissionStatus { denied, granted, permanentlyDenied }
 abstract class OnboardingPermissionGateway {
   Future<OnboardingPermissionStatus> requestBluetooth();
   Future<OnboardingPermissionStatus> requestMicrophone();
+
+  /// Query current status without showing a system permission dialog.
+  /// Used on screen mount and app-resume to reflect revoked permissions
+  /// immediately (e.g. show "Open settings" without requiring a tap first).
+  Future<OnboardingPermissionStatus> checkBluetooth();
+  Future<OnboardingPermissionStatus> checkMicrophone();
+
   Future<void> openAppSettings();
 }
 
@@ -39,6 +46,20 @@ class DefaultOnboardingPermissionGateway
   @override
   Future<OnboardingPermissionStatus> requestMicrophone() async {
     final status = await ph.Permission.microphone.request();
+    return reduce([status]);
+  }
+
+  @override
+  Future<OnboardingPermissionStatus> checkBluetooth() async {
+    final results = await Future.wait(
+      _bluetoothPermissions.map((p) => p.status),
+    );
+    return reduce(results);
+  }
+
+  @override
+  Future<OnboardingPermissionStatus> checkMicrophone() async {
+    final status = await ph.Permission.microphone.status;
     return reduce([status]);
   }
 

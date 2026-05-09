@@ -31,7 +31,8 @@ class FrequencyOnboardingScreen extends StatefulWidget {
       _FrequencyOnboardingScreenState();
 }
 
-class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
+class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen>
+    with WidgetsBindingObserver {
   int _step = 0;
   OnboardingPermissionStatus _btStatus = OnboardingPermissionStatus.denied;
   OnboardingPermissionStatus _micStatus = OnboardingPermissionStatus.denied;
@@ -42,9 +43,34 @@ class _FrequencyOnboardingScreenState extends State<FrequencyOnboardingScreen> {
       widget.permissionGateway ?? const DefaultOnboardingPermissionGateway();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkCurrentStatuses();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _nameCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkCurrentStatuses();
+    }
+  }
+
+  Future<void> _checkCurrentStatuses() async {
+    final btStatus = await _gateway.checkBluetooth();
+    final micStatus = await _gateway.checkMicrophone();
+    if (!mounted) return;
+    setState(() {
+      _btStatus = btStatus;
+      _micStatus = micStatus;
+    });
   }
 
   bool get _allGranted =>
