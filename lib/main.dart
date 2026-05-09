@@ -258,17 +258,40 @@ class FrequencyApp extends StatefulWidget {
 class _FrequencyAppState extends State<FrequencyApp>
     with WidgetsBindingObserver {
   bool _pttMode = false;
+  String? _pendingInviteFreq;
+  StreamSubscription<Map<String, dynamic>>? _inviteLinkSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Post-frame callback so context.read is available.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _reloadSettings());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _reloadSettings();
+      _initInviteLinks();
+    });
+  }
+
+  void _initInviteLinks() {
+    final audio = context.read<AudioService>();
+    // Cold-start: check whether the app was launched via an invite link.
+    audio.getInitialLink().then((freq) {
+      if (freq != null && mounted) setState(() => _pendingInviteFreq = freq);
+    });
+    // Warm-start: listen for invite links delivered while the app is running.
+    _inviteLinkSub = audio.audioEvents
+        .where((e) => e['type'] == 'openInviteLink')
+        .listen((e) {
+          final freq = e['freq'] as String?;
+          if (freq != null && mounted) {
+            setState(() => _pendingInviteFreq = freq);
+          }
+        });
   }
 
   @override
   void dispose() {
+    _inviteLinkSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -323,6 +346,7 @@ class _FrequencyAppState extends State<FrequencyApp>
         FrequencyDiscoveryScreen(
           myName: myName,
           recentHostedFrequencies: recentHostedFrequencies,
+          pendingInviteFreq: _pendingInviteFreq,
           onRename: (name) {
             cubit.rename(name);
           },
@@ -339,6 +363,9 @@ class _FrequencyAppState extends State<FrequencyApp>
           // tolerates a fire-and-forget call (the user has already
           // committed to entering the room).
           onPick: (result) {
+            if (_pendingInviteFreq != null) {
+              setState(() => _pendingInviteFreq = null);
+            }
             unawaited(
               cubit.joinRoom(
                 isHost: result.isHost,

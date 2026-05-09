@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'frequency_atoms.dart';
 
@@ -27,6 +29,7 @@ class _InviteSheetState extends State<InviteSheet> {
   @override
   Widget build(BuildContext context) {
     final c = FrequencyTheme.of(context).colors;
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       child: Column(
@@ -102,14 +105,33 @@ class _InviteSheetState extends State<InviteSheet> {
           FreqButton(
             block: true,
             icon: _copied ? Icons.check : Icons.copy,
-            label: _copied ? 'Copied invite' : 'Copy invite link',
+            label: _copied
+                ? l10n.inviteSheetCopiedButton
+                : l10n.inviteSheetCopyButton,
             padding: const EdgeInsets.symmetric(vertical: 12),
             onPressed: () {
+              final link =
+                  'walkietalkie://join?freq=${Uri.encodeComponent(widget.freq)}';
+              final messenger = ScaffoldMessenger.of(context);
+              // Fire-and-forget: clipboard writes rarely fail and the UX
+              // confirmation (label + snackbar) should be instantaneous.
+              // Log errors rather than letting them surface as unhandled.
+              unawaited(
+                Clipboard.setData(ClipboardData(text: link)).catchError((e) {
+                  debugPrint('Clipboard.setData failed: $e');
+                }),
+              );
               setState(() => _copied = true);
               _copiedReset?.cancel();
               _copiedReset = Timer(const Duration(milliseconds: 1600), () {
                 if (mounted) setState(() => _copied = false);
               });
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(l10n.inviteSheetCopiedSnackbar),
+                  duration: const Duration(milliseconds: 1600),
+                ),
+              );
             },
           ),
           const SizedBox(height: 12),

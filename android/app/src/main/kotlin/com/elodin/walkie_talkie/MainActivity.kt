@@ -3,6 +3,7 @@ package com.elodin.walkie_talkie
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -523,6 +524,13 @@ class MainActivity : FlutterActivity() {
                         result.success(applied)
                     }
                 }
+                "getInitialLink" -> {
+                    // Called by Flutter once the engine is ready to receive the
+                    // launch-intent deep link (cold-start path). Returns the
+                    // freq query param from a walkietalkie://join?freq=<name>
+                    // URI, or null when the app was not opened via an invite link.
+                    result.success(extractInviteFreq(intent))
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -636,7 +644,19 @@ class MainActivity : FlutterActivity() {
         if (intent.getStringExtra(WalkieTalkieService.EXTRA_ACTION) == WalkieTalkieService.ACTION_LEAVE) {
             Log.i(TAG, "Leave action received via notification intent")
             sendEventToFlutter(mapOf("type" to "leaveRoom"))
+            return
         }
+        val freq = extractInviteFreq(intent)
+        if (freq != null) {
+            Log.i(TAG, "Invite deep link received (warm start): freq=$freq")
+            sendEventToFlutter(mapOf("type" to "openInviteLink", "freq" to freq))
+        }
+    }
+
+    private fun extractInviteFreq(intent: Intent): String? {
+        val uri: Uri = intent.data ?: return null
+        if (uri.scheme != "walkietalkie" || uri.host != "join") return null
+        return uri.getQueryParameter("freq")
     }
     override fun onDestroy() {
         super.onDestroy()

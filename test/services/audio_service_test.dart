@@ -655,6 +655,11 @@ void main() {
         installFailing();
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
+
+      test('getInitialLink returns null on error', () async {
+        installFailing();
+        expect(await audioService.getInitialLink(), isNull);
+      });
     });
 
     group('happy-path coverage for missing methods', () {
@@ -824,6 +829,21 @@ void main() {
           expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
         },
       );
+
+      test('getInitialLink returns freq string from native', () async {
+        handler = (call) async {
+          if (call.method == 'getInitialLink') return '104.3';
+          return null;
+        };
+        final result = await audioService.getInitialLink();
+        expect(result, '104.3');
+        expect(log.last, isMethodCall('getInitialLink', arguments: null));
+      });
+
+      test('getInitialLink returns null when native returns null', () async {
+        handler = (call) async => null;
+        expect(await audioService.getInitialLink(), isNull);
+      });
     });
 
     group('LinkTelemetrySnapshot equality + hashCode', () {

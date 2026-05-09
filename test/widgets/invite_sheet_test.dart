@@ -1,12 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:walkie_talkie/l10n/generated/app_localizations.dart';
 import 'package:walkie_talkie/theme/app_theme.dart';
 import 'package:walkie_talkie/widgets/invite_sheet.dart';
 
 Widget _wrap(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: child),
+  );
+}
+
+void _mockClipboard() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+        const MethodChannel('flutter/clipboard'),
+        (MethodCall call) async => null,
+      );
+  // Clear after the test so the mock doesn't leak into later tests.
+  addTearDown(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter/clipboard'),
+          null,
+        ),
   );
 }
 
@@ -27,6 +47,7 @@ void main() {
     testWidgets('tapping copy button changes label to "Copied invite"', (
       tester,
     ) async {
+      _mockClipboard();
       await tester.pumpWidget(_wrap(const InviteSheet(freq: '91.5')));
       await tester.tap(find.text('Copy invite link'));
       await tester.pump();
@@ -35,6 +56,7 @@ void main() {
     });
 
     testWidgets('"Copied invite" reverts after 1600ms', (tester) async {
+      _mockClipboard();
       await tester.pumpWidget(_wrap(const InviteSheet(freq: '91.5')));
       await tester.tap(find.text('Copy invite link'));
       await tester.pump();

@@ -656,5 +656,28 @@
     "securityFaqCloseIcon": "Close Privacy & Security FAQ",
     "@securityFaqCloseIcon": {
         "description": "Accessibility label for the top-right close icon on the security FAQ screen. Distinct from the bottom 'Got it' CTA so screen readers announce different labels for the two controls."
+    },
+
+    "inviteSheetCopyButton": "Copy invite link",
+    "@inviteSheetCopyButton": {
+        "description": "Label on the copy-invite-link button in the invite sheet (pre-copy state)."
+    },
+
+    "inviteSheetCopiedButton": "Copied invite",
+    "@inviteSheetCopiedButton": {
+        "description": "Label on the copy-invite-link button after the link has been copied (post-copy confirmation state, reverts after 1600 ms)."
+    },
+
+    "inviteSheetCopiedSnackbar": "Invite link copied",
+    "@inviteSheetCopiedSnackbar": {
+        "description": "SnackBar message shown after the invite link is copied to the clipboard."
+    },
+
+    "discoveryInviteBanner": "Looking for {freq} MHz…",
+    "@discoveryInviteBanner": {
+        "description": "Banner shown on the discovery screen while scanning for a frequency that was opened via an invite deep link. {freq} is the MHz display string (e.g. \"104.3\").",
+        "placeholders": {
+            "freq": { "type": "String", "example": "104.3" }
+        }
     }
 }
