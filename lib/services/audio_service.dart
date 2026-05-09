@@ -285,6 +285,34 @@ class AudioService {
         .map((e) => e['talking'] == true);
   }
 
+  /// Fires once per session per peer when the L2CAP CoC voice channel opens.
+  ///
+  /// Emitted on both the guest side (after [connectVoiceClient] succeeds) and
+  /// the host side (when a guest's L2CAP connection is accepted). The event
+  /// map contains 'address' (the remote BLE MAC) and 'role' ("guest" or
+  /// "host") indicating which side of the channel this device is on.
+  ///
+  /// Use this for voice-path diagnostics — its presence confirms that the
+  /// L2CAP transport layer is up. Absence after a tune-in indicates the
+  /// channel stalled at the BLE/OS layer before any audio could flow.
+  Stream<Map<String, dynamic>> get l2capOpen {
+    return audioEvents.where((e) => e['type'] == 'l2capOpen');
+  }
+
+  /// Fires once per session per peer when the first outbound Opus frame is
+  /// produced for that peer. Confirms the local encoder and mic path are
+  /// running. The event map contains 'address' (the peer's BLE MAC).
+  Stream<Map<String, dynamic>> get firstEncodedFrame {
+    return audioEvents.where((e) => e['type'] == 'firstEncodedFrame');
+  }
+
+  /// Fires once per session per peer when the first inbound Opus frame
+  /// arrives from that peer. Confirms the L2CAP receive path and decoder are
+  /// working. The event map contains 'address' (the peer's BLE MAC).
+  Stream<Map<String, dynamic>> get firstDecodedFrame {
+    return audioEvents.where((e) => e['type'] == 'firstDecodedFrame');
+  }
+
   /// Start LE advertising for the host.
   ///
   /// Broadcasts the walkie-talkie service UUID plus a 16-byte manufacturer

@@ -1029,5 +1029,139 @@ void main() {
         expect(b.first.bytes, Uint8List.fromList([42]));
       });
     });
+
+    group('voice-path telemetry streams', () {
+      const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
+      final codec = const StandardMethodCodec();
+
+      test('l2capOpen surfaces guest-side l2capOpen events', () async {
+        final received = <Map<String, dynamic>>[];
+        final sub = audioService.l2capOpen.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'l2capOpen',
+                'address': 'AA:BB:CC:DD:EE:FF',
+                'role': 'guest',
+              }),
+              (_) {},
+            );
+        await Future<void>.microtask(() {});
+
+        expect(received, hasLength(1));
+        expect(received.first['address'], 'AA:BB:CC:DD:EE:FF');
+        expect(received.first['role'], 'guest');
+      });
+
+      test('l2capOpen surfaces host-side l2capOpen events', () async {
+        final received = <Map<String, dynamic>>[];
+        final sub = audioService.l2capOpen.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'l2capOpen',
+                'address': '11:22:33:44:55:66',
+                'role': 'host',
+              }),
+              (_) {},
+            );
+        await Future<void>.microtask(() {});
+
+        expect(received, hasLength(1));
+        expect(received.first['role'], 'host');
+      });
+
+      test('l2capOpen ignores unrelated events', () async {
+        final received = <Map<String, dynamic>>[];
+        final sub = audioService.l2capOpen.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'talkingPeers',
+                'peers': [],
+              }),
+              (_) {},
+            );
+        await Future<void>.microtask(() {});
+
+        expect(received, isEmpty);
+      });
+
+      test('firstEncodedFrame surfaces first-encode events', () async {
+        final received = <Map<String, dynamic>>[];
+        final sub = audioService.firstEncodedFrame.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'firstEncodedFrame',
+                'address': 'AA:BB:CC:DD:EE:FF',
+              }),
+              (_) {},
+            );
+        await Future<void>.microtask(() {});
+
+        expect(received, hasLength(1));
+        expect(received.first['address'], 'AA:BB:CC:DD:EE:FF');
+      });
+
+      test('firstDecodedFrame surfaces first-decode events', () async {
+        final received = <Map<String, dynamic>>[];
+        final sub = audioService.firstDecodedFrame.listen(received.add);
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'type': 'firstDecodedFrame',
+                'address': 'AA:BB:CC:DD:EE:FF',
+              }),
+              (_) {},
+            );
+        await Future<void>.microtask(() {});
+
+        expect(received, hasLength(1));
+        expect(received.first['address'], 'AA:BB:CC:DD:EE:FF');
+      });
+
+      test(
+        'firstEncodedFrame and firstDecodedFrame ignore unrelated events',
+        () async {
+          final encoded = <Map<String, dynamic>>[];
+          final decoded = <Map<String, dynamic>>[];
+          final s1 = audioService.firstEncodedFrame.listen(encoded.add);
+          final s2 = audioService.firstDecodedFrame.listen(decoded.add);
+          addTearDown(s1.cancel);
+          addTearDown(s2.cancel);
+
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .handlePlatformMessage(
+                eventChannelName,
+                codec.encodeSuccessEnvelope({
+                  'type': 'l2capOpen',
+                  'address': 'X',
+                  'role': 'guest',
+                }),
+                (_) {},
+              );
+          await Future<void>.microtask(() {});
+
+          expect(encoded, isEmpty);
+          expect(decoded, isEmpty);
+        },
+      );
+    });
   });
 }
