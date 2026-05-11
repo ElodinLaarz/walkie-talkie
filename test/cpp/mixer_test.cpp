@@ -64,6 +64,35 @@ void testMixMinus() {
     std::cout << "Test Mix-Minus: PASSED" << std::endl;
 }
 
+void testLoopbackSyntheticPeerFeedsLocalPlayout() {
+    AudioMixer mixer;
+    const int localMicDevice = 0;
+    const int loopbackDevice = -1;
+    mixer.addDevice(localMicDevice);
+    mixer.addDevice(loopbackDevice);
+
+    const int numFrames = 64;
+    int16_t mic[numFrames];
+    for (int i = 0; i < numFrames; i++) {
+        mic[i] = static_cast<int16_t>(100 + i);
+    }
+
+    // The native loopback mode mirrors the local mic into a synthetic peer,
+    // then asks the normal mix-minus path what device 0 should hear.
+    mixer.updateDeviceAudio(localMicDevice, mic, numFrames);
+    mixer.updateDeviceAudio(loopbackDevice, mic, numFrames);
+
+    int16_t playout[numFrames];
+    mixer.getMixedAudioForDevice(localMicDevice, playout, numFrames);
+
+    for (int i = 0; i < numFrames; i++) {
+        assert(playout[i] == mic[i]);
+    }
+
+    std::cout << "Test Loopback Synthetic Peer Feeds Local Playout: PASSED"
+              << std::endl;
+}
+
 void testClipping() {
     AudioMixer mixer;
     mixer.addDevice(1);
@@ -458,6 +487,7 @@ void testConcurrentSwapAndLoadIsRaceFree() {
 int main() {
     try {
         testMixMinus();
+        testLoopbackSyntheticPeerFeedsLocalPlayout();
         testClipping();
         testMaxDevices();
         testStuckProducerPrune();

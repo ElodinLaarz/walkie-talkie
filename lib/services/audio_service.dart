@@ -175,6 +175,33 @@ class AudioService {
     }
   }
 
+  /// Start the single-device native loopback path used for field validation.
+  ///
+  /// The Android side enables loopback mode, initializes the same mixer and
+  /// Oboe engine used by production voice, and routes local mic PCM through a
+  /// synthetic mixer peer before speaker playback. This is intentionally not
+  /// used by normal rooms because users should not hear their own mic.
+  Future<bool> startLoopbackTest() async {
+    try {
+      final result = await _methodChannel.invokeMethod('startLoopbackTest');
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error starting loopback test: $e');
+      return false;
+    }
+  }
+
+  /// Stop the native loopback validation path and release audio resources.
+  Future<bool> stopLoopbackTest() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopLoopbackTest');
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error stopping loopback test: $e');
+      return false;
+    }
+  }
+
   /// Set the local mic mute flag at the native layer. Mute does **not**
   /// tear down the L2CAP CoC or the AudioRecord — it just gates whether
   /// captured frames are encoded and sent. Keeping the engine warm makes

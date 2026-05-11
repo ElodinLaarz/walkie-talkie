@@ -154,6 +154,10 @@ class WalkieTalkieService : Service() {
     /** Gate the mic path in the native engine. Called from [MainActivity]'s `setMuted` handler. */
     fun setEngineMuted(muted: Boolean): Boolean = audioEngineManager.setMuted(muted)
 
+    /** Toggle the single-device mic → mixer → speaker loopback validation path. */
+    fun setLoopbackTestMode(enabled: Boolean): Boolean =
+        audioEngineManager.setLoopbackTestMode(enabled)
+
     /**
      * Relay a mute change from the Dart side so the notification button
      * label is in sync with the engine. Called from

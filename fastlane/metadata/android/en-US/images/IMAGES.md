@@ -41,41 +41,47 @@ File names: `phoneScreenshots/1.png`, `2.png`, `3.png`, `4.png`
 Required size: Between 320 px and 3840 px on the longest side; aspect ratio 16:9 or 9:16 recommended.
 Promotion eligibility: at least 4 screenshots with the shorter side ≥ 1080 px.
 
-**Status: committed** — four 1080x1920 mockups generated from `scripts/gen_screenshots.py`.
+**Status: committed** — four 1080x1920 captures generated from real Flutter widgets.
 Upload with `bundle exec fastlane android upload_images`.
 
 Screenshots:
-1. **Discovery screen** (`1.png`) — nearby frequency rows with radar animation, "Tune in" buttons, and "Start a new Frequency" card.
-2. **Frequency room** (`2.png`) — room header, local user card with PTT button, roster of two peer rows (talking-ring indicator, muted state), PTT mode hint.
+1. **Discovery screen** (`1.png`) — actual discovery UI with recent and nearby frequency rows, scanning state, and "Start a new Frequency" card.
+2. **Frequency room** (`2.png`) — actual room UI with on-air chrome, media controls, PTT, and a real `PeerRow` roster.
 3. **Settings screen** (`3.png`) — Voice/Display/Privacy/About sections with toggles and links.
-4. **Privacy hero** (`4.png`) — "No internet, no account" cloud-off illustration plus Voice/Identity/Telemetry callouts; mirrors the third explainer page.
+4. **Bluetooth/no-cloud explainer** (`4.png`) — the real third explainer page rendered by `FrequencyExplainerScreen`.
 
-To replace with real device captures:
-`adb exec-out screencap -p > phoneScreenshots/1.png` (repeat for each screen).
+Regenerate from widgets:
+```
+dart tool/generate_store_screenshots.dart
+```
 
 ## 7-inch tablet screenshots (recommended)
 
 File names: `sevenInchScreenshots/1.png`, `2.png`
 Play Console recommends at least 2 even if the app is phone-only.
 
-**Status: committed** — two 1200x1920 mockups generated from `scripts/gen_tablet_screenshots.py`.
+**Status: committed** — two 1200x1920 captures generated from real Flutter widgets.
 
 Screenshots:
 1. **Discovery screen** (`1.png`) — nearby frequency rows with radar, Tune-in buttons, Start card.
 2. **Frequency room** (`2.png`) — room header, local user card with PTT button, roster of two peer rows (talking-ring indicator, muted state), PTT mode hint.
 
-To replace with real device captures:
-`adb exec-out screencap -p > sevenInchScreenshots/1.png`
+Regenerate from widgets:
+```
+dart tool/generate_store_screenshots.dart
+```
 
 ## 10-inch tablet screenshots (recommended)
 
 File names: `tenInchScreenshots/1.png`, `2.png`
 
-**Status: committed** — two 1600x2560 mockups generated from `scripts/gen_tablet_screenshots.py`.
+**Status: committed** — two 1600x2560 captures generated from real Flutter widgets.
 
 Screenshots:
 1. **Discovery screen** (`1.png`) — same layout as 7-inch at higher density.
 2. **Frequency room** (`2.png`) — same layout as 7-inch at higher density.
 
-To replace with real device captures:
-`adb exec-out screencap -p > tenInchScreenshots/1.png`
+Regenerate from widgets:
+```
+dart tool/generate_store_screenshots.dart
+```
