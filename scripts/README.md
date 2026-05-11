@@ -20,49 +20,21 @@ Limits enforced:
 - `full_description.txt` ≤ 4000 chars
 - `changelogs/*.txt` ≤ 500 chars each
 
-## _fonts.py
-
-Internal helper imported by the screenshot generators. Detects the best
-available proportional TTF font for the current OS, in priority order:
-
-1. Windows: `C:/Windows/Fonts/segoeui{b}.ttf`
-2. macOS: `/Library/Fonts/`, `~/Library/Fonts/`, homebrew share paths
-3. Linux/macOS: `fc-match` (fontconfig) — Segoe UI → DejaVu → any sans-serif
-4. Linux: known DejaVu paths under `/usr/share/fonts`
-5. Fallback: PIL built-in bitmap (no TTF; text will look blocky)
-
-On Ubuntu/Debian: `sudo apt install fonts-dejavu-core` for good quality.
-
-Not intended to be run directly.
-
-## gen_screenshots.py
-
-Generates three 1080×1920 phone screenshots for the Play Store listing
-using Python + Pillow (no device required). Cross-platform: fonts are
-auto-detected via `_fonts.py` (Windows → macOS → fontconfig → DejaVu).
+## Store screenshots
 
 ```bash
-python3 scripts/gen_screenshots.py
-# Output: fastlane/metadata/android/en-US/images/phoneScreenshots/{1,2,3}.png
+dart tool/generate_store_screenshots.dart
 ```
 
-Screenshots produced:
-1. Discovery screen — nearby frequency rows, radar animation, Start card
-2. Frequency Room — central dial, peer chips, PTT and Mute buttons
-3. Settings screen — VOICE / DISPLAY / PRIVACY / ABOUT sections
+Generates committed Play Store screenshots from real Flutter widgets:
 
-## gen_tablet_screenshots.py
+- `fastlane/metadata/android/en-US/images/phoneScreenshots/{1,2,3,4}.png`
+- `fastlane/metadata/android/en-US/images/sevenInchScreenshots/{1,2}.png`
+- `fastlane/metadata/android/en-US/images/tenInchScreenshots/{1,2}.png`
 
-Generates four tablet screenshots for the Play Store listing:
-two at 1200×1920 (7-inch) and two at 1600×2560 (10-inch).
-All dimensions scale proportionally from the 1080 px phone baseline.
-Cross-platform: uses the same `_fonts.py` font detection as the phone generator.
-
-```bash
-python3 scripts/gen_tablet_screenshots.py
-# Output: fastlane/metadata/android/en-US/images/sevenInchScreenshots/{1,2}.png
-#         fastlane/metadata/android/en-US/images/tenInchScreenshots/{1,2}.png
-```
+The old Pillow mockup generators were removed so store art cannot drift from
+the app's actual widgets, theme, localization, and layout.
+Set `FLUTTER_BIN=/path/to/flutter` if `flutter` is not on `PATH`.
 
 ## measure_app_size.sh
 

@@ -36,6 +36,13 @@ static std::atomic<bool> g_focusPaused{false};
 // 1.0 = full volume; 0.3 ≈ -10 dB which is what most media apps duck to.
 static std::atomic<float> g_duckingVolume{1.0f};
 
+// Single-device validation mode. When enabled, the input callback mirrors the
+// local mic into this synthetic mixer device, then the normal mix-minus path
+// for device 0 writes that signal to the playback stream.
+static std::atomic<bool> g_loopbackTestMode{false};
+static constexpr int kLocalMicDeviceId = 0;
+static constexpr int kLoopbackTestDeviceId = -1;
+
 // Global JNI references for voice activity callbacks
 static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
@@ -525,7 +532,11 @@ public:
         auto mixer = std::atomic_load(&g_audioMixer);
         if (mixer && codecFrames > 0) {
             // Local mic occupies device id 0 in the mix-minus matrix.
-            mixer->updateDeviceAudio(0, codecScratch_, codecFrames);
+            mixer->updateDeviceAudio(kLocalMicDeviceId, codecScratch_, codecFrames);
+            if (g_loopbackTestMode.load(std::memory_order_relaxed)) {
+                mixer->updateDeviceAudio(
+                    kLoopbackTestDeviceId, codecScratch_, codecFrames);
+            }
 
             // Pull this device's mix-minus (everyone but us) back from the
             // mixer. The buffer it returns is at the codec rate.
@@ -538,7 +549,8 @@ public:
                      kMaxBurstCodecFrames);
                 return oboe::DataCallbackResult::Continue;
             }
-            mixer->getMixedAudioForDevice(0, mixedCodec, codecFrames);
+            mixer->getMixedAudioForDevice(
+                kLocalMicDeviceId, mixedCodec, codecFrames);
 
             // Codec 16 kHz → playout 48 kHz. Always 3:1, so output count is
             // exactly `codecFrames * kResampleRatio`.
@@ -637,6 +649,7 @@ JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv* env,
                                                               jobject thiz) {
     std::lock_guard<std::mutex> lock(g_engineMutex);
+    g_loopbackTestMode.store(false, std::memory_order_relaxed);
     if (g_audioEngine != nullptr) {
         g_audioEngine->stop();
         delete g_audioEngine;
@@ -678,6 +691,14 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetDuckingVolume(
     JNIEnv* env, jobject thiz, jfloat volume) {
     float clamped = volume < 0.0f ? 0.0f : (volume > 1.0f ? 1.0f : volume);
     g_duckingVolume.store(clamped, std::memory_order_relaxed);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetLoopbackTestMode(
+    JNIEnv* env, jobject thiz, jboolean enabled) {
+    g_loopbackTestMode.store(enabled == JNI_TRUE, std::memory_order_relaxed);
+    LOGI("Loopback test mode %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+    return JNI_TRUE;
 }
 
 }  // extern "C"

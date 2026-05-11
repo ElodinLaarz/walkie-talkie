@@ -85,6 +85,17 @@ class AudioEngineManager {
         nativeSetDuckingVolume(volume)
     }
 
+    /**
+     * Enables a single-device loopback validation path. When enabled, the
+     * native audio callback routes local mic PCM into a synthetic mixer peer
+     * before writing the mixed result to the playback stream. Production voice
+     * rooms keep this disabled so users do not hear their own microphone.
+     */
+    fun setLoopbackTestMode(enabled: Boolean): Boolean {
+        Log.i(TAG, "Setting loopback test mode: $enabled")
+        return nativeSetLoopbackTestMode(enabled)
+    }
+
     // Native methods
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
@@ -92,4 +103,5 @@ class AudioEngineManager {
     private external fun nativePauseStreams(): Boolean
     private external fun nativeResumeStreams(): Boolean
     private external fun nativeSetDuckingVolume(volume: Float)
+    private external fun nativeSetLoopbackTestMode(enabled: Boolean): Boolean
 }

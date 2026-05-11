@@ -19,7 +19,7 @@ items marked ⏳ require action inside the Play Console.
 | App name / short / long description | ✅ Done | `fastlane/metadata/android/en-US/` |
 | Hi-res app icon (512×512) | ✅ Done | `fastlane/metadata/android/en-US/images/icon.png` |
 | Feature graphic (1024×500) | ✅ Done | `fastlane/metadata/android/en-US/images/featureGraphic.png` |
-| Phone screenshots (3×) | ✅ Done | `fastlane/metadata/android/en-US/images/phoneScreenshots/` |
+| Phone screenshots (4×) | ✅ Done | `fastlane/metadata/android/en-US/images/phoneScreenshots/` |
 | 7-inch tablet screenshots (2×) | ✅ Done | `fastlane/metadata/android/en-US/images/sevenInchScreenshots/` |
 | 10-inch tablet screenshots (2×) | ✅ Done | `fastlane/metadata/android/en-US/images/tenInchScreenshots/` |
 | Data safety form answers | ✅ Done | `docs/play-store-data-safety.md` |
@@ -245,21 +245,15 @@ base64 -w0 /path/to/key.json | xclip -selection clipboard
 
 ## Regenerating screenshots
 
-The committed screenshots were generated from code; they may be updated if the
-UI changes. The generator scripts require Python + Pillow and run on Windows
-(they hard-code Segoe UI from `C:/Windows/Fonts/`). On macOS/Linux, either
-install Segoe UI or edit the font paths at the top of each script.
+The committed screenshots are captured from real Flutter widgets, so they track
+the app theme, localization, typography fallback, and screen layouts instead of
+a separate mockup renderer. Re-run the capture whenever visible UI changes.
 
 ```bash
-# Phone screenshots (1080×1920) — Windows only as-is
-python3 scripts/gen_screenshots.py
-
-# Tablet screenshots (1200×1920 and 1600×2560) — Windows only as-is
-python3 scripts/gen_tablet_screenshots.py
-
-# Or capture real device screenshots via adb (cross-platform):
-adb exec-out screencap -p > fastlane/metadata/android/en-US/images/phoneScreenshots/1.png
+dart tool/generate_store_screenshots.dart
 ```
+
+Set `FLUTTER_BIN=/path/to/flutter` first if `flutter` is not on `PATH`.
 
 Then re-upload:
 
