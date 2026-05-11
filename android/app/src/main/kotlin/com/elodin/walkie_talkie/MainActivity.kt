@@ -560,6 +560,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startVoiceCapture(loopbackTestMode: Boolean): Boolean {
+        if (peerAudioManager != null) return true
         Log.i(TAG, if (loopbackTestMode) "Starting loopback voice test" else "Starting voice capture")
         val service = WalkieTalkieService.getRunning()
         if (service == null) {
@@ -624,8 +625,11 @@ class MainActivity : FlutterActivity() {
         peerAudioManager?.stopMixerThread()
         peerAudioManager?.clear()
         peerAudioManager = null
-        WalkieTalkieService.getRunning()?.setLoopbackTestMode(false)
-        WalkieTalkieService.getRunning()?.stopAudioEngine()
+
+        val service = WalkieTalkieService.getRunning()
+        service?.setLoopbackTestMode(false)
+        service?.stopAudioEngine()
+
         audioMixerManager?.clear()
         audioMixerManager = null
         firstEncodedFramePeers.clear()

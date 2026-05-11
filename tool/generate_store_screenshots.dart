@@ -111,16 +111,25 @@ Future<void> _watchOutput(
   Completer<void> generated,
 ) {
   final completer = Completer<void>();
+  String tail = '';
   stream
       .transform(utf8.decoder)
       .listen(
         (text) {
           sink.write(text);
-          output.write(text);
-          if (!generated.isCompleted &&
-              output.toString().contains('Generated ')) {
-            generated.complete();
+          if (!generated.isCompleted) {
+            // Check the current chunk plus a small tail from the previous one
+            // to catch cases where 'Generated ' is split across chunks.
+            if ((tail + text).contains('Generated ')) {
+              generated.complete();
+            }
+            // Keep the last 20 characters for the next split-check.
+            final combined = tail + text;
+            tail = combined.length > 20
+                ? combined.substring(combined.length - 20)
+                : combined;
           }
+          output.write(text);
         },
         onError: completer.completeError,
         onDone: completer.complete,
