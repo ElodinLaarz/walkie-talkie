@@ -64,7 +64,7 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Crash Reporting (opt-in, privacy-first)
-  sentry_flutter: ^9.0.0
+  sentry_flutter: ^9.20.0
 
 dev_dependencies:
   flutter_test:
