@@ -431,16 +431,27 @@ addressed elsewhere. Mirrors the `remove_peer` targeting pattern.
 ```
 
 Sent by the current host immediately before it leaves a populated room.
-The peer named in `newHostPeerId` promotes itself to host: stops guest-only
-reporters, starts the LE advertiser + GATT server + L2CAP CoC server using
-the supplied `sessionUuid` so the room frequency stays stable. All other
-peers update their `hostPeerId` so a subsequent `leave` from the old host
-isn't mistaken for a room-killing event, and they re-tune to the new host
-through the usual reconnect path.
+Behaviour by recipient:
+
+- **The peer named in `newHostPeerId`** promotes itself to host: stops
+  guest-only reporters, starts the LE advertiser + GATT server + L2CAP
+  CoC server using the supplied `sessionUuid` so the room frequency stays
+  stable.
+- **All other guests** update their in-memory `hostPeerId` (so the old
+  host's subsequent `leave` is not mistaken for a room-killing event) and
+  transition to the *reconnecting* UI phase. They do **not** tear down
+  the existing GATT / L2CAP links on receipt — they cannot, since the
+  promoted peer's GATT server is brand new on a different BLE endpoint
+  and the old links are owned by the departing host. The heartbeat
+  timeout on the old host's links (~15 s of missed pings — see
+  [§ Health](#ping-peer--host)) drives the physical teardown, and the
+  guest then re-tunes to `newHostPeerId` through the normal Discovery →
+  `join_request` path.
 
 `sessionUuid` is the **full** UUID so the promoted peer can pass it
 verbatim to `startAdvertising`; this avoids the cosmetic-mhz collision
-case the discovery layer would otherwise hit during the cut-over.
+case the discovery layer would otherwise hit during the cut-over, and
+guarantees re-tuning guests see the same room identity they were on.
 
 ## Voice plane
 
