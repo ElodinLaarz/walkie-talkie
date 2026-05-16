@@ -102,8 +102,10 @@ effectively making the app non-functional while backgrounded.
 
 **Why needed:** The Sentry SDK requires `INTERNET` to upload sanitised crash
 envelopes when the user has opted in. Stripped of `peerId`, display names,
-and the Sentry user block via `SentryEventSanitizer` before send. The
-permission has no other consumer in the codebase.
+and the Sentry user block via `sanitizeSentryEvent` (top-level function in
+`lib/services/sentry_event_sanitizer.dart`, wired through `options.beforeSend`
+in `main.dart`) before send. The permission has no other consumer in the
+codebase.
 
 ---
 

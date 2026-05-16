@@ -75,7 +75,7 @@ The following data **is** included in crash reports:
 - Device model, OS version, app version
 
 The following data **is NOT** included:
-- `peerId` and display names (both stripped by `SentryEventSanitizer` from contexts, tags, and breadcrumbs before transmission)
+- `peerId` and display names (both stripped by `sanitizeSentryEvent` from contexts, tags, and breadcrumbs before transmission)
 - IP addresses (can be disabled in Sentry project settings)
 - Bluetooth MAC addresses
 - Any content from the frequency room (audio, messages, etc.)
