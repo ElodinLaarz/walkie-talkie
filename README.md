@@ -66,9 +66,15 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       dedicated `controlBytes` EventChannel; Dart decodes them into typed
       `FrequencyMessage`s via [`BleControlTransport`](lib/services/ble_control_transport.dart).
       A second `audio_events` EventChannel carries native lifecycle
-      events: `firstDecodedFrame`, `gattError`, `leaveRoom`,
-      `openInviteLink`, `error`. Implemented in
-      [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
+      events. Examples (non-exhaustive — the exhaustive list lives in
+      [MainActivity.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt)
+      / [MediaSessionBridge.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MediaSessionBridge.kt)):
+      `deviceDiscovered` / `deviceConnected` / `deviceDisconnected`,
+      `l2capOpen`, `voiceClientConnected`, `firstEncodedFrame` /
+      `firstDecodedFrame`, `talkingPeers` / `localTalking`, `pttToggle` /
+      `muteToggle`, `audioOutputChanged`, `mediaMetadata`, `leaveRoom`,
+      `openInviteLink`, `gattError` / `audioError` / `error`. Implemented
+      in [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
     * Voice transport bridge: `startVoiceServer` / `connectVoiceClient` /
       `stopVoiceTransport` / `getLinkTelemetry` / `setPeerBitrate` /
       `startVoice` / `stopVoice` / `startLoopbackTest`.
