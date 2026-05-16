@@ -209,6 +209,7 @@ Guest **MUST** wait for the response before sending any further messages.
 {
   "kind": "join_accepted", "peerId": "<host>", "seq": 7, "atMs": ..., "v": 1,
   "hostPeerId": "<host>",
+  "recipientPeerId": "<joining-guest>", // optional, targeted accept
   "voicePsm": 129, // optional
   "roster": [ { "peerId": "...", "displayName": "Maya", "btDevice": "AirPods Pro",
                 "muted": false, "talking": false }, ... ],
@@ -222,6 +223,11 @@ Guest **MUST** wait for the response before sending any further messages.
   room is right now (track + playback + position) without waiting for the
   next manual command. Doubles as the [reconnect reconciliation
   payload](#reconnect-and-reconciliation).
+- **recipientPeerId** *(optional)* — peerId of the intended recipient. The
+  host sets this when accepting a single joining guest; existing guests that
+  see a `recipientPeerId` not matching their own peerId **MUST** silently
+  ignore the message so they don't reset their `lastSeq` counter table when
+  a new peer joins. Legacy hosts may omit it (treated as broadcast).
 - **voicePsm** *(optional)* — the dynamic L2CAP PSM the host's voice server is
   bound to. If present, the guest opens an L2CAP CoC to this PSM after
   `JoinAccepted` lands; see [§ Voice plane](#voice-plane). If absent, join still
@@ -370,6 +376,72 @@ Clean disconnects (the `Leave` / `RemovePeer` flow) remain the happy
 path; this is the safety net for distance, interference, or a phone
 going into a tunnel.
 
+### Adaptive bitrate
+
+These messages let the host steer per-link Opus bitrate in response to
+observed packet loss / jitter / mixer underruns. The encoder operating
+points (`kBitrateLow=8000`, `kBitrateMid=16000`, `kBitrateHigh=24000`) live
+in `android/app/src/main/cpp/audio_config.h`; values outside that set are
+clamped by the native encoder.
+
+#### `link_quality` (guest → host)
+
+```json
+{ "kind": "link_quality", "peerId": "<sender>", "seq": ..., "atMs": ..., "v": 1,
+  "lossPct": 1.4, "jitterMs": 80, "underrunsPerSec": 0.0 }
+```
+
+A guest's view of the receive-side voice link from the host. Sampled from
+the native `PeerAudioManager` telemetry every few seconds (`LinkQualityReporter`
+in the Dart layer). Fields:
+
+- `lossPct` — number in `[0, 100]`. Fraction of expected frames the jitter
+  buffer rejected as too late to play.
+- `jitterMs` — int ≥ 0. Current jitter buffer fill in ms (depth × 20 ms).
+  Observability only; the adapter doesn't use it.
+- `underrunsPerSec` — number ≥ 0. Rate of mixer-tick underruns in the
+  sampled window. Non-zero means the buffer drained faster than the wire
+  could refill.
+
+The host runs its own send-side telemetry locally and does **not** emit
+`link_quality` over the wire.
+
+#### `bitrate_hint` (host → specific guest)
+
+```json
+{ "kind": "bitrate_hint", "peerId": "<host>", "seq": ..., "atMs": ..., "v": 1,
+  "target": "<guest peerId>", "bps": 16000 }
+```
+
+Host-to-guest advisory: "set your outbound encoder bitrate to `bps`." The
+host writes `bitrate_hint` over the GATT RESPONSE characteristic (which
+fans out to every subscribed guest, same as `roster_update`); guests
+**MUST** filter on receive by `target == localPeerId` and ignore hints
+addressed elsewhere. Mirrors the `remove_peer` targeting pattern.
+
+`bps` must be positive; the native layer clamps it to {Low, Mid, High}.
+
+### Host handover
+
+#### `host_transfer` (current host → all)
+
+```json
+{ "kind": "host_transfer", "peerId": "<host>", "seq": ..., "atMs": ..., "v": 1,
+  "newHostPeerId": "<promoted guest>", "sessionUuid": "<full UUID>" }
+```
+
+Sent by the current host immediately before it leaves a populated room.
+The peer named in `newHostPeerId` promotes itself to host: stops guest-only
+reporters, starts the LE advertiser + GATT server + L2CAP CoC server using
+the supplied `sessionUuid` so the room frequency stays stable. All other
+peers update their `hostPeerId` so a subsequent `leave` from the old host
+isn't mistaken for a room-killing event, and they re-tune to the new host
+through the usual reconnect path.
+
+`sessionUuid` is the **full** UUID so the promoted peer can pass it
+verbatim to `startAdvertising`; this avoids the cosmetic-mhz collision
+case the discovery layer would otherwise hit during the cut-over.
+
 ## Voice plane
 
 Voice rides on **L2CAP CoC** (Connection-oriented Channel) — a stream-shaped
@@ -396,38 +468,40 @@ The guest opens its CoC to that PSM after `JoinAccepted` lands. A `voicePsm`
 outside the valid range or with the LSB clear is a protocol violation;
 guests should treat it as `version_mismatch`-equivalent and disconnect.
 
-### Codec parameters (recommended)
+### Codec parameters
 
 | parameter   | value                                                |
 | ----------- | ---------------------------------------------------- |
 | codec       | Opus                                                 |
 | application | `OPUS_APPLICATION_VOIP`                              |
-| sample rate | 16 kHz (wideband)                                    |
+| sample rate | 16 kHz wideband (codec / mix); 48 kHz at the Oboe stream, downsampled 3:1 |
 | channels    | 1 (mono)                                             |
-| frame size  | 20 ms (320 samples per frame)                        |
-| bitrate     | 24 kbps                                              |
+| frame size  | 20 ms (320 samples per codec frame, 960 per Oboe callback) |
+| bitrate     | adaptive — three operating points at 8, 16, 24 kbps; default 16 kbps (`kBitrateMid` in `audio_config.h`) |
 
-24 kbps × 1 stream per peer × ≤12 peers ≈ 290 kbps aggregate at the host.
-Comfortably under L2CAP throughput on any LE 4.2+ device.
+The host nudges per-link bitrate via [`bitrate_hint`](#bitrate_hint-host--specific-guest)
+in response to [`link_quality`](#link_quality-guest--host) telemetry; out-of-range
+values are clamped to the {Low, Mid, High} operating points by the native
+encoder. At worst-case 24 kbps × ≤12 peers ≈ 290 kbps aggregate, comfortably
+under L2CAP throughput on any LE 4.2+ device.
 
 ### Voice frame format
 
-Each L2CAP write is one VoiceFrame, framed by a 2-byte big-endian length
-prefix so the receiver can recover frame boundaries even when the kernel
-coalesces multiple SDUs into a single userspace `read` (observed on some
-Samsung and Pixel kernels). MTU **MUST** be ≥ 130 bytes (128 voice + 2
-prefix):
+Each L2CAP write is one VoiceFrame with a fixed 8-byte header followed by the
+Opus payload (big-endian). MTU **MUST** be ≥ 128 bytes (`kVoiceMtu` in
+`lib/protocol/voice_frame.dart`):
 
 | offset | bytes | meaning                                                       |
 | ------ | ----- | ------------------------------------------------------------- |
-| 0      | 2     | `frameLen` — uint16, big-endian; size of the VoiceFrame that follows (does **not** include this prefix) |
-| 2      | 4     | `seq` — per-link monotonic uint32, big-endian                 |
-| 6      | 4     | `senderTsMs` — sender's ms-since-epoch low 32 bits, big-endian |
-| 10     | N     | Opus frame payload                                            |
+| 0      | 4     | `seq` — per-link monotonic uint32, big-endian                 |
+| 4      | 4     | `senderTsMs` — sender's ms-since-epoch low 32 bits, big-endian |
+| 8      | N     | Opus frame payload (at least one byte; Opus never emits zero) |
 
-`frameLen` is the size of the inner VoiceFrame (`seq` + `senderTsMs` +
-payload). Receivers that observe a `frameLen` of 0 or > 4096 close the
-channel — both indicate a malformed peer.
+There is **no length prefix** in v1. Each L2CAP SDU carries exactly one
+VoiceFrame; if your platform coalesces SDUs into a single userspace read,
+fix the read side rather than reading across boundaries. Receivers that
+observe a buffer shorter than 8 bytes or a zero-length payload drop the
+frame (the L2CAP CoC stays open).
 
 `peerId` is **not** in the header — each L2CAP CoC is dedicated to a single
 peer (the connection identifies the sender). On the receive side, the host
@@ -559,8 +633,6 @@ This handles BLE's at-least-once write semantics without app-level acks.
 
 - **Encryption / authentication.** Link-layer LE pairing is enough for v1.
   App-level signing of messages is a v2 concern.
-- **Host handover.** v1: host leaves → channel ends, all guests return to
-  Discovery. v2 will pick the longest-connected guest as new host.
 - **Jitter buffer sizing, FEC, stereo voice.** The voice plane specifies
   the wire (Opus over L2CAP) but leaves the receive-side reconstruction
   details to the implementation. The README's "incredibly user-friendly"

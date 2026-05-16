@@ -93,6 +93,20 @@ effectively making the app non-functional while backgrounded.
 
 ---
 
+## INTERNET
+
+> *"Used exclusively for opt-in crash reporting (Sentry). The app's voice and
+> control planes travel over Bluetooth LE only — there is no internet path for
+> any user content. Crash reporting is disabled by default; the user must
+> enable it in Settings → Privacy."*
+
+**Why needed:** The Sentry SDK requires `INTERNET` to upload sanitised crash
+envelopes when the user has opted in. Stripped of `peerId`, display names,
+and the Sentry user block via `SentryEventSanitizer` before send. The
+permission has no other consumer in the codebase.
+
+---
+
 ## Summary table
 
 | Permission | Runtime prompt? | User can deny? | Impact if denied |
@@ -104,3 +118,4 @@ effectively making the app non-functional while backgrounded.
 | MODIFY_AUDIO_SETTINGS | No (normal) | N/A | No headset routing |
 | FOREGROUND_SERVICE (+ _MICROPHONE, + _CONNECTED_DEVICE) | No (normal) | N/A | OS does not allow mic/BLE BG |
 | POST_NOTIFICATIONS | Yes (Android 13+) | Yes | On API 33+: prevents FGS from starting, app non-functional while backgrounded |
+| INTERNET | No (normal) | N/A | Sentry envelopes cannot upload (opt-in feature; no other effect) |
