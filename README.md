@@ -77,7 +77,7 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
       in [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
     * Voice transport bridge: `startVoiceServer` / `connectVoiceClient` /
       `stopVoiceTransport` / `getLinkTelemetry` / `setPeerBitrate` /
-      `startVoice` / `stopVoice` / `startLoopbackTest`.
+      `startVoice` / `stopVoice` / `startLoopbackTest` / `stopLoopbackTest`.
 4.  **Service Layer (Android Native — Kotlin):**
     * **Foreground Service**
       ([WalkieTalkieService.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/WalkieTalkieService.kt))
