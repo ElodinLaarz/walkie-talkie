@@ -424,11 +424,32 @@ class AudioService {
   ///
   /// This method awaits the 'gattServerReady' native event (with a 3 s
   /// timeout) before invoking [startAdvertising], eliminating that race.
+  ///
+  /// [shouldProceed] is called just before [startAdvertising] is invoked.
+  /// Callers that may be torn down while waiting (e.g. a cubit that closes
+  /// before [onServiceAdded] fires) can pass `() => !isClosed` to prevent
+  /// advertising for a dead session.
   Future<void> startGattServerAndAdvertise({
     required String sessionUuid,
     required String displayName,
     Duration serverReadyTimeout = const Duration(seconds: 3),
+    bool Function()? shouldProceed,
   }) async {
+    // Subscribe before calling startGattServer so we cannot miss a fast
+    // onServiceAdded callback that fires before this isolate resumes.
+    final readyFuture = audioEvents
+        .firstWhere(
+          // Only treat gattError events that originated from the server startup
+          // path ('GATT_SERVICE_ADD_FAILED') as a failure signal. Other gattError
+          // events (GATT auth failures, write errors, etc.) are unrelated and
+          // must not abort the advertising attempt.
+          (e) =>
+              e['type'] == 'gattServerReady' ||
+              (e['type'] == 'gattError' &&
+                  e['reason'] == 'GATT_SERVICE_ADD_FAILED'),
+        )
+        .timeout(serverReadyTimeout);
+
     final serverStarted = await startGattServer();
     if (!serverStarted) {
       if (kDebugMode) debugPrint('startGattServer returned false; skipping advertising');
@@ -436,11 +457,7 @@ class AudioService {
     }
 
     try {
-      final event = await audioEvents
-          .firstWhere(
-            (e) => e['type'] == 'gattServerReady' || e['type'] == 'gattError',
-          )
-          .timeout(serverReadyTimeout);
+      final event = await readyFuture;
       if (event['type'] != 'gattServerReady') {
         if (kDebugMode) debugPrint('GATT server error before ready; skipping advertising');
         return;
@@ -449,6 +466,7 @@ class AudioService {
       if (kDebugMode) debugPrint('Timed out waiting for gattServerReady; advertising anyway');
     }
 
+    if (shouldProceed != null && !shouldProceed()) return;
     await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
   }
 

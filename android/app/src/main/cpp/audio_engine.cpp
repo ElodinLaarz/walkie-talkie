@@ -48,8 +48,9 @@ static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
 static jobject g_mainActivity = nullptr;
 
-// Forward declaration for the error callback class
+// Forward declarations
 class AudioEngineErrorCallback;
+class AudioEngine;
 
 // Emit audio error event to Flutter via JNI.
 // Called from Oboe's error callback when a stream error occurs (e.g., permission
@@ -255,17 +256,38 @@ static void stopTalkingEventWorker() {
     g_talkingWorkerThread.join();
 }
 
+// Global audio engine instance + mutex. Defined here (before
+// AudioEngineErrorCallback) so the error callback's detached restart thread can
+// reference them without a forward use of an undeclared identifier.
+//
+// nativeStop deletes the engine and nulls the pointer; nativePauseStreams /
+// nativeResumeStreams read the pointer and dispatch to it. Without
+// serialization a stop racing with pause/resume can either tear down the
+// engine mid-call (use-after-free) or null the pointer between the load and
+// the dereference. In practice the JNI calls usually serialize on the
+// service / main thread, but Android focus-change listeners can be
+// dispatched on other threads; the mutex makes the contract explicit so
+// future call sites can't introduce a UAF by accident.
+static std::mutex g_engineMutex;
+static AudioEngine* g_audioEngine = nullptr;
+
+// Restart guard for ErrorDisconnected auto-recovery. Static (not a member of
+// AudioEngineErrorCallback) so the detached restart thread does not capture a
+// pointer to the callback instance — the engine can destroy the callback while
+// the thread blocks on g_engineMutex, and any member access after the lock is
+// acquired would be a use-after-free. There is only one AudioEngine, so one
+// static bool is the right scope.
+static std::atomic<bool> g_restartScheduled{false};
+
 // Error callback for Oboe streams. For ErrorDisconnected (audio route change,
 // e.g. BT headset connect/disconnect) we attempt a transparent auto-restart in
 // onErrorAfterClose; the Flutter error event fires only when restart fails.
 // All other errors are reported immediately in onErrorBeforeClose.
 //
-// Both the recording and playback streams share a single instance of this
-// callback (see AudioEngine ctor). restartScheduled_ is an atomic guard so
-// the first stream to lose the device wins the restart race and the second
-// stream's onErrorAfterClose becomes a no-op.
+// Both recording and playback streams share a single instance (see AudioEngine
+// ctor). g_restartScheduled is the deduplicate guard; the lambda captures
+// nothing so the thread has no lifetime dependency on the callback object.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
-    std::atomic<bool> restartScheduled_{false};
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
         LOGE("Oboe stream error: %s", oboe::convertToText(error));
@@ -284,29 +306,33 @@ public:
 
         // Only one of the two streams should trigger the restart.
         bool expected = false;
-        if (!restartScheduled_.compare_exchange_strong(
+        if (!g_restartScheduled.compare_exchange_strong(
                 expected, true, std::memory_order_acq_rel)) {
             return;
         }
 
         LOGI("Audio device disconnected — scheduling auto-restart");
-        // Restart must happen off the Oboe error-callback thread to avoid
-        // potential deadlocks inside the Oboe internals.
-        std::thread([this]() {
+        // No `this` capture: the callback object may be destroyed while this
+        // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
+        // All state the thread needs is in the static globals above.
+        std::thread([]() {
             std::lock_guard<std::mutex> lock(g_engineMutex);
-            bool ok = false;
             if (g_audioEngine != nullptr) {
                 // stop() is idempotent on already-closed streams; it resets
                 // the worker thread and shared_ptrs before start() reopens them.
                 g_audioEngine->stop();
-                ok = g_audioEngine->start();
-            }
-            restartScheduled_.store(false, std::memory_order_release);
-            if (!ok) {
-                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
-                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
+                const bool ok = g_audioEngine->start();
+                g_restartScheduled.store(false, std::memory_order_release);
+                if (!ok) {
+                    LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+                    emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
+                } else {
+                    LOGI("Auto-restart after disconnect succeeded");
+                }
             } else {
-                LOGI("Auto-restart after disconnect succeeded");
+                // Engine was intentionally stopped (nativeStop); not an error.
+                g_restartScheduled.store(false, std::memory_order_release);
+                LOGI("Auto-restart skipped — engine already stopped");
             }
         }).detach();
     }
@@ -628,18 +654,8 @@ public:
     }
 };
 
-// Global audio engine instance + mutex.
-//
-// nativeStop deletes the engine and nulls the pointer; nativePauseStreams /
-// nativeResumeStreams read the pointer and dispatch to it. Without
-// serialization a stop racing with pause/resume can either tear down the
-// engine mid-call (use-after-free) or null the pointer between the load and
-// the dereference. In practice the JNI calls usually serialize on the
-// service / main thread, but Android focus-change listeners can be
-// dispatched on other threads; the mutex makes the contract explicit so
-// future call sites can't introduce a UAF by accident.
-static std::mutex g_engineMutex;
-static AudioEngine* g_audioEngine = nullptr;
+// g_engineMutex and g_audioEngine are defined above AudioEngineErrorCallback
+// so the error callback's detached restart thread can reference them.
 
 extern "C" {
 
