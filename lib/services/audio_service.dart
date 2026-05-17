@@ -424,50 +424,69 @@ class AudioService {
   ///
   /// This method awaits the 'gattServerReady' native event (with a 3 s
   /// timeout) before invoking [startAdvertising], eliminating that race.
+  /// On timeout the method aborts — advertising without confirmed server
+  /// readiness would reopen the race this method exists to close.
   ///
   /// [shouldProceed] is called just before [startAdvertising] is invoked.
   /// Callers that may be torn down while waiting (e.g. a cubit that closes
-  /// before [onServiceAdded] fires) can pass `() => !isClosed` to prevent
-  /// advertising for a dead session.
+  /// before [onServiceAdded] fires) can pass a guard to prevent advertising
+  /// for a dead session.
   Future<void> startGattServerAndAdvertise({
     required String sessionUuid,
     required String displayName,
     Duration serverReadyTimeout = const Duration(seconds: 3),
     bool Function()? shouldProceed,
   }) async {
-    // Subscribe before calling startGattServer so we cannot miss a fast
-    // onServiceAdded callback that fires before this isolate resumes.
-    final readyFuture = audioEvents
-        .firstWhere(
-          // Only treat gattError events that originated from the server startup
-          // path ('GATT_SERVICE_ADD_FAILED') as a failure signal. Other gattError
-          // events (GATT auth failures, write errors, etc.) are unrelated and
-          // must not abort the advertising attempt.
-          (e) =>
-              e['type'] == 'gattServerReady' ||
-              (e['type'] == 'gattError' &&
-                  e['reason'] == 'GATT_SERVICE_ADD_FAILED'),
-        )
-        .timeout(serverReadyTimeout);
-
-    final serverStarted = await startGattServer();
-    if (!serverStarted) {
-      if (kDebugMode) debugPrint('startGattServer returned false; skipping advertising');
-      return;
-    }
+    // Use a Completer + explicit StreamSubscription so we can cancel the
+    // listener on every exit path. Stream.firstWhere().timeout() does NOT
+    // cancel the underlying subscription when the timeout fires, which leaks
+    // a broadcast listener for the rest of the session.
+    final readyCompleter = Completer<Map<String, dynamic>>();
+    final readySub = audioEvents.listen((e) {
+      if (readyCompleter.isCompleted) return;
+      // Only treat gattError events from the server startup path as a failure
+      // signal. Other gattError events (auth failures, write errors, etc.) are
+      // unrelated and must not abort the advertising attempt.
+      final isReady = e['type'] == 'gattServerReady';
+      final isServiceAddFailed =
+          e['type'] == 'gattError' && e['reason'] == 'GATT_SERVICE_ADD_FAILED';
+      if (isReady || isServiceAddFailed) readyCompleter.complete(e);
+    });
 
     try {
-      final event = await readyFuture;
-      if (event['type'] != 'gattServerReady') {
-        if (kDebugMode) debugPrint('GATT server error before ready; skipping advertising');
+      final serverStarted = await startGattServer();
+      if (!serverStarted) {
+        if (kDebugMode) {
+          debugPrint('startGattServer returned false; skipping advertising');
+        }
         return;
       }
-    } on TimeoutException {
-      if (kDebugMode) debugPrint('Timed out waiting for gattServerReady; advertising anyway');
-    }
 
-    if (shouldProceed != null && !shouldProceed()) return;
-    await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
+      final Map<String, dynamic> event;
+      try {
+        event = await readyCompleter.future.timeout(serverReadyTimeout);
+      } on TimeoutException {
+        if (kDebugMode) {
+          debugPrint(
+            'Timed out waiting for gattServerReady; skipping advertising '
+            'to avoid the GATT service registration race',
+          );
+        }
+        return;
+      }
+
+      if (event['type'] != 'gattServerReady') {
+        if (kDebugMode) {
+          debugPrint('GATT server error before ready; skipping advertising');
+        }
+        return;
+      }
+
+      if (shouldProceed != null && !shouldProceed()) return;
+      await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
+    } finally {
+      await readySub.cancel();
+    }
   }
 
   /// Snapshot the current RSSI for each peer connected over the GATT

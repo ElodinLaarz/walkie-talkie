@@ -1182,7 +1182,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       unawaited(audio.startGattServerAndAdvertise(
         sessionUuid: sessionUuid,
         displayName: current.myName,
-        shouldProceed: () => !isClosed,
+        shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
       ));
       // Close the guest-side voice client before opening the host server.
       // Awaited so the native layer tears down the client transport before
@@ -1441,7 +1441,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         unawaited(audio.startGattServerAndAdvertise(
           sessionUuid: sessionUuid,
           displayName: myName,
-          shouldProceed: () => !isClosed,
+          shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
         ));
         // Open the L2CAP voice server. Store the future so _sendJoinAccepted
         // can await it if a guest arrives before the native call returns.
