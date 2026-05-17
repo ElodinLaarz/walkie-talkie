@@ -1179,13 +1179,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Start host BLE surfaces so remaining guests can reconnect.
     final audio = _audio;
     if (audio != null) {
-      unawaited(
-        audio.startAdvertising(
-          sessionUuid: sessionUuid,
-          displayName: current.myName,
-        ),
-      );
-      unawaited(audio.startGattServer());
+      unawaited(audio.startGattServerAndAdvertise(
+        sessionUuid: sessionUuid,
+        displayName: current.myName,
+        shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
+      ));
       // Close the guest-side voice client before opening the host server.
       // Awaited so the native layer tears down the client transport before
       // startVoiceServer() runs; without this, the native code reuses the
@@ -1440,10 +1438,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       // happens in [leaveRoom] and [close].
       final audio = _audio;
       if (audio != null) {
-        unawaited(
-          audio.startAdvertising(sessionUuid: sessionUuid, displayName: myName),
-        );
-        unawaited(audio.startGattServer());
+        unawaited(audio.startGattServerAndAdvertise(
+          sessionUuid: sessionUuid,
+          displayName: myName,
+          shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
+        ));
         // Open the L2CAP voice server. Store the future so _sendJoinAccepted
         // can await it if a guest arrives before the native call returns.
         final gen = ++_voiceGeneration;

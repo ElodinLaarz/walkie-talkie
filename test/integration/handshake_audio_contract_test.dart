@@ -167,6 +167,22 @@ class _RecordingAudioService extends AudioService {
     return true;
   }
 
+  // Override to bypass the gattServerReady event wait. The base class awaits
+  // a native event that never arrives in this test stub (audioEvents is
+  // Stream.empty()). The ordering contract (server before advertising) is
+  // verified by the unit test in frequency_session_cubit_test.dart.
+  @override
+  Future<void> startGattServerAndAdvertise({
+    required String sessionUuid,
+    required String displayName,
+    Duration serverReadyTimeout = const Duration(seconds: 3),
+    bool Function()? shouldProceed,
+  }) async {
+    await startGattServer();
+    if (shouldProceed != null && !shouldProceed()) return;
+    await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
+  }
+
   @override
   Future<bool> stopGattServer() async {
     calls.add('stopGattServer');
