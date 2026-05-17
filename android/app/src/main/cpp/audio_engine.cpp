@@ -297,45 +297,10 @@ public:
         }
     }
 
-    void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override {
-        if (error != oboe::Result::ErrorDisconnected) {
-            // Non-disconnect errors were already reported in onErrorBeforeClose.
-            LOGE("Oboe stream error after close: %s", oboe::convertToText(error));
-            return;
-        }
-
-        // Only one of the two streams should trigger the restart.
-        bool expected = false;
-        if (!g_restartScheduled.compare_exchange_strong(
-                expected, true, std::memory_order_acq_rel)) {
-            return;
-        }
-
-        LOGI("Audio device disconnected — scheduling auto-restart");
-        // No `this` capture: the callback object may be destroyed while this
-        // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
-        // All state the thread needs is in the static globals above.
-        std::thread([]() {
-            std::lock_guard<std::mutex> lock(g_engineMutex);
-            if (g_audioEngine != nullptr) {
-                // stop() is idempotent on already-closed streams; it resets
-                // the worker thread and shared_ptrs before start() reopens them.
-                g_audioEngine->stop();
-                const bool ok = g_audioEngine->start();
-                g_restartScheduled.store(false, std::memory_order_release);
-                if (!ok) {
-                    LOGE("Auto-restart after disconnect failed — reporting to Flutter");
-                    emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
-                } else {
-                    LOGI("Auto-restart after disconnect succeeded");
-                }
-            } else {
-                // Engine was intentionally stopped (nativeStop); not an error.
-                g_restartScheduled.store(false, std::memory_order_release);
-                LOGI("Auto-restart skipped — engine already stopped");
-            }
-        }).detach();
-    }
+    // Defined out-of-line (after AudioEngine) because the restart lambda calls
+    // g_audioEngine->stop() and g_audioEngine->start(), which require AudioEngine
+    // to be fully defined — not just forward-declared.
+    void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
 };
 
 class AudioEngine : public oboe::AudioStreamDataCallback {
@@ -653,6 +618,50 @@ public:
         return oboe::DataCallbackResult::Continue;
     }
 };
+
+// Out-of-line definition of AudioEngineErrorCallback::onErrorAfterClose.
+// Placed here, after AudioEngine is fully defined, so the restart lambda can
+// call g_audioEngine->stop() and g_audioEngine->start() on the complete type.
+void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
+                                                  oboe::Result error) {
+    if (error != oboe::Result::ErrorDisconnected) {
+        // Non-disconnect errors were already reported in onErrorBeforeClose.
+        LOGE("Oboe stream error after close: %s", oboe::convertToText(error));
+        return;
+    }
+
+    // Only one of the two streams should trigger the restart.
+    bool expected = false;
+    if (!g_restartScheduled.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    LOGI("Audio device disconnected — scheduling auto-restart");
+    // No `this` capture: the callback object may be destroyed while this
+    // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
+    // All state the thread needs is in the static globals above.
+    std::thread([]() {
+        std::lock_guard<std::mutex> lock(g_engineMutex);
+        if (g_audioEngine != nullptr) {
+            // stop() is idempotent on already-closed streams; it resets
+            // the worker thread and shared_ptrs before start() reopens them.
+            g_audioEngine->stop();
+            const bool ok = g_audioEngine->start();
+            g_restartScheduled.store(false, std::memory_order_release);
+            if (!ok) {
+                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
+            } else {
+                LOGI("Auto-restart after disconnect succeeded");
+            }
+        } else {
+            // Engine was intentionally stopped (nativeStop); not an error.
+            g_restartScheduled.store(false, std::memory_order_release);
+            LOGI("Auto-restart skipped — engine already stopped");
+        }
+    }).detach();
+}
 
 // g_engineMutex and g_audioEngine are defined above AudioEngineErrorCallback
 // so the error callback's detached restart thread can reference them.
