@@ -413,6 +413,45 @@ class AudioService {
     }
   }
 
+  /// Start the GATT server and begin advertising only after the service is
+  /// fully registered.
+  ///
+  /// [BluetoothGattServer.addService] is asynchronous — the service isn't
+  /// visible to connecting guests until [onServiceAdded] fires on the native
+  /// side. Calling [startAdvertising] before that callback means a fast-
+  /// scanning guest can connect, run service discovery, find nothing, and
+  /// silently disconnect (GATT_SETUP_FAILED) before the service is ready.
+  ///
+  /// This method awaits the 'gattServerReady' native event (with a 3 s
+  /// timeout) before invoking [startAdvertising], eliminating that race.
+  Future<void> startGattServerAndAdvertise({
+    required String sessionUuid,
+    required String displayName,
+    Duration serverReadyTimeout = const Duration(seconds: 3),
+  }) async {
+    final serverStarted = await startGattServer();
+    if (!serverStarted) {
+      if (kDebugMode) debugPrint('startGattServer returned false; skipping advertising');
+      return;
+    }
+
+    try {
+      final event = await audioEvents
+          .firstWhere(
+            (e) => e['type'] == 'gattServerReady' || e['type'] == 'gattError',
+          )
+          .timeout(serverReadyTimeout);
+      if (event['type'] != 'gattServerReady') {
+        if (kDebugMode) debugPrint('GATT server error before ready; skipping advertising');
+        return;
+      }
+    } on TimeoutException {
+      if (kDebugMode) debugPrint('Timed out waiting for gattServerReady; advertising anyway');
+    }
+
+    await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
+  }
+
   /// Snapshot the current RSSI for each peer connected over the GATT
   /// link. Returns one entry per neighbor `(peerId, rssi)`; `rssi` is in
   /// dBm (negative values; closer to 0 is stronger). Empty list when no

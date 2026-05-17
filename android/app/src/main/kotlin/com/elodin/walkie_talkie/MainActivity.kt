@@ -264,6 +264,9 @@ class MainActivity : FlutterActivity() {
                                     "type" to "gattError",
                                     "reason" to reason
                                 ))
+                            },
+                            onServerReady = {
+                                sendEventToFlutter(mapOf("type" to "gattServerReady"))
                             }
                         )
                     }

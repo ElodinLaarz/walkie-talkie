@@ -255,23 +255,60 @@ static void stopTalkingEventWorker() {
     g_talkingWorkerThread.join();
 }
 
-// Error callback for Oboe streams. Emits structured events to Flutter rather
-// than crashing the foreground service. Handles permission revocation (which
-// presents as ErrorDisconnected or ErrorInternal) and other stream errors.
+// Error callback for Oboe streams. For ErrorDisconnected (audio route change,
+// e.g. BT headset connect/disconnect) we attempt a transparent auto-restart in
+// onErrorAfterClose; the Flutter error event fires only when restart fails.
+// All other errors are reported immediately in onErrorBeforeClose.
 //
-// Note: Oboe invokes both onErrorBeforeClose and onErrorAfterClose for the same
-// failure. We emit only in onErrorBeforeClose to avoid duplicate Flutter events.
+// Both the recording and playback streams share a single instance of this
+// callback (see AudioEngine ctor). restartScheduled_ is an atomic guard so
+// the first stream to lose the device wins the restart race and the second
+// stream's onErrorAfterClose becomes a no-op.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
+    std::atomic<bool> restartScheduled_{false};
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
         LOGE("Oboe stream error: %s", oboe::convertToText(error));
-        emitAudioErrorEvent(error);
+        // ErrorDisconnected gets a restart attempt first; emit is deferred.
+        if (error != oboe::Result::ErrorDisconnected) {
+            emitAudioErrorEvent(error);
+        }
     }
 
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override {
-        LOGE("Oboe stream error after close: %s (event already emitted)",
-             oboe::convertToText(error));
-        // Do not emit — onErrorBeforeClose already sent the event.
+        if (error != oboe::Result::ErrorDisconnected) {
+            // Non-disconnect errors were already reported in onErrorBeforeClose.
+            LOGE("Oboe stream error after close: %s", oboe::convertToText(error));
+            return;
+        }
+
+        // Only one of the two streams should trigger the restart.
+        bool expected = false;
+        if (!restartScheduled_.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel)) {
+            return;
+        }
+
+        LOGI("Audio device disconnected — scheduling auto-restart");
+        // Restart must happen off the Oboe error-callback thread to avoid
+        // potential deadlocks inside the Oboe internals.
+        std::thread([this]() {
+            std::lock_guard<std::mutex> lock(g_engineMutex);
+            bool ok = false;
+            if (g_audioEngine != nullptr) {
+                // stop() is idempotent on already-closed streams; it resets
+                // the worker thread and shared_ptrs before start() reopens them.
+                g_audioEngine->stop();
+                ok = g_audioEngine->start();
+            }
+            restartScheduled_.store(false, std::memory_order_release);
+            if (!ok) {
+                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
+            } else {
+                LOGI("Auto-restart after disconnect succeeded");
+            }
+        }).detach();
     }
 };
 
