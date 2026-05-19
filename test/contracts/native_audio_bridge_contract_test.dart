@@ -10,7 +10,10 @@ void main() {
       ).readAsStringSync();
 
       expect(mainActivity, contains('"startVoice" ->'));
-      expect(mainActivity, contains('if (peerAudioManager != null) return true'));
+      expect(
+        mainActivity,
+        contains('if (peerAudioManager != null) return true'),
+      );
       expect(
         mainActivity,
         contains('startVoiceCapture(loopbackTestMode = false)'),
@@ -19,7 +22,10 @@ void main() {
       expect(mainActivity, contains('stopVoiceCapture()'));
       expect(mainActivity, contains('service.startAudioEngine()'));
       // The service lookup was refactored to use a local variable for efficiency
-      expect(mainActivity, contains('val service = WalkieTalkieService.getRunning()'));
+      expect(
+        mainActivity,
+        contains('val service = WalkieTalkieService.getRunning()'),
+      );
       expect(mainActivity, contains('service?.stopAudioEngine()'));
     });
 
