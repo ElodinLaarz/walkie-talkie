@@ -483,7 +483,10 @@ class AudioService {
       }
 
       if (shouldProceed != null && !shouldProceed()) return;
-      await startAdvertising(sessionUuid: sessionUuid, displayName: displayName);
+      await startAdvertising(
+        sessionUuid: sessionUuid,
+        displayName: displayName,
+      );
     } finally {
       await readySub.cancel();
     }

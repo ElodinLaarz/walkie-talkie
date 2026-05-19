@@ -461,11 +461,14 @@ class _SettingsCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       decoration: BoxDecoration(
-        color: c.surface,
         border: Border.all(color: c.line),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: child,
+      child: Material(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(12),
+        child: child,
+      ),
     );
   }
 }

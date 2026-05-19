@@ -575,17 +575,17 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockStreamHandler(
-        eventChan,
-        MockStreamHandler.inline(
-          onListen: (_, events) {
-            eventController.stream.listen(
-              events.success,
-              onError: (Object e) =>
-                  events.error(code: 'ERR', message: e.toString()),
-            );
-          },
-        ),
-      );
+            eventChan,
+            MockStreamHandler.inline(
+              onListen: (_, events) {
+                eventController.stream.listen(
+                  events.success,
+                  onError: (Object e) =>
+                      events.error(code: 'ERR', message: e.toString()),
+                );
+              },
+            ),
+          );
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
