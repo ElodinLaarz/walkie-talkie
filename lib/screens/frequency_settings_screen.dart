@@ -458,14 +458,22 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      decoration: BoxDecoration(
+    // Use Material (not a Container with a background color) so that any
+    // ListTile inside paints its background / ink splashes against this
+    // Material ancestor. A DecoratedBox with a fill color above a ListTile
+    // both hides the splash and trips a framework assertion in test mode
+    // ("ListTile background color or ink splashes may be invisible").
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Material(
+        type: MaterialType.card,
         color: c.surface,
-        border: Border.all(color: c.line),
-        borderRadius: BorderRadius.circular(12),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: c.line),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: child,
       ),
-      child: child,
     );
   }
 }

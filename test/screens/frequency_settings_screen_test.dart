@@ -307,6 +307,12 @@ void main() {
           find.byType(ListView),
           const Offset(0, -200),
         );
+        // dragUntilVisible can stop as soon as the target is mounted, even
+        // when it is still just below the viewport edge. ensureVisible
+        // scrolls the exact rect into the viewport so the subsequent tap
+        // hit-tests on-screen.
+        await tester.ensureVisible(find.text('Privacy policy'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Privacy policy'));
         await tester.pumpAndSettle();
 
