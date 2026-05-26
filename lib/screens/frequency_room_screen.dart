@@ -43,6 +43,15 @@ class FrequencyRoomScreen extends StatefulWidget {
   /// guarantee one `AudioService` per process at runtime.
   final AudioService? audioService;
 
+  /// Whether this screen owns starting/stopping the native voice capture
+  /// lifecycle. Defaults to true for production; tests and screenshot captures
+  /// can disable it when they only need a deterministic visual render.
+  final bool manageAudioLifecycle;
+
+  /// Whether the visible media progress should tick once per second.
+  /// Defaults to true for production; deterministic renders can disable it.
+  final bool enableProgressTicker;
+
   const FrequencyRoomScreen({
     super.key,
     required this.freq,
@@ -52,6 +61,8 @@ class FrequencyRoomScreen extends StatefulWidget {
     required this.myName,
     required this.onLeave,
     this.audioService,
+    this.manageAudioLifecycle = true,
+    this.enableProgressTicker = true,
   });
 
   @override
@@ -190,30 +201,32 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // roster filter is correct from frame 0, eliminating the flash where
     // the local user briefly appears as a peer (issue #222).
     _myPeerId = cubit.localPeerId;
-    unawaited(() async {
-      final serviceStarted = await _audio.startService(freq: widget.freq);
-      if (!mounted || !serviceStarted) return;
-      final started = await _audio.startVoice();
-      if (!mounted || !started) return;
+    if (widget.manageAudioLifecycle) {
+      unawaited(() async {
+        final serviceStarted = await _audio.startService(freq: widget.freq);
+        if (!mounted || !serviceStarted) return;
+        final started = await _audio.startVoice();
+        if (!mounted || !started) return;
 
-      // Re-read mute state after await in case user toggled during startup
-      final currentMuted = _meEffectivelyMuted;
-      await _audio.setMuted(currentMuted);
-      // Broadcast initial mute state to peers via the BLE control plane
-      // (once wired). Until then, this is a no-op.
-      unawaited(cubit.broadcastMute(currentMuted));
+        // Re-read mute state after await in case user toggled during startup
+        final currentMuted = _meEffectivelyMuted;
+        await _audio.setMuted(currentMuted);
+        // Broadcast initial mute state to peers via the BLE control plane
+        // (once wired). Until then, this is a no-op.
+        unawaited(cubit.broadcastMute(currentMuted));
 
-      // Set initial audio output routing. If it fails (e.g., no Bluetooth
-      // device when _output is bluetooth), keep the UI selection but log it.
-      final routed = await _audio.setAudioOutput(_output.name);
-      if (!routed) {
-        if (kDebugMode) {
-          debugPrint(
-            'Failed to route to ${_output.name}, device may be unavailable',
-          );
+        // Set initial audio output routing. If it fails (e.g., no Bluetooth
+        // device when _output is bluetooth), keep the UI selection but log it.
+        final routed = await _audio.setAudioOutput(_output.name);
+        if (!routed) {
+          if (kDebugMode) {
+            debugPrint(
+              'Failed to route to ${_output.name}, device may be unavailable',
+            );
+          }
         }
-      }
-    }());
+      }());
+    }
 
     // Listen for audio device changes from the native layer (e.g., AirPods
     // connecting/disconnecting). The native AudioRoutingManager auto-routes
@@ -353,7 +366,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     });
 
     _resolveMyPeerId();
-    _startProgressTick();
+    if (widget.enableProgressTicker) {
+      _startProgressTick();
+    }
 
     // Subscribe to host-side weak-signal events from the cubit. Only the
     // host emits; on guests the stream is silent so the subscription is
@@ -582,7 +597,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     _mediaSub?.cancel();
     _audioEventsSub?.cancel();
     _weakSignalSub?.cancel();
-    unawaited(_audio.stopVoice().then((_) => _audio.stopService()));
+    if (widget.manageAudioLifecycle) {
+      unawaited(_audio.stopVoice().then((_) => _audio.stopService()));
+    }
     super.dispose();
   }
 

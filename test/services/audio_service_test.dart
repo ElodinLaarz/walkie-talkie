@@ -25,6 +25,8 @@ void main() {
                 case 'disconnectDevice':
                 case 'startVoice':
                 case 'stopVoice':
+                case 'startLoopbackTest':
+                case 'stopLoopbackTest':
                 case 'setMuted':
                 case 'setAudioOutput':
                 case 'connectVoiceClient':
@@ -119,6 +121,20 @@ void main() {
       final result = await audioService.stopVoice();
       expect(result, true);
       expect(log, <Matcher>[isMethodCall('stopVoice', arguments: null)]);
+    });
+
+    test('startLoopbackTest calls correct method', () async {
+      final result = await audioService.startLoopbackTest();
+      expect(result, true);
+      expect(log, <Matcher>[
+        isMethodCall('startLoopbackTest', arguments: null),
+      ]);
+    });
+
+    test('stopLoopbackTest calls correct method', () async {
+      final result = await audioService.stopLoopbackTest();
+      expect(result, true);
+      expect(log, <Matcher>[isMethodCall('stopLoopbackTest', arguments: null)]);
     });
 
     test('setMuted forwards the muted flag in the args', () async {

@@ -19,6 +19,7 @@ class MainActivity : FlutterActivity() {
         private const val METHOD_CHANNEL = "com.elodin.walkie_talkie/audio"
         private const val EVENT_CHANNEL = "com.elodin.walkie_talkie/audio_events"
         private const val CONTROL_BYTES_EVENT_CHANNEL = "com.elodin.walkie_talkie/control_bytes"
+        private const val LOOPBACK_TEST_DEVICE_ID = -1
 
         init {
             System.loadLibrary("walkie_talkie_audio")
@@ -197,72 +198,17 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "startVoice" -> {
-                    Log.i(TAG, "Starting voice capture")
-                    audioRoutingManager?.startAutoDetect { outputType ->
-                        sendEventToFlutter(mapOf(
-                            "type" to "audioOutputChanged",
-                            "output" to outputType
-                        ))
-                    }
-                    // Init the mixer (device 0 = local mic) and start the Oboe engine.
-                    audioMixerManager = AudioMixerManager()
-                    audioMixerManager?.addDevice(0)
-                    val engineStarted = WalkieTalkieService.getRunning()?.startAudioEngine() ?: false
-                    if (!engineStarted) {
-                        Log.e(TAG, "Audio engine failed to start — rolling back partial init")
-                        audioRoutingManager?.stopAutoDetect()
-                        audioMixerManager?.clear()
-                        audioMixerManager = null
-                        result.success(false)
-                        return@setMethodCallHandler
-                    }
-                    // Init the per-peer manager and wire its outbound callback to L2CAP.
-                    val pm = PeerAudioManager()
-                    pm.init()
-                    pm.setCallback(object : PeerAudioManager.AudioCallback {
-                        override fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
-                            if (firstEncodedFramePeers.add(macAddress)) {
-                                sendEventToFlutter(mapOf(
-                                    "type" to "firstEncodedFrame",
-                                    "address" to macAddress,
-                                ))
-                            }
-                            val frame = buildVoiceFrame(opusData, seq)
-                            if (isVoiceHost) {
-                                voiceTransport?.sendToClient(macAddress, frame)
-                            } else {
-                                voiceTransport?.sendToHost(frame)
-                            }
-                        }
-                        override fun onTalkingPeersChanged(peers: Set<String>) {
-                            sendEventToFlutter(mapOf(
-                                "type" to "talkingPeers",
-                                "peers" to peers.toList()
-                            ))
-                        }
-                    })
-                    pm.startMixerThread()
-                    peerAudioManager = pm
-                    result.success(true)
+                    result.success(startVoiceCapture(loopbackTestMode = false))
                 }
                 "stopVoice" -> {
-                    Log.i(TAG, "Stopping voice capture")
-                    audioRoutingManager?.stopAutoDetect()
-                    peerAudioManager?.stopMixerThread()
-                    peerAudioManager?.clear()
-                    peerAudioManager = null
-                    WalkieTalkieService.getRunning()?.stopAudioEngine()
-                    audioMixerManager?.clear()
-                    audioMixerManager = null
-                    firstEncodedFramePeers.clear()
-                    firstDecodedFramePeers.clear()
-                    voiceSessionId++  // invalidate any in-flight registerVoicePeer retries
-                    // Stop and release the L2CAP transport so stale sockets
-                    // don't bleed into the next session (Dart has no separate
-                    // stopVoiceTransport call-site in the room exit path).
-                    voiceTransport?.stop()
-                    voiceTransport = null
-                    isVoiceHost = false
+                    stopVoiceCapture()
+                    result.success(true)
+                }
+                "startLoopbackTest" -> {
+                    result.success(startVoiceCapture(loopbackTestMode = true))
+                }
+                "stopLoopbackTest" -> {
+                    stopVoiceCapture()
                     result.success(true)
                 }
                 "setMuted" -> {
@@ -318,6 +264,9 @@ class MainActivity : FlutterActivity() {
                                     "type" to "gattError",
                                     "reason" to reason
                                 ))
+                            },
+                            onServerReady = {
+                                sendEventToFlutter(mapOf("type" to "gattServerReady"))
                             }
                         )
                     }
@@ -611,6 +560,90 @@ class MainActivity : FlutterActivity() {
             sendEventToFlutter(metadata as Map<String, Any>)
         }
         mediaSessionBridge?.attach()
+    }
+
+    private fun startVoiceCapture(loopbackTestMode: Boolean): Boolean {
+        if (peerAudioManager != null) return true
+        Log.i(TAG, if (loopbackTestMode) "Starting loopback voice test" else "Starting voice capture")
+        val service = WalkieTalkieService.getRunning()
+        if (service == null) {
+            Log.e(TAG, "Cannot start voice: WalkieTalkieService is not running")
+            return false
+        }
+        service.setLoopbackTestMode(loopbackTestMode)
+        audioRoutingManager?.startAutoDetect { outputType ->
+            sendEventToFlutter(mapOf(
+                "type" to "audioOutputChanged",
+                "output" to outputType
+            ))
+        }
+        // Init the mixer (device 0 = local mic) and start the Oboe engine.
+        audioMixerManager = AudioMixerManager()
+        audioMixerManager?.addDevice(0)
+        if (loopbackTestMode) {
+            audioMixerManager?.addDevice(LOOPBACK_TEST_DEVICE_ID)
+        }
+        val engineStarted = service.startAudioEngine()
+        if (!engineStarted) {
+            Log.e(TAG, "Audio engine failed to start — rolling back partial init")
+            service.setLoopbackTestMode(false)
+            audioRoutingManager?.stopAutoDetect()
+            audioMixerManager?.clear()
+            audioMixerManager = null
+            return false
+        }
+        // Init the per-peer manager and wire its outbound callback to L2CAP.
+        val pm = PeerAudioManager()
+        pm.init()
+        pm.setCallback(object : PeerAudioManager.AudioCallback {
+            override fun onMixedAudioReady(macAddress: String, opusData: ByteArray, seq: Int) {
+                if (firstEncodedFramePeers.add(macAddress)) {
+                    sendEventToFlutter(mapOf(
+                        "type" to "firstEncodedFrame",
+                        "address" to macAddress,
+                    ))
+                }
+                val frame = buildVoiceFrame(opusData, seq)
+                if (isVoiceHost) {
+                    voiceTransport?.sendToClient(macAddress, frame)
+                } else {
+                    voiceTransport?.sendToHost(frame)
+                }
+            }
+            override fun onTalkingPeersChanged(peers: Set<String>) {
+                sendEventToFlutter(mapOf(
+                    "type" to "talkingPeers",
+                    "peers" to peers.toList()
+                ))
+            }
+        })
+        pm.startMixerThread()
+        peerAudioManager = pm
+        return true
+    }
+
+    private fun stopVoiceCapture() {
+        Log.i(TAG, "Stopping voice capture")
+        audioRoutingManager?.stopAutoDetect()
+        peerAudioManager?.stopMixerThread()
+        peerAudioManager?.clear()
+        peerAudioManager = null
+
+        val service = WalkieTalkieService.getRunning()
+        service?.setLoopbackTestMode(false)
+        service?.stopAudioEngine()
+
+        audioMixerManager?.clear()
+        audioMixerManager = null
+        firstEncodedFramePeers.clear()
+        firstDecodedFramePeers.clear()
+        voiceSessionId++  // invalidate any in-flight registerVoicePeer retries
+        // Stop and release the L2CAP transport so stale sockets
+        // don't bleed into the next session (Dart has no separate
+        // stopVoiceTransport call-site in the room exit path).
+        voiceTransport?.stop()
+        voiceTransport = null
+        isVoiceHost = false
     }
 
     // Parse the 8-byte VoiceFrame header and push the Opus payload into the

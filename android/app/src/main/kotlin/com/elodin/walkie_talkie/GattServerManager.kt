@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap
 class GattServerManager(
     private val context: Context,
     private val onBytesReceived: (deviceAddress: String, bytes: ByteArray) -> Unit,
-    private val onError: ((String) -> Unit)? = null
+    private val onError: ((String) -> Unit)? = null,
+    private val onServerReady: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "GattServerManager"
@@ -134,6 +135,16 @@ class GattServerManager(
                         null
                     )
                 }
+            }
+        }
+
+        override fun onServiceAdded(status: Int, service: BluetoothGattService?) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.i(TAG, "GATT service registered — server ready for connections")
+                onServerReady?.invoke()
+            } else {
+                Log.e(TAG, "GATT service registration failed: status=$status")
+                onError?.invoke("GATT_SERVICE_ADD_FAILED")
             }
         }
 

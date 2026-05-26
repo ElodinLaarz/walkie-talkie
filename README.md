@@ -54,15 +54,30 @@ handles BLE radio, L2CAP sockets, mic capture, and Opus.
 3.  **Bridge Layer (MethodChannels & EventChannels):**
     * Communication pipe between Dart and Kotlin
       ([MainActivity.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt)).
-    * Today: `scanDevices` / `connectDevice` / `disconnectDevice` methods
-      and `deviceDiscovered` events drive the headset-routing manager.
+    * Headset-routing surface: `scanDevices` / `connectDevice` /
+      `disconnectDevice` methods and `deviceDiscovered` /
+      `deviceConnected` / `deviceDisconnected` events.
       [audio_service.dart](lib/services/audio_service.dart) is the Dart
       side of that surface.
-    * Phase 2 ✅ code-complete, stabilizing: the BLE control-plane bridge —
-      Frequency-shaped methods like `startAdvertising`, `connectToHost`,
-      and `setMuted`, plus events like `onPeerDiscovered` and
-      `onJoinAccepted`. Implemented in
-      [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
+    * BLE control-plane bridge: Frequency-shaped methods like
+      `startAdvertising`, `stopAdvertising`, `startGattServer`,
+      `connectToHost`, `writeRequest`, `writeControlBytes`,
+      `getNegotiatedMtu`, and `setMuted`. Control bytes flow back over a
+      dedicated `controlBytes` EventChannel; Dart decodes them into typed
+      `FrequencyMessage`s via [`BleControlTransport`](lib/services/ble_control_transport.dart).
+      A second `audio_events` EventChannel carries native lifecycle
+      events. Examples (non-exhaustive — the exhaustive list lives in
+      [MainActivity.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt)
+      / [MediaSessionBridge.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/MediaSessionBridge.kt)):
+      `deviceDiscovered` / `deviceConnected` / `deviceDisconnected`,
+      `l2capOpen`, `voiceClientConnected`, `firstEncodedFrame` /
+      `firstDecodedFrame`, `talkingPeers` / `localTalking`, `pttToggle` /
+      `muteToggle`, `audioOutputChanged`, `mediaMetadata`, `leaveRoom`,
+      `openInviteLink`, `gattError` / `audioError` / `error`. Implemented
+      in [#44](https://github.com/ElodinLaarz/walkie-talkie/issues/44).
+    * Voice transport bridge: `startVoiceServer` / `connectVoiceClient` /
+      `stopVoiceTransport` / `getLinkTelemetry` / `setPeerBitrate` /
+      `startVoice` / `stopVoice` / `startLoopbackTest` / `stopLoopbackTest`.
 4.  **Service Layer (Android Native — Kotlin):**
     * **Foreground Service**
       ([WalkieTalkieService.kt](android/app/src/main/kotlin/com/elodin/walkie_talkie/WalkieTalkieService.kt))
@@ -193,13 +208,23 @@ graph TD
 
 1.  **`flutter_bloc`** — state management for Discovery and the Frequency
     session cubits.
-2.  **`sqflite`** — local-only persistence for `peerId` and display name.
-    No cloud sync (intentional). Hive is retained only as a one-shot
-    migration source (see
+2.  **`sqflite`** — local-only persistence for `peerId`, display name,
+    recent frequencies, blocked peers, and settings (incl. the Sentry
+    opt-in toggle). No cloud sync (intentional). Hive is retained only
+    as a one-shot migration source (see
     [lib/services/storage_migration.dart](lib/services/storage_migration.dart)).
-3.  **`permission_handler`** — Bluetooth scan / connect / advertise + mic
+3.  **`flutter_blue_plus`** — guest-side LE scanner. The host side does
+    **not** use it — LE advertising, GATT server, and L2CAP CoC are all
+    on the native Kotlin path because flutter_blue_plus exposes neither
+    advertising nor L2CAP. See
+    [lib/services/bluetooth_discovery_service.dart](lib/services/bluetooth_discovery_service.dart).
+4.  **`permission_handler`** — Bluetooth scan / connect / advertise + mic
     permissions. The runtime asks happen during onboarding
     ([lib/services/onboarding_permission_gateway.dart](lib/services/onboarding_permission_gateway.dart)).
+5.  **`sentry_flutter`** — opt-in crash reporting (off by default), DSN
+    baked at build time via `--dart-define=SENTRY_DSN=…`. Events are
+    sanitised before send (peerId, display names, user block stripped);
+    see [docs/sentry-setup.md](docs/sentry-setup.md).
 
 ### Android Native (Kotlin / C++)
 
@@ -214,7 +239,11 @@ The libraries / APIs below are the native surface for Phases 2-3
     **API 29+ / Android 10+**). The voice plane is L2CAP CoC + Opus,
     **not** LE Audio CIS / BIS — see the transport note above.
 2.  **`libopus`** (C / NDK) *(Phase 3)* — voice codec, narrowband /
-    wideband, 20-ms frames at 24 kbps. Per-peer encode on guests, decode +
+    wideband, 20-ms frames at an adaptive 8 / 16 / 24 kbps (default 16
+    kbps; see `kBitrateLow`/`Mid`/`High` in
+    [audio_config.h](android/app/src/main/cpp/audio_config.h)). The host
+    steers each guest's bitrate via `bitrate_hint` in response to that
+    guest's `link_quality` telemetry. Per-peer encode on guests, decode +
     re-encode on the host's mix-minus.
 3.  **`Oboe`** (C++) *(Phase 3)* — low-latency mic capture and playback.
     Java-side `AudioRecord` / `AudioTrack` introduce too much latency for
@@ -268,6 +297,12 @@ real radios.
 * [#55](https://github.com/ElodinLaarz/walkie-talkie/issues/55) Android Audio Focus management (phone calls + Spotify clashes).
 * [#56](https://github.com/ElodinLaarz/walkie-talkie/issues/56) Graceful auto-reconnect for transient drops (≤30s).
 * [#57](https://github.com/ElodinLaarz/walkie-talkie/issues/57) Permissions revocation handling (mic / BT revoked while in-room).
+* Host handover (`host_transfer`) — when the current host leaves a
+  populated room it nominates a successor that promotes itself; see
+  [docs/protocol.md § Host handover](docs/protocol.md#host-handover).
+* Adaptive Opus bitrate (`link_quality` / `bitrate_hint`) — guests report
+  receive-side telemetry, host steers per-link bitrate between the
+  Low/Mid/High operating points.
 
 ### Phase 5 — Release polish ✅ code-complete, stabilizing
 
@@ -288,8 +323,9 @@ actions are documented in the submission guide below.
 * [#120](https://github.com/ElodinLaarz/walkie-talkie/issues/120) ✅ Crash + error reporting (Sentry, opt-in, no PII, on-device queue).
 * [#126](https://github.com/ElodinLaarz/walkie-talkie/issues/126) ⏳ Play Store listing prep: store metadata, screenshots, content rating, closed testing. See [`docs/play-store-submission-guide.md`](docs/play-store-submission-guide.md) for the step-by-step checklist.
 
-Out of scope for v1: encryption beyond LE pairing, host handover, mesh
-topology, > 12 peers per room. See
+Out of scope for v1: encryption beyond LE pairing, mesh topology, > 12
+peers per room. (Host handover, originally listed here, now ships — see
+Phase 4 above.) See
 [docs/protocol.md § Out of scope](docs/protocol.md#out-of-scope).
 
 -----

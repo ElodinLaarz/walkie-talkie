@@ -175,6 +175,33 @@ class AudioService {
     }
   }
 
+  /// Start the single-device native loopback path used for field validation.
+  ///
+  /// The Android side enables loopback mode, initializes the same mixer and
+  /// Oboe engine used by production voice, and routes local mic PCM through a
+  /// synthetic mixer peer before speaker playback. This is intentionally not
+  /// used by normal rooms because users should not hear their own mic.
+  Future<bool> startLoopbackTest() async {
+    try {
+      final result = await _methodChannel.invokeMethod('startLoopbackTest');
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error starting loopback test: $e');
+      return false;
+    }
+  }
+
+  /// Stop the native loopback validation path and release audio resources.
+  Future<bool> stopLoopbackTest() async {
+    try {
+      final result = await _methodChannel.invokeMethod('stopLoopbackTest');
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error stopping loopback test: $e');
+      return false;
+    }
+  }
+
   /// Set the local mic mute flag at the native layer. Mute does **not**
   /// tear down the L2CAP CoC or the AudioRecord — it just gates whether
   /// captured frames are encoded and sent. Keeping the engine warm makes
@@ -383,6 +410,85 @@ class AudioService {
     } catch (e) {
       if (kDebugMode) debugPrint('Error starting GATT server: $e');
       return false;
+    }
+  }
+
+  /// Start the GATT server and begin advertising only after the service is
+  /// fully registered.
+  ///
+  /// [BluetoothGattServer.addService] is asynchronous — the service isn't
+  /// visible to connecting guests until [onServiceAdded] fires on the native
+  /// side. Calling [startAdvertising] before that callback means a fast-
+  /// scanning guest can connect, run service discovery, find nothing, and
+  /// silently disconnect (GATT_SETUP_FAILED) before the service is ready.
+  ///
+  /// This method awaits the 'gattServerReady' native event (with a 3 s
+  /// timeout) before invoking [startAdvertising], eliminating that race.
+  /// On timeout the method aborts — advertising without confirmed server
+  /// readiness would reopen the race this method exists to close.
+  ///
+  /// [shouldProceed] is called just before [startAdvertising] is invoked.
+  /// Callers that may be torn down while waiting (e.g. a cubit that closes
+  /// before [onServiceAdded] fires) can pass a guard to prevent advertising
+  /// for a dead session.
+  Future<void> startGattServerAndAdvertise({
+    required String sessionUuid,
+    required String displayName,
+    Duration serverReadyTimeout = const Duration(seconds: 3),
+    bool Function()? shouldProceed,
+  }) async {
+    // Use a Completer + explicit StreamSubscription so we can cancel the
+    // listener on every exit path. Stream.firstWhere().timeout() does NOT
+    // cancel the underlying subscription when the timeout fires, which leaks
+    // a broadcast listener for the rest of the session.
+    final readyCompleter = Completer<Map<String, dynamic>>();
+    final readySub = audioEvents.listen((e) {
+      if (readyCompleter.isCompleted) return;
+      // Only treat gattError events from the server startup path as a failure
+      // signal. Other gattError events (auth failures, write errors, etc.) are
+      // unrelated and must not abort the advertising attempt.
+      final isReady = e['type'] == 'gattServerReady';
+      final isServiceAddFailed =
+          e['type'] == 'gattError' && e['reason'] == 'GATT_SERVICE_ADD_FAILED';
+      if (isReady || isServiceAddFailed) readyCompleter.complete(e);
+    });
+
+    try {
+      final serverStarted = await startGattServer();
+      if (!serverStarted) {
+        if (kDebugMode) {
+          debugPrint('startGattServer returned false; skipping advertising');
+        }
+        return;
+      }
+
+      final Map<String, dynamic> event;
+      try {
+        event = await readyCompleter.future.timeout(serverReadyTimeout);
+      } on TimeoutException {
+        if (kDebugMode) {
+          debugPrint(
+            'Timed out waiting for gattServerReady; skipping advertising '
+            'to avoid the GATT service registration race',
+          );
+        }
+        return;
+      }
+
+      if (event['type'] != 'gattServerReady') {
+        if (kDebugMode) {
+          debugPrint('GATT server error before ready; skipping advertising');
+        }
+        return;
+      }
+
+      if (shouldProceed != null && !shouldProceed()) return;
+      await startAdvertising(
+        sessionUuid: sessionUuid,
+        displayName: displayName,
+      );
+    } finally {
+      await readySub.cancel();
     }
   }
 

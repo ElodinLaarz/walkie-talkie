@@ -36,13 +36,21 @@ static std::atomic<bool> g_focusPaused{false};
 // 1.0 = full volume; 0.3 ≈ -10 dB which is what most media apps duck to.
 static std::atomic<float> g_duckingVolume{1.0f};
 
+// Single-device validation mode. When enabled, the input callback mirrors the
+// local mic into this synthetic mixer device, then the normal mix-minus path
+// for device 0 writes that signal to the playback stream.
+static std::atomic<bool> g_loopbackTestMode{false};
+static constexpr int kLocalMicDeviceId = 0;
+static constexpr int kLoopbackTestDeviceId = -1;
+
 // Global JNI references for voice activity callbacks
 static std::mutex g_jniMutex;
 static JavaVM* g_jvm = nullptr;
 static jobject g_mainActivity = nullptr;
 
-// Forward declaration for the error callback class
+// Forward declarations
 class AudioEngineErrorCallback;
+class AudioEngine;
 
 // Emit audio error event to Flutter via JNI.
 // Called from Oboe's error callback when a stream error occurs (e.g., permission
@@ -248,24 +256,51 @@ static void stopTalkingEventWorker() {
     g_talkingWorkerThread.join();
 }
 
-// Error callback for Oboe streams. Emits structured events to Flutter rather
-// than crashing the foreground service. Handles permission revocation (which
-// presents as ErrorDisconnected or ErrorInternal) and other stream errors.
+// Global audio engine instance + mutex. Defined here (before
+// AudioEngineErrorCallback) so the error callback's detached restart thread can
+// reference them without a forward use of an undeclared identifier.
 //
-// Note: Oboe invokes both onErrorBeforeClose and onErrorAfterClose for the same
-// failure. We emit only in onErrorBeforeClose to avoid duplicate Flutter events.
+// nativeStop deletes the engine and nulls the pointer; nativePauseStreams /
+// nativeResumeStreams read the pointer and dispatch to it. Without
+// serialization a stop racing with pause/resume can either tear down the
+// engine mid-call (use-after-free) or null the pointer between the load and
+// the dereference. In practice the JNI calls usually serialize on the
+// service / main thread, but Android focus-change listeners can be
+// dispatched on other threads; the mutex makes the contract explicit so
+// future call sites can't introduce a UAF by accident.
+static std::mutex g_engineMutex;
+static AudioEngine* g_audioEngine = nullptr;
+
+// Restart guard for ErrorDisconnected auto-recovery. Static (not a member of
+// AudioEngineErrorCallback) so the detached restart thread does not capture a
+// pointer to the callback instance — the engine can destroy the callback while
+// the thread blocks on g_engineMutex, and any member access after the lock is
+// acquired would be a use-after-free. There is only one AudioEngine, so one
+// static bool is the right scope.
+static std::atomic<bool> g_restartScheduled{false};
+
+// Error callback for Oboe streams. For ErrorDisconnected (audio route change,
+// e.g. BT headset connect/disconnect) we attempt a transparent auto-restart in
+// onErrorAfterClose; the Flutter error event fires only when restart fails.
+// All other errors are reported immediately in onErrorBeforeClose.
+//
+// Both recording and playback streams share a single instance (see AudioEngine
+// ctor). g_restartScheduled is the deduplicate guard; the lambda captures
+// nothing so the thread has no lifetime dependency on the callback object.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
         LOGE("Oboe stream error: %s", oboe::convertToText(error));
-        emitAudioErrorEvent(error);
+        // ErrorDisconnected gets a restart attempt first; emit is deferred.
+        if (error != oboe::Result::ErrorDisconnected) {
+            emitAudioErrorEvent(error);
+        }
     }
 
-    void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override {
-        LOGE("Oboe stream error after close: %s (event already emitted)",
-             oboe::convertToText(error));
-        // Do not emit — onErrorBeforeClose already sent the event.
-    }
+    // Defined out-of-line (after AudioEngine) because the restart lambda calls
+    // g_audioEngine->stop() and g_audioEngine->start(), which require AudioEngine
+    // to be fully defined — not just forward-declared.
+    void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
 };
 
 class AudioEngine : public oboe::AudioStreamDataCallback {
@@ -525,7 +560,11 @@ public:
         auto mixer = std::atomic_load(&g_audioMixer);
         if (mixer && codecFrames > 0) {
             // Local mic occupies device id 0 in the mix-minus matrix.
-            mixer->updateDeviceAudio(0, codecScratch_, codecFrames);
+            mixer->updateDeviceAudio(kLocalMicDeviceId, codecScratch_, codecFrames);
+            if (g_loopbackTestMode.load(std::memory_order_relaxed)) {
+                mixer->updateDeviceAudio(
+                    kLoopbackTestDeviceId, codecScratch_, codecFrames);
+            }
 
             // Pull this device's mix-minus (everyone but us) back from the
             // mixer. The buffer it returns is at the codec rate.
@@ -538,7 +577,8 @@ public:
                      kMaxBurstCodecFrames);
                 return oboe::DataCallbackResult::Continue;
             }
-            mixer->getMixedAudioForDevice(0, mixedCodec, codecFrames);
+            mixer->getMixedAudioForDevice(
+                kLocalMicDeviceId, mixedCodec, codecFrames);
 
             // Codec 16 kHz → playout 48 kHz. Always 3:1, so output count is
             // exactly `codecFrames * kResampleRatio`.
@@ -579,18 +619,52 @@ public:
     }
 };
 
-// Global audio engine instance + mutex.
-//
-// nativeStop deletes the engine and nulls the pointer; nativePauseStreams /
-// nativeResumeStreams read the pointer and dispatch to it. Without
-// serialization a stop racing with pause/resume can either tear down the
-// engine mid-call (use-after-free) or null the pointer between the load and
-// the dereference. In practice the JNI calls usually serialize on the
-// service / main thread, but Android focus-change listeners can be
-// dispatched on other threads; the mutex makes the contract explicit so
-// future call sites can't introduce a UAF by accident.
-static std::mutex g_engineMutex;
-static AudioEngine* g_audioEngine = nullptr;
+// Out-of-line definition of AudioEngineErrorCallback::onErrorAfterClose.
+// Placed here, after AudioEngine is fully defined, so the restart lambda can
+// call g_audioEngine->stop() and g_audioEngine->start() on the complete type.
+void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
+                                                  oboe::Result error) {
+    if (error != oboe::Result::ErrorDisconnected) {
+        // Non-disconnect errors were already reported in onErrorBeforeClose.
+        LOGE("Oboe stream error after close: %s", oboe::convertToText(error));
+        return;
+    }
+
+    // Only one of the two streams should trigger the restart.
+    bool expected = false;
+    if (!g_restartScheduled.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    LOGI("Audio device disconnected — scheduling auto-restart");
+    // No `this` capture: the callback object may be destroyed while this
+    // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
+    // All state the thread needs is in the static globals above.
+    std::thread([]() {
+        std::lock_guard<std::mutex> lock(g_engineMutex);
+        if (g_audioEngine != nullptr) {
+            // stop() is idempotent on already-closed streams; it resets
+            // the worker thread and shared_ptrs before start() reopens them.
+            g_audioEngine->stop();
+            const bool ok = g_audioEngine->start();
+            g_restartScheduled.store(false, std::memory_order_release);
+            if (!ok) {
+                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
+            } else {
+                LOGI("Auto-restart after disconnect succeeded");
+            }
+        } else {
+            // Engine was intentionally stopped (nativeStop); not an error.
+            g_restartScheduled.store(false, std::memory_order_release);
+            LOGI("Auto-restart skipped — engine already stopped");
+        }
+    }).detach();
+}
+
+// g_engineMutex and g_audioEngine are defined above AudioEngineErrorCallback
+// so the error callback's detached restart thread can reference them.
 
 extern "C" {
 
@@ -637,6 +711,7 @@ JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStop(JNIEnv* env,
                                                               jobject thiz) {
     std::lock_guard<std::mutex> lock(g_engineMutex);
+    g_loopbackTestMode.store(false, std::memory_order_relaxed);
     if (g_audioEngine != nullptr) {
         g_audioEngine->stop();
         delete g_audioEngine;
@@ -678,6 +753,14 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetDuckingVolume(
     JNIEnv* env, jobject thiz, jfloat volume) {
     float clamped = volume < 0.0f ? 0.0f : (volume > 1.0f ? 1.0f : volume);
     g_duckingVolume.store(clamped, std::memory_order_relaxed);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeSetLoopbackTestMode(
+    JNIEnv* env, jobject thiz, jboolean enabled) {
+    g_loopbackTestMode.store(enabled == JNI_TRUE, std::memory_order_relaxed);
+    LOGI("Loopback test mode %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+    return JNI_TRUE;
 }
 
 }  // extern "C"

@@ -560,18 +560,52 @@ void main() {
       // intercept the underlying MethodChannel rather than mocking the
       // service so this test stays anchored on the contract callers
       // depend on (the platform method names + arg map).
+      //
+      // startGattServerAndAdvertise now awaits a 'gattServerReady' event on
+      // the audio EventChannel before calling startAdvertising. We mock the
+      // EventChannel so the mock startGattServer handler can emit that event
+      // and unblock the advertising call within the test.
       TestWidgetsFlutterBinding.ensureInitialized();
       const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+      const eventChan = EventChannel('com.elodin.walkie_talkie/audio_events');
       final calls = <MethodCall>[];
+
+      // Sink used to push events into the mocked EventChannel.
+      final eventController = StreamController<dynamic>.broadcast();
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(
+            eventChan,
+            MockStreamHandler.inline(
+              onListen: (_, events) {
+                eventController.stream.listen(
+                  events.success,
+                  onError: (Object e) =>
+                      events.error(code: 'ERR', message: e.toString()),
+                );
+              },
+            ),
+          );
+
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             calls.add(call);
-            // Both methods nominally return bool on the native side.
+            if (call.method == 'startGattServer') {
+              // Simulate native onServiceAdded firing; unblocks the
+              // gattServerReady wait inside startGattServerAndAdvertise.
+              scheduleMicrotask(
+                () => eventController.add({'type': 'gattServerReady'}),
+              );
+            }
             return true;
           });
-      addTearDown(() {
+
+      addTearDown(() async {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null);
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockStreamHandler(eventChan, null);
+        await eventController.close();
       });
 
       const sessionUuid = '00000000-0000-4000-8000-0000000000a3';
@@ -582,7 +616,10 @@ void main() {
       cubit.emit(const SessionDiscovery(myName: 'Maya'));
 
       await cubit.joinRoom(isHost: true);
-      // The cubit fires both calls unawaited; let the event loop drain.
+      // Allow the async chain to settle:
+      //   startGattServer → gattServerReady event → startAdvertising.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
