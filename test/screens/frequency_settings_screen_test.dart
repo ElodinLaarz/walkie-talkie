@@ -307,6 +307,10 @@ void main() {
           find.byType(ListView),
           const Offset(0, -200),
         );
+        await Scrollable.ensureVisible(
+          tester.element(find.text('Privacy policy')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Privacy policy'));
         await tester.pumpAndSettle();
 

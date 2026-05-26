@@ -458,14 +458,21 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Use Material (not a DecoratedBox) as the immediate ancestor of any
+    // ListTile children so ListTile ink/background paint on the right
+    // surface. Flutter asserts otherwise. See ListTile docs on "Material
+    // ancestor".
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      decoration: BoxDecoration(
+      child: Material(
         color: c.surface,
-        border: Border.all(color: c.line),
-        borderRadius: BorderRadius.circular(12),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: c.line),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: child,
       ),
-      child: child,
     );
   }
 }
