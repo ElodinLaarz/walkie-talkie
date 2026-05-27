@@ -64,7 +64,11 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Crash Reporting (opt-in, privacy-first)
-  sentry_flutter: ^9.20.0
+  # Pinned to 9.19.x: 9.20.0 added Android SessionReplay code paths that
+  # reference io.sentry.android.replay.* without declaring the matching
+  # sentry-android-replay artifact in the plugin's build.gradle, breaking
+  # :app:compileDebugKotlin. Track upstream / un-pin in issue #441.
+  sentry_flutter: ">=9.19.0 <9.20.0"
 
 dev_dependencies:
   flutter_test:
