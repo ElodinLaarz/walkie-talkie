@@ -465,7 +465,12 @@ class _SettingsCard extends StatelessWidget {
         border: Border.all(color: c.line),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: child,
+      // The decorated Container paints a background color, but a ListTile
+      // paints its own background and ink splashes on the nearest Material
+      // ancestor. Without an intervening Material the colored Container hides
+      // those effects (Flutter asserts on this). Give the tile its own
+      // transparent Material to paint on.
+      child: Material(type: MaterialType.transparency, child: child),
     );
   }
 }
