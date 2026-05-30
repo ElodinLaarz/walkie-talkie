@@ -51,6 +51,18 @@ class GattClientManager(
     private var requestCharacteristic: BluetoothGattCharacteristic? = null
     private var responseCharacteristic: BluetoothGattCharacteristic? = null
     private var connectRetryCount = 0
+
+    // True once the control link is fully ready to write: services discovered,
+    // REQUEST/RESPONSE characteristics cached, and the RESPONSE CCCD write
+    // confirmed (notifications active). connectToHost() returns at connection
+    // *initiation*, well before this point, so the guest's first JoinRequest
+    // can race ahead of a writable characteristic. Reset on every fresh connect.
+    private var controlReady = false
+    // Outbound REQUEST writes that arrived before [controlReady]. Flushed in
+    // order once the link is ready instead of being dropped — otherwise the
+    // guest's JoinRequest is lost, the host never answers with JoinAccepted,
+    // and the guest is stranded until its watchdog drops it back to Discovery.
+    private val pendingRequestWrites = mutableListOf<ByteArray>()
     private var pendingMacAddress: String? = null
 
     // ATT MTU negotiated for the connected host, keyed by MAC. Populated by
@@ -286,6 +298,12 @@ class GattClientManager(
             if (descriptor.uuid == GattConstants.CCCD_UUID) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.i(TAG, "CCCD write successful, notifications active")
+                    // Link is now fully ready: services discovered, characteristics
+                    // cached, notifications enabled. Flush any REQUEST writes that
+                    // raced ahead of discovery (the guest's first JoinRequest) so
+                    // the host receives them and can answer with JoinAccepted.
+                    controlReady = true
+                    flushPendingRequestWrites()
                     // CCCD confirmed — GATT is fully idle, safe to start RSSI polling.
                     startRssiPolling()
                 } else {
@@ -400,6 +418,12 @@ class GattClientManager(
             return false
         }
 
+        // Fresh attempt: the new link isn't writable until its CCCD write
+        // confirms. Reset readiness and drop any writes left over from a prior
+        // link so they can't flush onto this one.
+        controlReady = false
+        pendingRequestWrites.clear()
+
         try {
             val device = adapter.getRemoteDevice(macAddress)
             Log.i(TAG, "Connecting to host at $macAddress (attempt ${connectRetryCount + 1})")
@@ -433,6 +457,34 @@ class GattClientManager(
      * Returns true if the write was queued, false otherwise.
      */
     fun writeRequest(bytes: ByteArray): Boolean {
+        // The control link isn't writable until service discovery + the CCCD
+        // write complete (see [controlReady]). connectToHost() returns at
+        // connection initiation, so callers — notably the guest's first
+        // JoinRequest — can race ahead of a writable characteristic. Queue those
+        // writes and flush them in order once the link is ready (see
+        // [flushPendingRequestWrites]) rather than dropping them, which would
+        // leave the host with no JoinRequest to answer.
+        if (!controlReady) {
+            Log.i(TAG, "Control link not ready — queueing ${bytes.size}-byte REQUEST write")
+            pendingRequestWrites.add(bytes)
+            return true
+        }
+        return writeRequestNow(bytes)
+    }
+
+    /** Flush writes that arrived before the control link was ready, in order. */
+    private fun flushPendingRequestWrites() {
+        if (pendingRequestWrites.isEmpty()) return
+        val queued = pendingRequestWrites.toList()
+        pendingRequestWrites.clear()
+        Log.i(TAG, "Flushing ${queued.size} queued REQUEST write(s) now that the link is ready")
+        for (queuedBytes in queued) {
+            writeRequestNow(queuedBytes)
+        }
+    }
+
+    /** Performs the actual REQUEST characteristic write. Assumes the link is ready. */
+    private fun writeRequestNow(bytes: ByteArray): Boolean {
         val char = requestCharacteristic
         if (char == null) {
             Log.w(TAG, "Cannot write REQUEST: characteristic not available")

@@ -497,6 +497,11 @@ void main() {
           roomIsHost: false,
           macAddress: 'AA:BB:CC:DD:EE:FF',
           sessionUuidLow8: '0011223344556677',
+          // Guests now enter in the dialing (reconnecting) phase until the
+          // host's JoinAccepted flips them to online. This cubit has no
+          // audio injected, so _connectAndSendJoin no-ops and the phase
+          // stays reconnecting — exactly the pre-handshake state.
+          connectionPhase: ConnectionPhase.reconnecting,
         ),
       ],
     );
@@ -3028,6 +3033,11 @@ void main() {
                   .map((r) => {'peerId': r.peerId, 'rssi': r.rssi})
                   .toList();
             }
+            // The guest join path now dials the host via connectToHost.
+            // Report success so the cubit stays in the room (reconnecting,
+            // then online via the test's explicit applyJoinAccepted) instead
+            // of bailing back to Discovery on a false/null connect result.
+            if (call.method == 'connectToHost') return true;
             return null;
           });
       addTearDown(() {
@@ -3531,6 +3541,10 @@ void main() {
         cubit.emit(const SessionDiscovery(myName: 'Maya'));
         // Join without calling applyJoinAccepted — hostPeerId is null.
         await cubit.joinRoom(freq: '104.3', isHost: false, macAddress: hostMac);
+        // Let the join-time connect + JoinRequest flush so the outbox and seq
+        // measured below reflect only the signal-report behavior, not the
+        // one-time join handshake the guest now performs on tune-in.
+        await Future<void>.delayed(const Duration(milliseconds: 10));
 
         final seqBefore = cubit.debugSeq;
         t.outbox.clear();

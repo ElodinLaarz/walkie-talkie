@@ -154,6 +154,16 @@ FrequencySessionCubit _seededCubit({bool isHost = false}) {
   cubit
     ..emit(const SessionDiscovery(myName: 'Caleb'))
     ..joinRoom(freq: '104.3', isHost: isHost);
+  // joinRoom now parks guests in the dialing (reconnecting) phase until the
+  // host's JoinAccepted arrives. These screen tests want a settled, on-air
+  // room as their baseline (and drive reconnecting/lost explicitly where they
+  // need it), so flip guests to online here. Hosts are already online.
+  if (!isHost) {
+    final seeded = cubit.state;
+    if (seeded is SessionRoom) {
+      cubit.emit(seeded.copyWith(connectionPhase: ConnectionPhase.online));
+    }
+  }
   return cubit;
 }
 

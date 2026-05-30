@@ -1472,8 +1472,21 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         roomIsHost: false,
         macAddress: macAddress,
         sessionUuidLow8: sessionUuidLow8,
+        // Enter in the "reconnecting" phase (the UI's connecting pill) — we
+        // are NOT actually in the room until the host's JoinAccepted lands
+        // and flips us to online. The JoinAccepted watchdog also keys off
+        // this phase, so it must be set before we dial.
+        connectionPhase: ConnectionPhase.reconnecting,
       );
       emit(room);
+      // Dial the host's GATT control link and send the JoinRequest. This is
+      // the step that was deferred to #43 and never wired at the call site:
+      // without it the guest sits in the room heart-beating into a link that
+      // was never opened, and the host shows "0 guest(s)" forever. macAddress
+      // is null only for cosmetic / test-only entries with no real BLE device.
+      if (macAddress != null) {
+        unawaited(_connectAndSendJoin(macAddress));
+      }
     }
     // Begin the heartbeat plane for the lifetime of the room. Pings the
     // wire every interval and watches inbound activity for silent peers
@@ -1900,6 +1913,105 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     }
   }
 
+  /// Guest-only: builds + sends the [JoinRequest] that asks the host to admit
+  /// this peer. The host replies with a targeted [JoinAccepted] (handled by
+  /// [applyJoinAccepted]) carrying the roster + voicePsm. Mirrors
+  /// [_sendHeartbeat]'s resolve-peerId-then-guarded-send idiom; the seq
+  /// counter advances even on the no-transport path so it stays monotonic
+  /// once the link is up.
+  Future<void> _sendJoinRequest() async {
+    final t = _transport;
+    if (t == null) {
+      _seq++;
+      return;
+    }
+    final current = state;
+    if (current is! SessionRoom) return;
+    final String peerId;
+    try {
+      peerId = _localPeerId ?? await identityStore.getPeerId();
+      _localPeerId = peerId;
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Failed to resolve peer id for join request: $error');
+      }
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      _seq++;
+      return;
+    }
+    if (isClosed) return;
+    final msg = JoinRequest(
+      peerId: peerId,
+      seq: ++_seq,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+      displayName: current.myName,
+    );
+    try {
+      await t.send(msg);
+    } catch (error, stackTrace) {
+      // Transport failures are already logged inside BleControlTransport;
+      // swallow here so the caller's room transition isn't poisoned.
+      if (kDebugMode) debugPrint('JoinRequest send failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  /// Guest-only: dials the host's GATT control link for the *initial* join,
+  /// then sends the [JoinRequest]. The symmetric reconnect path lives in
+  /// [notifyDrop]; both share [_sendJoinRequest] + [_armJoinAcceptedWatchdog].
+  /// On connect failure (permission / OEM rejection / out of range) drop
+  /// straight back to Discovery; on success the host's [JoinAccepted] flips
+  /// the phase to online, or [_armJoinAcceptedWatchdog] bails if it never
+  /// comes. Guarded against the user leaving / switching rooms mid-dial.
+  Future<void> _connectAndSendJoin(String macAddress) async {
+    final audio = _audio;
+    if (audio == null) return;
+    bool connected;
+    try {
+      connected = await audio.connectToHost(macAddress);
+    } catch (error, stackTrace) {
+      if (kDebugMode) debugPrint('connectToHost failed: $error');
+      if (kDebugMode) debugPrintStack(stackTrace: stackTrace);
+      connected = false;
+    }
+    if (isClosed) return;
+    final current = state;
+    // Bail if the user left, we became the host, or moved to a different room
+    // while the native connect was in flight.
+    if (current is! SessionRoom ||
+        current.roomIsHost ||
+        current.macAddress != macAddress) {
+      return;
+    }
+    if (!connected) {
+      emit(current.copyWith(connectionPhase: ConnectionPhase.lost));
+      await leaveRoom();
+      return;
+    }
+    await _sendJoinRequest();
+    _armJoinAcceptedWatchdog();
+  }
+
+  /// (Re)arms the JoinAccepted watchdog. A live native link is not enough —
+  /// the host must answer the JoinRequest with a [JoinAccepted] to complete
+  /// the (re)join. If it never arrives (host died, sessionUuid changed, GATT
+  /// subscription failed silently) bail to lost + Discovery instead of
+  /// hanging forever. Shared by the initial-join and reconnect paths so both
+  /// fail the same way; [applyJoinAccepted] cancels it on success.
+  void _armJoinAcceptedWatchdog() {
+    _joinAcceptedWatchdog?.cancel();
+    _joinAcceptedWatchdog = Timer(_joinAcceptedTimeout, () async {
+      if (isClosed) return;
+      final watchdogState = state;
+      if (watchdogState is! SessionRoom ||
+          watchdogState.connectionPhase != ConnectionPhase.reconnecting) {
+        return;
+      }
+      emit(watchdogState.copyWith(connectionPhase: ConnectionPhase.lost));
+      await leaveRoom();
+    });
+  }
+
   /// Called by heartbeat detection when the guest hasn't heard from the host
   /// for the heartbeat timeout. Transitions the room to
   /// [ConnectionPhase.reconnecting] and starts the exponential-backoff retry
@@ -1950,21 +2062,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // host never sends JoinAccepted (host died, session UUID changed, GATT
     // subscription failed silently, ...), bail to lost + Discovery rather
     // than waiting forever.
-    _joinAcceptedWatchdog?.cancel();
-    _joinAcceptedWatchdog = Timer(_joinAcceptedTimeout, () async {
-      if (isClosed) return;
-      final watchdogState = state;
-      // Guard: applyJoinAccepted already fired and cleared to online, or the
-      // user manually left. Don't overwrite a healthy or exited state.
-      if (watchdogState is! SessionRoom ||
-          watchdogState.connectionPhase != ConnectionPhase.reconnecting) {
-        return;
-      }
-      // Host never sent JoinAccepted after native reconnect succeeded —
-      // treat it like a full connection loss.
-      emit(watchdogState.copyWith(connectionPhase: ConnectionPhase.lost));
-      await leaveRoom();
-    });
+    // Native link re-established, but the host won't emit JoinAccepted on its
+    // own — re-send the JoinRequest (the host's _onJoinRequest treats a known
+    // peerId as a re-join) so it answers, then arm the watchdog. Without the
+    // re-send the host stays silent and the watchdog would always fire.
+    unawaited(_sendJoinRequest());
+    _armJoinAcceptedWatchdog();
   }
 
   /// Broadcasts a media command originated by the local peer.
