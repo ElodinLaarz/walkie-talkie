@@ -159,6 +159,23 @@ class AudioRoutingManager(private val ctx: Context) {
         }
 
         audioManager.registerAudioDeviceCallback(deviceCallback, handler)
+
+        // A headset connected *before* tune-in never fires onAudioDevicesAdded,
+        // so the AudioDeviceCallback alone misses it and voice silently stays on
+        // the A2DP media path (or speaker). Do an initial route now: if a BT
+        // comm device is already present, switch to it.
+        val btAlreadyPresent = audioManager.availableCommunicationDevices.any {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+        }
+        if (btAlreadyPresent) {
+            Log.i(TAG, "Bluetooth comm device already present — routing to it")
+            if (setOutput("bluetooth")) {
+                onChangeListener?.invoke("bluetooth")
+            }
+        }
+
         Log.i(TAG, "Auto-detect started for audio device changes")
     }
 

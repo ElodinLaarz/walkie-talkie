@@ -384,7 +384,19 @@ public:
             ->setDataCallback(this)
             ->setErrorCallback(errorCallback.get());
 
+        // Bluetooth SCO/A2DP routes have no exclusive low-latency (MMAP) path,
+        // so an Exclusive open fails the instant a headset becomes the active
+        // device — which is exactly what kills the engine on headset hot-plug.
+        // Fall back to Shared: built-in speaker/earpiece still negotiate
+        // Exclusive, while BT gets a working Shared stream instead of a dead
+        // engine.
         oboe::Result result = recordingBuilder.openStream(recordingStream);
+        if (result != oboe::Result::OK) {
+            LOGE("Exclusive recording open failed (%s) — retrying Shared",
+                 oboe::convertToText(result));
+            recordingBuilder.setSharingMode(oboe::SharingMode::Shared);
+            result = recordingBuilder.openStream(recordingStream);
+        }
         if (result != oboe::Result::OK) {
             LOGE("Failed to create recording stream: %s",
                  oboe::convertToText(result));
@@ -401,6 +413,12 @@ public:
             ->setErrorCallback(errorCallback.get());
 
         result = playbackBuilder.openStream(playbackStream);
+        if (result != oboe::Result::OK) {
+            LOGE("Exclusive playback open failed (%s) — retrying Shared",
+                 oboe::convertToText(result));
+            playbackBuilder.setSharingMode(oboe::SharingMode::Shared);
+            result = playbackBuilder.openStream(playbackStream);
+        }
         if (result != oboe::Result::OK) {
             LOGE("Failed to create playback stream: %s",
                  oboe::convertToText(result));
@@ -642,23 +660,44 @@ void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
     // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
     // All state the thread needs is in the static globals above.
     std::thread([]() {
-        std::lock_guard<std::mutex> lock(g_engineMutex);
-        if (g_audioEngine != nullptr) {
-            // stop() is idempotent on already-closed streams; it resets
-            // the worker thread and shared_ptrs before start() reopens them.
-            g_audioEngine->stop();
-            const bool ok = g_audioEngine->start();
-            g_restartScheduled.store(false, std::memory_order_release);
-            if (!ok) {
-                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
-                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
-            } else {
-                LOGI("Auto-restart after disconnect succeeded");
+        // A route change (BT headset connect/disconnect) leaves the new audio
+        // endpoint briefly unavailable; reopening immediately races that settle
+        // and fails. Back off and retry a few times before giving up. The lock
+        // is re-acquired per attempt (not held across the sleeps) so a
+        // concurrent nativeStop can tear the engine down without blocking for
+        // the full backoff ladder.
+        static constexpr int kMaxAttempts = 5;
+        static constexpr int kBackoffMs[kMaxAttempts] = {150, 300, 600, 1000, 1500};
+        bool ok = false;
+        bool engineGone = false;
+        for (int attempt = 0; attempt < kMaxAttempts && !ok && !engineGone;
+             ++attempt) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(kBackoffMs[attempt]));
+            std::lock_guard<std::mutex> lock(g_engineMutex);
+            if (g_audioEngine == nullptr) {
+                // Engine was intentionally stopped (nativeStop); not an error.
+                engineGone = true;
+                break;
             }
-        } else {
-            // Engine was intentionally stopped (nativeStop); not an error.
-            g_restartScheduled.store(false, std::memory_order_release);
+            // stop() is idempotent on already-closed streams; it resets the
+            // worker thread and shared_ptrs before start() reopens them.
+            g_audioEngine->stop();
+            ok = g_audioEngine->start();
+            if (ok) {
+                LOGI("Auto-restart after disconnect succeeded (attempt %d)",
+                     attempt + 1);
+            } else {
+                LOGE("Auto-restart attempt %d/%d failed", attempt + 1,
+                     kMaxAttempts);
+            }
+        }
+        g_restartScheduled.store(false, std::memory_order_release);
+        if (engineGone) {
             LOGI("Auto-restart skipped — engine already stopped");
+        } else if (!ok) {
+            LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+            emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
         }
     }).detach();
 }
