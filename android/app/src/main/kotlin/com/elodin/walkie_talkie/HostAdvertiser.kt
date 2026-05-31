@@ -185,6 +185,9 @@ class HostAdvertiser(private val context: Context) {
         // rename the user's phone in their Bluetooth settings. Skipping
         // the rename if it already matches avoids touching the adapter
         // when the user's existing BT name is already their display name.
+        val maxNameBytes = 11
+        val targetName = truncateToUtf8Bytes(displayName, maxNameBytes)
+
         val previousName = try {
             adapter.name
         } catch (e: SecurityException) {
@@ -194,43 +197,38 @@ class HostAdvertiser(private val context: Context) {
             Log.w(TAG, "Could not read adapter name; restore will be skipped", e)
             null
         }
-        if (previousName != displayName) {
+        if (previousName != targetName) {
             try {
-                adapter.setName(displayName)
+                adapter.setName(targetName)
                 savedAdapterName = previousName
             } catch (e: SecurityException) {
                 Log.w(TAG, "Could not set adapter name (BLUETOOTH_CONNECT missing)", e)
             }
         }
 
-        // Budget split across the two 31-byte legacy PDUs:
+        // Budget split across the two 31-byte legacy PDUs to ensure passive scanning
+        // Google Pixel devices (which miss SCAN_RSP in background/power-saving states)
+        // receive the critical session identifier payload:
         //
-        //   Primary ADV_IND (3 flags + 18 UUID = 21 bytes used, 10 remaining):
-        //     - Service UUID: allows passive BLE scanners and third-party apps to
-        //       identify this as a Frequency host without decoding the payload.
-        //     - Device name via setIncludeDeviceName(true): up to 8 chars fit in
-        //       the remaining 10 bytes; Android auto-uses Shortened Local Name
-        //       (AD 0x08) for longer names so they still advertise instead of
-        //       triggering ADVERTISE_FAILED_DATA_TOO_LARGE. Previously the name
-        //       lived in the scan response alongside the 20-byte manufacturer
-        //       payload; combined they overflowed 31 bytes on any device whose
-        //       BT name exceeded 9 chars (e.g. "moto g power (2022)"), silently
-        //       preventing advertising from starting on Motorola hosts.
+        //   Primary ADV_IND (3 flags + 18 manufacturer data = 21 bytes used, 10 remaining):
+        //     - Manufacturer payload only: Since it fits easily, we put it here so
+        //       passive scanners never miss the session UUID and other critical data.
         //
-        //   Scan response SCAN_RSP (20 bytes used):
-        //     - Manufacturer payload only. The Android stack merges both PDUs
-        //       into ScanRecord, so DiscoveredSession.fromManufacturerData
-        //       reassembles them transparently.
+        //   Scan response SCAN_RSP (18 UUID + 2 name header + 11 name chars = 31 bytes max):
+        //     - Service UUID: Allows active BLE scanners and third-party apps to
+        //       identify this as a Frequency host.
+        //     - Device name via setIncludeDeviceName(true): Truncated to max 11 characters
+        //       to guarantee the scan response never overflows 31 bytes.
         val payloadHex = payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         Log.d(TAG, "adv payload: mfg_id=0x%04x bytes=%s".format(MANUFACTURER_ID, payloadHex))
 
         val advData = AdvertiseData.Builder()
-            .addServiceUuid(ParcelUuid(SERVICE_UUID))
-            .setIncludeDeviceName(true)
+            .addManufacturerData(MANUFACTURER_ID, payload)
             .build()
 
         val scanResponse = AdvertiseData.Builder()
-            .addManufacturerData(MANUFACTURER_ID, payload)
+            .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .setIncludeDeviceName(true)
             .build()
 
         val settings = AdvertiseSettings.Builder()
@@ -326,6 +324,17 @@ class HostAdvertiser(private val context: Context) {
         } catch (e: SecurityException) {
             Log.w(TAG, "Could not restore adapter name; will retry on next stop", e)
         }
+    }
+
+    /** Truncate [s] to at most [maxBytes] UTF-8 bytes without splitting multi-byte chars. */
+    private fun truncateToUtf8Bytes(s: String, maxBytes: Int): String {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= maxBytes) return s
+        var end = maxBytes
+        while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) {
+            end--
+        }
+        return String(bytes, 0, end, Charsets.UTF_8)
     }
 
     /**
