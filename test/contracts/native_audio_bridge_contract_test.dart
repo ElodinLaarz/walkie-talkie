@@ -10,9 +10,14 @@ void main() {
       ).readAsStringSync();
 
       expect(mainActivity, contains('"startVoice" ->'));
+      // startVoiceCapture stays idempotent on an existing peerAudioManager —
+      // the early-return short-circuits a duplicate start. (Form changed from a
+      // `return true` expression to a callback-style guard when startVoice was
+      // made async to retry past the foreground-service startup race; the
+      // idempotency contract is unchanged.)
       expect(
         mainActivity,
-        contains('if (peerAudioManager != null) return true'),
+        contains('if (peerAudioManager != null) {'),
       );
       expect(
         mainActivity,
