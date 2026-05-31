@@ -13,13 +13,13 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Sample-rate conversion between Oboe (48 kHz) and Opus / mixer (16 kHz).
+// Sample-rate conversion between Oboe (48 kHz) and Opus / mixer (24 kHz).
 //
 // Both directions share the same prototype low-pass: a 33-tap Hamming-windowed
-// sinc with cutoff at 7 kHz / 48 kHz. 33 taps is small enough to run in the
+// sinc with cutoff at 11 kHz / 48 kHz. 33 taps is small enough to run in the
 // audio callback (< 1k multiplies per 20 ms frame after polyphase), and the
-// cutoff sits comfortably below the 16 kHz Nyquist at 8 kHz with ~1 kHz
-// transition band — the in-band droop is < 0.5 dB across the speech range.
+// cutoff sits just below the 24 kHz codec Nyquist at 12 kHz with ~1 kHz
+// transition band — the in-band droop is < 0.5 dB across the full voice range.
 //
 // 33 is `(kSubTaps * kResampleRatio)` and is required to divide cleanly into
 // kResampleRatio polyphase sub-filters. Don't tune it without keeping that
@@ -66,7 +66,10 @@ inline void designLowPass(float* coeffs, int numTaps, double fcNorm,
 }
 
 constexpr int kPrototypeTaps = 33;
-constexpr int kCutoffHz = 7000;
+// Anti-alias / image-reject cutoff. Must sit below the codec Nyquist
+// (kCodecSampleRate / 2). At 24 kHz codec that's 12 kHz; 11 kHz leaves a
+// ~1 kHz transition band. Revisit if kCodecSampleRate changes.
+constexpr int kCutoffHz = 11000;
 
 }  // namespace audio_resampler_detail
 
