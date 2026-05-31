@@ -1900,7 +1900,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         mac != null &&
         audio != null) {
       unawaited(
-        audio.connectVoiceClient(mac, voicePsm).catchError((Object e) {
+        audio.stopVoiceTransport().then((_) {
+          return audio.connectVoiceClient(mac, voicePsm);
+        }).catchError((Object e) {
           if (kDebugMode) debugPrint('connectVoiceClient failed: $e');
           return false;
         }),

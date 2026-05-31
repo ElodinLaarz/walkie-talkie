@@ -272,7 +272,27 @@ class BleControlTransport {
       final msg = FrequencyMessage.decode(json);
       // Record the mapping so forgetPeer can clean up the correct reassembler.
       _endpointByPeer[msg.peerId] = event.endpointId;
-      if (!_filter.accept(peerId: msg.peerId, seq: msg.seq)) return;
+      // A JoinRequest is the start of a fresh session from this peer, whose
+      // seq counter restarts at 1. Reset the idempotency watermark so the new
+      // session isn't swallowed by a stale one left over from a previous
+      // session whose Leave we never saw (a dirty disconnect — the guest tore
+      // down its GATT link before the Leave flushed). Symmetric with the
+      // guest's "JoinAccepted resets seq" rule (see [FrequencySessionCubit]).
+      // Without this, a rejoining guest's JoinRequest (seq=1) is dropped
+      // against the host's old watermark and the guest is stranded until its
+      // watchdog gives up.
+      if (msg is JoinRequest) {
+        _filter.forget(msg.peerId);
+      }
+      if (!_filter.accept(peerId: msg.peerId, seq: msg.seq)) {
+        if (kDebugMode) {
+          debugPrint(
+            'drop ${msg.kind} from ${event.endpointId}: seq ${msg.seq} '
+            '<= watermark ${_filter.watermarks[msg.peerId]} (peer ${msg.peerId})',
+          );
+        }
+        return;
+      }
       if (!_incoming.isClosed) _incoming.add(msg);
     } on FragmentError catch (e) {
       if (kDebugMode) debugPrint('drop fragment from ${event.endpointId}: $e');

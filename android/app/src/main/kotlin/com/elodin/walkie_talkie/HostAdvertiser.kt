@@ -178,47 +178,6 @@ class HostAdvertiser(private val context: Context) {
             return false
         }
 
-        // Setting setIncludeDeviceName(true) below pulls the *adapter* name
-        // into the adv frame; that's a system-wide setting that survives
-        // process death. Capture the current value so stop() can put it
-        // back — otherwise a Frequency host session would permanently
-        // rename the user's phone in their Bluetooth settings. Skipping
-        // the rename if it already matches avoids touching the adapter
-        // when the user's existing BT name is already their display name.
-        val maxNameBytes = 11
-        val targetName = truncateToUtf8Bytes(displayName, maxNameBytes)
-
-        val previousName = try {
-            adapter.name
-        } catch (e: SecurityException) {
-            // Read failure means we can't capture-then-restore — the rename
-            // path will skip and the user's adapter name stays untouched.
-            // Worth logging since silent restore-skips are otherwise invisible.
-            Log.w(TAG, "Could not read adapter name; restore will be skipped", e)
-            null
-        }
-        if (previousName != targetName) {
-            try {
-                adapter.setName(targetName)
-                savedAdapterName = previousName
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Could not set adapter name (BLUETOOTH_CONNECT missing)", e)
-            }
-        }
-
-        // Budget split across the two 31-byte legacy PDUs to ensure passive scanning
-        // Google Pixel devices (which miss SCAN_RSP in background/power-saving states)
-        // receive the critical session identifier payload:
-        //
-        //   Primary ADV_IND (3 flags + 18 manufacturer data = 21 bytes used, 10 remaining):
-        //     - Manufacturer payload only: Since it fits easily, we put it here so
-        //       passive scanners never miss the session UUID and other critical data.
-        //
-        //   Scan response SCAN_RSP (18 UUID + 2 name header + 11 name chars = 31 bytes max):
-        //     - Service UUID: Allows active BLE scanners and third-party apps to
-        //       identify this as a Frequency host.
-        //     - Device name via setIncludeDeviceName(true): Truncated to max 11 characters
-        //       to guarantee the scan response never overflows 31 bytes.
         val payloadHex = payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         Log.d(TAG, "adv payload: mfg_id=0x%04x bytes=%s".format(MANUFACTURER_ID, payloadHex))
 
@@ -226,9 +185,13 @@ class HostAdvertiser(private val context: Context) {
             .addManufacturerData(MANUFACTURER_ID, payload)
             .build()
 
+        // Device name omitted from scan response: setName() is asynchronous
+        // on some OEMs (e.g. Motorola) and the BLE controller may still
+        // advertise the original long name even after adapter.setName()
+        // returns, causing ADVERTISE_FAILED_DATA_TOO_LARGE. The host display
+        // name is transmitted via the GATT control protocol instead.
         val scanResponse = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
-            .setIncludeDeviceName(true)
             .build()
 
         val settings = AdvertiseSettings.Builder()
