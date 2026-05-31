@@ -319,11 +319,16 @@ class MainActivity : FlutterActivity() {
                                 }
                             )
                         }
-                        val initiated = gattClientManager?.connectToHost(macAddress) { success ->
-                            result.success(success)
-                        } ?: false
-                        if (!initiated) {
+                        val manager = gattClientManager
+                        if (manager == null) {
                             result.success(false)
+                        } else {
+                            // connectToHost invokes the callback exactly once
+                            // (success or any failure path), so deliver the
+                            // Flutter result only through it to avoid a double reply.
+                            manager.connectToHost(macAddress) { success ->
+                                result.success(success)
+                            }
                         }
                     }
                 }

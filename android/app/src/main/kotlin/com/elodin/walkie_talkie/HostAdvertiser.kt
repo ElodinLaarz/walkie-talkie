@@ -185,12 +185,8 @@ class HostAdvertiser(private val context: Context) {
         // rename the user's phone in their Bluetooth settings. Skipping
         // the rename if it already matches avoids touching the adapter
         // when the user's existing BT name is already their display name.
-        val maxNameLength = 11
-        val targetName = if (displayName.length > maxNameLength) {
-            displayName.substring(0, maxNameLength)
-        } else {
-            displayName
-        }
+        val maxNameBytes = 11
+        val targetName = truncateToUtf8Bytes(displayName, maxNameBytes)
 
         val previousName = try {
             adapter.name
@@ -328,6 +324,17 @@ class HostAdvertiser(private val context: Context) {
         } catch (e: SecurityException) {
             Log.w(TAG, "Could not restore adapter name; will retry on next stop", e)
         }
+    }
+
+    /** Truncate [s] to at most [maxBytes] UTF-8 bytes without splitting multi-byte chars. */
+    private fun truncateToUtf8Bytes(s: String, maxBytes: Int): String {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= maxBytes) return s
+        var end = maxBytes
+        while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) {
+            end--
+        }
+        return String(bytes, 0, end, Charsets.UTF_8)
     }
 
     /**
