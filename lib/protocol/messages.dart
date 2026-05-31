@@ -255,7 +255,7 @@ final class JoinAccepted extends FrequencyMessage {
   final List<ProtocolPeer> roster;
   final MediaState? mediaState;
 
-  /// Dynamic LE-CoC PSM (`0x0080`–`0x00FF`, odd) the host's voice server is
+  /// Dynamic LE-CoC PSM (`0x0080`–`0x00FF`) the host's voice server is
   /// bound to. Guests open an L2CAP CoC to this PSM after `JoinAccepted`
   /// lands. Optional on the wire — null means voice isn't available yet
   /// (e.g. the host is a control-plane-only build), and the guest stays
@@ -280,9 +280,8 @@ final class JoinAccepted extends FrequencyMessage {
     this.voicePsm,
     this.recipientPeerId,
   }) : assert(
-         voicePsm == null ||
-             (voicePsm >= 0x80 && voicePsm <= 0xFF && voicePsm % 2 != 0),
-         'voicePsm must be odd and in range 0x0080-0x00FF',
+         voicePsm == null || (voicePsm >= 0x80 && voicePsm <= 0xFF),
+         'voicePsm must be in dynamic-PSM range 0x0080-0x00FF',
        );
 
   @override
@@ -306,9 +305,9 @@ final class JoinAccepted extends FrequencyMessage {
         throw const FormatException('`voicePsm` must be an int when present');
       }
       voicePsm = rawVoicePsm;
-      if (voicePsm < 0x80 || voicePsm > 0xFF || voicePsm % 2 == 0) {
+      if (voicePsm < 0x80 || voicePsm > 0xFF) {
         throw FormatException(
-          'Invalid voicePsm: $voicePsm (must be odd and in range 0x0080-0x00FF)',
+          'Invalid voicePsm: $voicePsm (must be in dynamic-PSM range 0x0080-0x00FF)',
         );
       }
     }

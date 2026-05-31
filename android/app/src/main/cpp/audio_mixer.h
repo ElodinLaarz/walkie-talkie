@@ -26,6 +26,8 @@ struct DeviceAudioBuffer {
     std::atomic<bool> poisoned{false};   // true while producer is being skipped
     bool hasSeenSeq{false};              // false until the first frame arrives
     uint32_t lastSeq{0};                 // last accepted (or poison-advanced) seq
+    std::atomic<float> volume{1.0f};     // peer volume scale (0.0 to 1.0)
+    std::atomic<bool> muted{false};      // true if peer is locally muted
 };
 
 class AudioMixer {
@@ -34,12 +36,8 @@ private:
     std::mutex deviceRegistryMutex;
     std::map<int, std::shared_ptr<DeviceAudioBuffer>> devices;  // shared_ptr for safe concurrent access
 
-    // Pre-allocated buffers for mixing (avoid heap allocations in audio path)
-    std::vector<std::pair<int, std::shared_ptr<DeviceAudioBuffer>>> deviceSnapshotBuffer;
-    std::vector<int16_t> tempMixBuffer;
-
-    static constexpr int kMaxDevices = 8;  // Increased from 3 to support more peers
-    static constexpr int kMaxFrames = 1024;  // Max frames for tempMixBuffer
+    static constexpr int kMaxDevices = 8;
+    static constexpr int kMaxFrames = 1024;
 
 public:
     // Stuck-producer prune threshold. A frame whose forward delta from the
@@ -91,6 +89,10 @@ public:
     // Get mixed audio for a specific device (mix-minus: all others except this device).
     // Lock-free: reads from ring buffers without blocking.
     void getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames);
+
+    // Set volume/mute settings for a device
+    void setDeviceVolume(int deviceId, float volume);
+    void setDeviceMuted(int deviceId, bool muted);
 
     // Clear all devices
     void clear();
