@@ -866,7 +866,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     // Adjust the host's own outbound encoder toward the reporter (best
     // effort — the audio side returns null on missing peer / handler).
     final audio = _audio;
-    final macForPeer = _macForPeerId(report.peerId, current);
+    final macForPeer = macForPeerId(report.peerId);
     if (audio != null && macForPeer != null) {
       unawaited(audio.setPeerBitrate(macForPeer, newLevel.bps));
     }
@@ -895,19 +895,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     unawaited(audio.setPeerBitrate(mac, hint.bps));
   }
 
-  /// Resolve a peer's BLE MAC from the current room snapshot. Returns
-  /// null when the peer isn't on the roster or has no `btDevice`
-  /// recorded — both cases are treated as "skip the local
-  /// `setPeerBitrate` call" rather than poisoning the adapter step.
-  String? _macForPeerId(String peerId, SessionRoom room) {
-    for (final p in room.roster) {
-      if (p.peerId == peerId) {
-        final mac = p.btDevice;
-        if (mac == null || mac.isEmpty) return null;
-        return mac;
-      }
+  /// Resolve a peer's BLE MAC address. Returns null if unknown.
+  String? macForPeerId(String peerId) {
+    final current = state;
+    if (current is! SessionRoom) return null;
+    if (!current.roomIsHost && peerId == current.hostPeerId) {
+      return current.macAddress;
     }
-    return null;
+    return _transport?.endpointForPeer(peerId);
   }
 
   /// Build and send a `BitrateHint` to [targetPeerId]. Best-effort:

@@ -171,8 +171,8 @@ class L2capVoiceTransport(
      */
     fun connectClient(macAddress: String, psm: Int): Boolean {
         // Validate before hitting the BT stack so bad args return false cleanly.
-        if (psm < 0x80 || psm > 0xFF || psm % 2 == 0) {
-            Log.e(TAG, "Invalid PSM: 0x${psm.toString(16)} — must be odd in [0x80, 0xFF]")
+        if (psm < 0x80 || psm > 0xFF) {
+            Log.e(TAG, "Invalid PSM: 0x${psm.toString(16)} — must be in [0x80, 0xFF]")
             onError("Invalid voice PSM 0x${psm.toString(16)}")
             return false
         }

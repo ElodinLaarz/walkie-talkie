@@ -135,6 +135,38 @@ int PeerAudioManager::setPeerBitrate(const std::string& macAddress, int bps) {
     return applied;
 }
 
+void PeerAudioManager::setPeerVolume(const std::string& macAddress, float volume) {
+    std::shared_ptr<PeerState> state;
+    {
+        std::lock_guard<std::mutex> lock(peerRegistryMutex_);
+        auto it = peers_.find(macAddress);
+        if (it == peers_.end()) {
+            return;
+        }
+        state = it->second;
+    }
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (mixer) {
+        mixer->setDeviceVolume(state->deviceId, volume);
+    }
+}
+
+void PeerAudioManager::setPeerMuted(const std::string& macAddress, bool muted) {
+    std::shared_ptr<PeerState> state;
+    {
+        std::lock_guard<std::mutex> lock(peerRegistryMutex_);
+        auto it = peers_.find(macAddress);
+        if (it == peers_.end()) {
+            return;
+        }
+        state = it->second;
+    }
+    auto mixer = std::atomic_load(&g_audioMixer);
+    if (mixer) {
+        mixer->setDeviceMuted(state->deviceId, muted);
+    }
+}
+
 PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
     const std::string& macAddress) {
     LinkTelemetry t;
@@ -743,6 +775,26 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     };
     env->SetIntArrayRegion(arr, 0, 5, values);
     return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerVolume(
+    JNIEnv* env, jobject thiz, jstring macAddress, jfloat volume) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
+    if (!g_peerAudioManager) return;
+    const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    g_peerAudioManager->setPeerVolume(std::string(mac), volume);
+    env->ReleaseStringUTFChars(macAddress, mac);
+}
+
+JNIEXPORT void JNICALL
+Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerMuted(
+    JNIEnv* env, jobject thiz, jstring macAddress, jboolean muted) {
+    std::lock_guard<std::mutex> lock(g_peerManagerMutex);
+    if (!g_peerAudioManager) return;
+    const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    g_peerAudioManager->setPeerMuted(std::string(mac), muted == JNI_TRUE);
+    env->ReleaseStringUTFChars(macAddress, mac);
 }
 
 }  // extern "C"

@@ -235,6 +235,9 @@ class BleControlTransport {
     }
   }
 
+  /// Returns the BT MAC address (endpointId) mapped to a [peerId], or null.
+  String? endpointForPeer(String peerId) => _endpointByPeer[peerId];
+
   /// Drop the watermark and reassembler buffer for **every** known peer.
   ///
   /// Called when the cubit leaves a room — held-over watermarks from the
