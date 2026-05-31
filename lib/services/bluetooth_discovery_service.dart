@@ -55,8 +55,26 @@ class DiscoveryService {
       for (ScanResult r in results) {
         final session = parseResult(r);
         if (session != null) {
+          final existing = _discovered[session.sessionUuidLow8];
+          final resolvedHostName =
+              (session.hostName.isEmpty && existing != null)
+              ? existing.session.hostName
+              : session.hostName;
+
+          final resolvedSession = resolvedHostName == session.hostName
+              ? session
+              : DiscoveredSession(
+                  protocolVersion: session.protocolVersion,
+                  isHost: session.isHost,
+                  sessionUuidLow8: session.sessionUuidLow8,
+                  flags: session.flags,
+                  hostName: resolvedHostName,
+                  rssi: session.rssi,
+                  macAddress: session.macAddress,
+                );
+
           _discovered[session.sessionUuidLow8] = (
-            session: session,
+            session: resolvedSession,
             lastSeen: DateTime.now(),
           );
         }

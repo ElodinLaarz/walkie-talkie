@@ -64,6 +64,7 @@ class GattClientManager(
     // and the guest is stranded until its watchdog drops it back to Discovery.
     private val pendingRequestWrites = mutableListOf<ByteArray>()
     private var pendingMacAddress: String? = null
+    private var connectCallback: ((Boolean) -> Unit)? = null
 
     // ATT MTU negotiated for the connected host, keyed by MAC. Populated by
     // [onMtuChanged] once the GATT layer answers our [requestMtu] from
@@ -113,6 +114,11 @@ class GattClientManager(
                 gatt.close()
                 requestCharacteristic = null
                 responseCharacteristic = null
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 return
             }
 
@@ -168,6 +174,11 @@ class GattClientManager(
                         cancelPendingRetry()
                         connectRetryCount = 0
                         pendingMacAddress = null
+                        val cb = connectCallback
+                        connectCallback = null
+                        cb?.let {
+                            Handler(Looper.getMainLooper()).post { it(false) }
+                        }
                     }
                 }
             }
@@ -189,11 +200,21 @@ class GattClientManager(
                 if (!started) {
                     Log.e(TAG, "discoverServices() returned false — GATT stack busy or disconnected")
                     onError?.invoke("GATT_SETUP_FAILED")
+                    val cb = connectCallback
+                    connectCallback = null
+                    cb?.let {
+                        Handler(Looper.getMainLooper()).post { it(false) }
+                    }
                     gatt.disconnect()
                 }
             } catch (e: SecurityException) {
                 Log.e(TAG, "Missing Bluetooth permission for discoverServices()", e)
                 onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
             }
         }
@@ -206,6 +227,11 @@ class GattClientManager(
                 } else {
                     onError?.invoke("GATT_SETUP_FAILED")
                 }
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -214,6 +240,11 @@ class GattClientManager(
             if (service == null) {
                 Log.e(TAG, "Walkie-talkie service not found on host")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -223,6 +254,11 @@ class GattClientManager(
             if (requestCharacteristic == null) {
                 Log.e(TAG, "REQUEST characteristic not found")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -232,6 +268,11 @@ class GattClientManager(
             if (responseCharacteristic == null) {
                 Log.e(TAG, "RESPONSE characteristic not found")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -241,6 +282,11 @@ class GattClientManager(
             if (!notifyEnabled) {
                 Log.e(TAG, "Failed to enable characteristic notification")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -250,6 +296,11 @@ class GattClientManager(
             if (cccd == null) {
                 Log.e(TAG, "CCCD descriptor not found on RESPONSE characteristic")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
                 return
             }
@@ -264,6 +315,11 @@ class GattClientManager(
             if (writeSuccess != BluetoothStatusCodes.SUCCESS) {
                 Log.e(TAG, "Failed to write CCCD descriptor: $writeSuccess")
                 onError?.invoke("GATT_SETUP_FAILED")
+                val cb = connectCallback
+                connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
                 gatt.disconnect()
             } else {
                 Log.i(TAG, "GATT client setup complete, notifications enabled")
@@ -306,15 +362,30 @@ class GattClientManager(
                     flushPendingRequestWrites()
                     // CCCD confirmed — GATT is fully idle, safe to start RSSI polling.
                     startRssiPolling()
+                    val cb = connectCallback
+                    connectCallback = null
+                    cb?.let {
+                        Handler(Looper.getMainLooper()).post { it(true) }
+                    }
                 } else {
                     // Check for authorization failures on descriptor writes
                     if (status in GattConstants.AUTHORIZATION_ERRORS) {
                         Log.e(TAG, "CCCD write authorization failure: status=$status")
                         onError?.invoke("GATT_AUTHORIZATION_DENIED")
+                        val cb = connectCallback
+                        connectCallback = null
+                        cb?.let {
+                            Handler(Looper.getMainLooper()).post { it(false) }
+                        }
                         disconnect()
                     } else {
                         Log.e(TAG, "CCCD write failed with status $status")
                         onError?.invoke("GATT_SETUP_FAILED")
+                        val cb = connectCallback
+                        connectCallback = null
+                        cb?.let {
+                            Handler(Looper.getMainLooper()).post { it(false) }
+                        }
                         disconnect()
                     }
                 }
@@ -405,16 +476,33 @@ class GattClientManager(
      * Returns true if the connection attempt was initiated, false otherwise.
      * Actual connection state changes are reported via the callback.
      */
-    fun connectToHost(macAddress: String): Boolean {
+    fun connectToHost(macAddress: String, callback: ((Boolean) -> Unit)? = null): Boolean {
+        if (callback != null) {
+            this.connectCallback?.let { oldCb ->
+                Handler(Looper.getMainLooper()).post { oldCb(false) }
+            }
+            this.connectCallback = callback
+        }
+
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         if (bluetoothManager == null) {
             Log.e(TAG, "BluetoothManager not available")
+            val cb = this.connectCallback
+            this.connectCallback = null
+            cb?.let {
+                Handler(Looper.getMainLooper()).post { it(false) }
+            }
             return false
         }
 
         val adapter = bluetoothManager.adapter
         if (adapter == null) {
             Log.e(TAG, "BluetoothAdapter not available")
+            val cb = this.connectCallback
+            this.connectCallback = null
+            cb?.let {
+                Handler(Looper.getMainLooper()).post { it(false) }
+            }
             return false
         }
 
@@ -429,7 +517,15 @@ class GattClientManager(
             Log.i(TAG, "Connecting to host at $macAddress (attempt ${connectRetryCount + 1})")
             pendingMacAddress = macAddress
             gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-            return gatt != null
+            val success = gatt != null
+            if (!success) {
+                val cb = this.connectCallback
+                this.connectCallback = null
+                cb?.let {
+                    Handler(Looper.getMainLooper()).post { it(false) }
+                }
+            }
+            return success
         } catch (e: Exception) {
             // Reset retry / pending state on every failure path so a half-set
             // pendingMacAddress can't trigger a retry the user never asked for.
@@ -446,6 +542,11 @@ class GattClientManager(
             cancelPendingRetry()
             connectRetryCount = 0
             pendingMacAddress = null
+            val cb = this.connectCallback
+            this.connectCallback = null
+            cb?.let {
+                Handler(Looper.getMainLooper()).post { it(false) }
+            }
             return false
         }
     }
@@ -536,6 +637,11 @@ class GattClientManager(
             pendingMacAddress = null
             gatt?.disconnect()
             Log.i(TAG, "GATT client disconnect initiated")
+            val cb = connectCallback
+            connectCallback = null
+            cb?.let {
+                Handler(Looper.getMainLooper()).post { it(false) }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting GATT client", e)
         }

@@ -319,8 +319,12 @@ class MainActivity : FlutterActivity() {
                                 }
                             )
                         }
-                        val success = gattClientManager?.connectToHost(macAddress) ?: false
-                        result.success(success)
+                        val initiated = gattClientManager?.connectToHost(macAddress) { success ->
+                            result.success(success)
+                        } ?: false
+                        if (!initiated) {
+                            result.success(false)
+                        }
                     }
                 }
                 "disconnectFromHost" -> {
