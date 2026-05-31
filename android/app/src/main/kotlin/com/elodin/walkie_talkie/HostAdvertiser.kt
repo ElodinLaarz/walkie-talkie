@@ -69,12 +69,6 @@ class HostAdvertiser(private val context: Context) {
     @Volatile
     private var isStarting = false
 
-    // Captured before adapter.setName() so stop() can put the user's
-    // device-wide BT name back. Null means we never changed it (start
-    // bailed before mutating) or we already restored.
-    @Volatile
-    private var savedAdapterName: String? = null
-
     // The currently-active AdvertiseCallback. Each start() builds a fresh
     // callback (see [makeCallback]) and stores it here; stop() and any
     // failure path nulls it out. The callback's own methods compare
@@ -117,11 +111,6 @@ class HostAdvertiser(private val context: Context) {
             isAdvertising = false
             advertiser = null
             currentCallback = null
-            // Best-effort restore of the user's BT name on async failure —
-            // we may have set it already in the caller and the OS just
-            // refused to advertise. Same SecurityException swallow as
-            // restoreAdapterName().
-            restoreAdapterName()
             val reason = when (errorCode) {
                 ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
                 ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
@@ -178,47 +167,6 @@ class HostAdvertiser(private val context: Context) {
             return false
         }
 
-        // Setting setIncludeDeviceName(true) below pulls the *adapter* name
-        // into the adv frame; that's a system-wide setting that survives
-        // process death. Capture the current value so stop() can put it
-        // back — otherwise a Frequency host session would permanently
-        // rename the user's phone in their Bluetooth settings. Skipping
-        // the rename if it already matches avoids touching the adapter
-        // when the user's existing BT name is already their display name.
-        val maxNameBytes = 11
-        val targetName = truncateToUtf8Bytes(displayName, maxNameBytes)
-
-        val previousName = try {
-            adapter.name
-        } catch (e: SecurityException) {
-            // Read failure means we can't capture-then-restore — the rename
-            // path will skip and the user's adapter name stays untouched.
-            // Worth logging since silent restore-skips are otherwise invisible.
-            Log.w(TAG, "Could not read adapter name; restore will be skipped", e)
-            null
-        }
-        if (previousName != targetName) {
-            try {
-                adapter.setName(targetName)
-                savedAdapterName = previousName
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Could not set adapter name (BLUETOOTH_CONNECT missing)", e)
-            }
-        }
-
-        // Budget split across the two 31-byte legacy PDUs to ensure passive scanning
-        // Google Pixel devices (which miss SCAN_RSP in background/power-saving states)
-        // receive the critical session identifier payload:
-        //
-        //   Primary ADV_IND (3 flags + 18 manufacturer data = 21 bytes used, 10 remaining):
-        //     - Manufacturer payload only: Since it fits easily, we put it here so
-        //       passive scanners never miss the session UUID and other critical data.
-        //
-        //   Scan response SCAN_RSP (18 UUID + 2 name header + 11 name chars = 31 bytes max):
-        //     - Service UUID: Allows active BLE scanners and third-party apps to
-        //       identify this as a Frequency host.
-        //     - Device name via setIncludeDeviceName(true): Truncated to max 11 characters
-        //       to guarantee the scan response never overflows 31 bytes.
         val payloadHex = payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         Log.d(TAG, "adv payload: mfg_id=0x%04x bytes=%s".format(MANUFACTURER_ID, payloadHex))
 
@@ -226,9 +174,13 @@ class HostAdvertiser(private val context: Context) {
             .addManufacturerData(MANUFACTURER_ID, payload)
             .build()
 
+        // Device name omitted from scan response: setName() is asynchronous
+        // on some OEMs (e.g. Motorola) and the BLE controller may still
+        // advertise the original long name even after adapter.setName()
+        // returns, causing ADVERTISE_FAILED_DATA_TOO_LARGE. The host display
+        // name is transmitted via the GATT control protocol instead.
         val scanResponse = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
-            .setIncludeDeviceName(true)
             .build()
 
         val settings = AdvertiseSettings.Builder()
@@ -257,22 +209,19 @@ class HostAdvertiser(private val context: Context) {
             isStarting = false
             advertiser = null
             if (currentCallback === cb) currentCallback = null
-            restoreAdapterName()
             Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission", e)
             false
         } catch (e: Exception) {
             isStarting = false
             advertiser = null
             if (currentCallback === cb) currentCallback = null
-            restoreAdapterName()
             Log.e(TAG, "Error starting advertising", e)
             false
         }
     }
 
     /**
-     * Stop LE advertising and restore the user's previous Bluetooth name.
-     * Safe to call when not running.
+     * Stop LE advertising. Safe to call when not running.
      *
      * Returns true on a clean stop (or when nothing was running), false if
      * the platform threw — letting the MethodChannel caller surface the
@@ -304,37 +253,7 @@ class HostAdvertiser(private val context: Context) {
                 Log.e(TAG, "Error stopping advertising", e)
             }
         }
-        // Restore even if stopAdvertising threw — we don't want a stuck
-        // SecurityException to permanently keep the user's phone renamed.
-        restoreAdapterName()
         return success
-    }
-
-    private fun restoreAdapterName() {
-        val saved = savedAdapterName ?: return
-        val adapter = bluetoothAdapter ?: return
-        try {
-            adapter.setName(saved)
-            // Only drop the rollback value once the OS confirmed it stuck.
-            // If setName throws (e.g., BLUETOOTH_CONNECT revoked between
-            // start and stop), keep savedAdapterName so a subsequent stop()
-            // or onDestroy() can retry the restore — losing the original
-            // here would leave the user's phone permanently renamed.
-            savedAdapterName = null
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Could not restore adapter name; will retry on next stop", e)
-        }
-    }
-
-    /** Truncate [s] to at most [maxBytes] UTF-8 bytes without splitting multi-byte chars. */
-    private fun truncateToUtf8Bytes(s: String, maxBytes: Int): String {
-        val bytes = s.toByteArray(Charsets.UTF_8)
-        if (bytes.size <= maxBytes) return s
-        var end = maxBytes
-        while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) {
-            end--
-        }
-        return String(bytes, 0, end, Charsets.UTF_8)
     }
 
     /**

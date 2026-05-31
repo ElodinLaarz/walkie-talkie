@@ -337,7 +337,7 @@ private:
     static constexpr int kMaxBurstPlayoutFrames =
         audio_config::kPlayoutFrameSize * 4;  // 80 ms @ 48 kHz = 3840
     static constexpr int kMaxBurstCodecFrames =
-        audio_config::kCodecFrameSize * 4;  // 80 ms @ 16 kHz = 1280
+        audio_config::kCodecFrameSize * 4;  // 80 ms @ 24 kHz = 1920
     int16_t codecScratch_[kMaxBurstCodecFrames]{};
     int16_t playoutScratch_[kMaxBurstPlayoutFrames]{};
 
@@ -545,9 +545,9 @@ public:
             numFrames = kMaxBurstPlayoutFrames;
         }
 
-        // Mic 48 kHz → codec 16 kHz. The decimator carries phase across
-        // calls; for the typical 960-sample burst we get exactly 320 codec
-        // samples back, but it tolerates non-multiple-of-3 callbacks.
+        // Mic 48 kHz → codec 24 kHz. The decimator carries phase across
+        // calls; for the typical 960-sample burst we get exactly 480 codec
+        // samples back, but it tolerates non-multiple-of-ratio callbacks.
         const int codecFrames =
             micResampler_.process(inputData, numFrames, codecScratch_);
 

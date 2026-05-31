@@ -19,20 +19,42 @@ OpusEncoder::OpusEncoder() : encoder_(nullptr) {
         return;
     }
 
-    opus_encoder_ctl(encoder_, OPUS_SET_BITRATE(currentBitrate_));
+    // Apply an encoder CTL and log on failure. The OPUS_SET_* macros expand
+    // to (request, value), so they can't be passed through a wrapper function;
+    // this macro keeps the call sites terse while surfacing setup errors that
+    // would otherwise be silently ignored.
+#define APPLY_ENC_CTL(ctl) \
+    do { \
+        int _e = opus_encoder_ctl(encoder_, ctl); \
+        if (_e != OPUS_OK) { \
+            LOGE("%s failed: %s", #ctl, opus_strerror(_e)); \
+        } \
+    } while (0)
 
-    // Inband FEC (LBRR) on by default. The wire-protocol scaffolding will
-    // also send `setExpectedLossPct` updates from link telemetry; until that
-    // lands we leave the loss-percent at 0 so Opus doesn't burn bandwidth on
-    // FEC the receiver can't use yet.
-    opus_encoder_ctl(encoder_, OPUS_SET_INBAND_FEC(1));
-    opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(0));
+    APPLY_ENC_CTL(OPUS_SET_BITRATE(currentBitrate_));
 
-    // DTX: don't transmit silence. Roughly 50% bandwidth saving for typical
-    // walkie-talkie usage where one peer holds the channel at a time.
-    opus_encoder_ctl(encoder_, OPUS_SET_DTX(1));
+    // Max encoder complexity. The quality/CPU tradeoff is irrelevant on a
+    // modern phone encoding one 20 ms mono frame per tick — spend the cycles.
+    APPLY_ENC_CTL(OPUS_SET_COMPLEXITY(10));
 
-    LOGI("Opus encoder created: %d Hz mono, %d kbps, %d ms frames, FEC on",
+    // Inband FEC (LBRR): embed a low-bitrate copy of the previous frame in
+    // each packet so the decoder can reconstruct a lost frame from the next
+    // one (see OpusDecoder::decodeFec). BLE L2CAP drops packets under RF
+    // contention, and unrecovered drops are the main source of the "scratchy"
+    // artifact. Seed the loss estimate at a non-zero baseline so the encoder
+    // actually produces the LBRR side-channel from the first frame;
+    // setExpectedLossPct() refines it later from link telemetry.
+    APPLY_ENC_CTL(OPUS_SET_INBAND_FEC(1));
+    APPLY_ENC_CTL(OPUS_SET_PACKET_LOSS_PERC(20));
+
+    // DTX off: continuous transmission. DTX saves bandwidth by suppressing
+    // silence, but the comfort-noise/restart transitions clip word onsets and
+    // add artifacts. L2CAP has bandwidth to spare, so favour clean audio.
+    APPLY_ENC_CTL(OPUS_SET_DTX(0));
+
+#undef APPLY_ENC_CTL
+
+    LOGI("Opus encoder created: %d Hz mono, %d kbps, %d ms frames, FEC on, DTX off",
          audio_config::kCodecSampleRate, currentBitrate_ / 1000,
          audio_config::kFrameDurationMs);
 }

@@ -82,7 +82,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   /// a cubit-driven peer will throw because the entry doesn't exist
   /// yet, so always go through the helper instead of the raw map.
   final Map<String, double> _volumes = {};
-  static const double _kDefaultPeerVolume = 0.7;
+  static const double _kDefaultPeerVolume = 1.0;
   double _volumeFor(String peerId) => _volumes[peerId] ?? _kDefaultPeerVolume;
 
   /// Mirrors the contents of [BlockedPeersStore] for the lifetime of

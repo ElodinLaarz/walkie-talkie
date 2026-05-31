@@ -57,12 +57,23 @@ class GattClientManager(
     // confirmed (notifications active). connectToHost() returns at connection
     // *initiation*, well before this point, so the guest's first JoinRequest
     // can race ahead of a writable characteristic. Reset on every fresh connect.
+    // @Volatile: written from the binder callback thread (onDescriptorWrite,
+    // STATE_DISCONNECTED) and read on the main thread ([pumpOutboundWrites]).
+    @Volatile
     private var controlReady = false
-    // Outbound REQUEST writes that arrived before [controlReady]. Flushed in
-    // order once the link is ready instead of being dropped — otherwise the
-    // guest's JoinRequest is lost, the host never answers with JoinAccepted,
-    // and the guest is stranded until its watchdog drops it back to Discovery.
-    private val pendingRequestWrites = mutableListOf<ByteArray>()
+    // Serialized outbound REQUEST write queue. Android GATT permits only ONE
+    // outstanding write per connection: firing the next write before the
+    // previous one's [onCharacteristicWrite] callback returns
+    // ERROR_GATT_WRITE_REQUEST_BUSY (201) and silently drops it. We enqueue
+    // here and pump one at a time, advancing on each write callback. This also
+    // covers writes that arrive before [controlReady] (e.g. the guest's first
+    // JoinRequest, which races ahead of service discovery) — they sit in the
+    // queue and drain in order once the link is ready, so the host always
+    // receives the JoinRequest and can answer with JoinAccepted. All access is
+    // confined to the main thread via [mainHandler] to avoid data races between
+    // the binder callback thread and the method-channel caller thread.
+    private val outboundWrites = ArrayDeque<ByteArray>()
+    private var writeInFlight = false
     private var pendingMacAddress: String? = null
     @Volatile
     private var connectCallback: ((Boolean) -> Unit)? = null
@@ -157,6 +168,16 @@ class GattClientManager(
                     negotiatedMtus.remove(address)
                     requestCharacteristic = null
                     responseCharacteristic = null
+                    // Link is gone: mark it unwritable and drop any in-flight /
+                    // queued writes so they can't leak onto a retried link.
+                    // controlReady is @Volatile (safe from this binder thread);
+                    // the queue is main-thread-confined, so clear it via the
+                    // handler.
+                    controlReady = false
+                    mainHandler.post {
+                        writeInFlight = false
+                        outboundWrites.clear()
+                    }
 
                     // Retry on transient GATT errors, but only while the
                     // user still wants to be connected (pendingMacAddress
@@ -327,7 +348,10 @@ class GattClientManager(
                     // raced ahead of discovery (the guest's first JoinRequest) so
                     // the host receives them and can answer with JoinAccepted.
                     controlReady = true
-                    flushPendingRequestWrites()
+                    // Drain any writes that raced ahead of discovery (the
+                    // guest's first JoinRequest), serialized through the
+                    // single GATT write slot.
+                    mainHandler.post { pumpOutboundWrites() }
                     // CCCD confirmed — GATT is fully idle, safe to start RSSI polling.
                     startRssiPolling()
                     finishConnect(true)
@@ -363,9 +387,16 @@ class GattClientManager(
                         onError?.invoke("GATT_AUTHORIZATION_DENIED")
                         // Disconnect and clean up since we've lost authorization
                         disconnect()
-                    } else {
-                        Log.w(TAG, "REQUEST write failed with status $status")
+                        return
                     }
+                    Log.w(TAG, "REQUEST write failed with status $status")
+                }
+                // This write slot is free — advance the serialized queue
+                // regardless of success/failure so one dropped write doesn't
+                // stall every subsequent one.
+                mainHandler.post {
+                    writeInFlight = false
+                    pumpOutboundWrites()
                 }
             }
         }
@@ -460,7 +491,8 @@ class GattClientManager(
         // confirms. Reset readiness and drop any writes left over from a prior
         // link so they can't flush onto this one.
         controlReady = false
-        pendingRequestWrites.clear()
+        outboundWrites.clear()
+        writeInFlight = false
 
         // Close any existing GATT reference to prevent resource leaks
         val oldGatt = gatt
@@ -513,44 +545,38 @@ class GattClientManager(
      * Returns true if the write was queued, false otherwise.
      */
     fun writeRequest(bytes: ByteArray): Boolean {
-        // The control link isn't writable until service discovery + the CCCD
-        // write complete (see [controlReady]). connectToHost() returns at
-        // connection initiation, so callers — notably the guest's first
-        // JoinRequest — can race ahead of a writable characteristic. Queue those
-        // writes and flush them in order once the link is ready (see
-        // [flushPendingRequestWrites]) rather than dropping them, which would
-        // leave the host with no JoinRequest to answer.
-        if (!controlReady) {
-            Log.i(TAG, "Control link not ready — queueing ${bytes.size}-byte REQUEST write")
-            pendingRequestWrites.add(bytes)
-            return true
+        // Enqueue on the main thread and let [pumpOutboundWrites] drive the
+        // single GATT write slot. The link isn't writable until service
+        // discovery + the CCCD write complete (see [controlReady]);
+        // connectToHost() returns at connection *initiation*, so callers —
+        // notably the guest's first JoinRequest — can race ahead of a writable
+        // characteristic. The queue holds those writes until the link is ready
+        // and then drains them in order, one outstanding write at a time, so
+        // none are dropped and the host always receives the JoinRequest.
+        mainHandler.post {
+            outboundWrites.add(bytes)
+            pumpOutboundWrites()
         }
-        return writeRequestNow(bytes)
+        return true
     }
 
-    /** Flush writes that arrived before the control link was ready, in order. */
-    private fun flushPendingRequestWrites() {
-        if (pendingRequestWrites.isEmpty()) return
-        val queued = pendingRequestWrites.toList()
-        pendingRequestWrites.clear()
-        Log.i(TAG, "Flushing ${queued.size} queued REQUEST write(s) now that the link is ready")
-        for (queuedBytes in queued) {
-            writeRequestNow(queuedBytes)
-        }
-    }
+    /**
+     * Send the next queued REQUEST write if the link is ready and no write is
+     * already in flight. Android GATT allows only one outstanding write per
+     * connection; issuing the next before the previous [onCharacteristicWrite]
+     * callback returns ERROR_GATT_WRITE_REQUEST_BUSY (201) and the write is
+     * lost. Re-invoked from [onCharacteristicWrite] to drain the queue in
+     * order. Main-thread only.
+     */
+    private fun pumpOutboundWrites() {
+        if (!controlReady || writeInFlight) return
+        val bytes = outboundWrites.firstOrNull() ?: return
 
-    /** Performs the actual REQUEST characteristic write. Assumes the link is ready. */
-    private fun writeRequestNow(bytes: ByteArray): Boolean {
         val char = requestCharacteristic
-        if (char == null) {
-            Log.w(TAG, "Cannot write REQUEST: characteristic not available")
-            return false
-        }
-
         val currentGatt = gatt
-        if (currentGatt == null) {
-            Log.w(TAG, "Cannot write REQUEST: GATT connection not available")
-            return false
+        if (char == null || currentGatt == null) {
+            Log.w(TAG, "Cannot write REQUEST: link not available; ${outboundWrites.size} queued")
+            return
         }
 
         try {
@@ -560,18 +586,26 @@ class GattClientManager(
                 bytes,
                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             )
-            val success = result == BluetoothStatusCodes.SUCCESS
-            if (!success) {
-                Log.w(TAG, "Failed to queue REQUEST write: $result")
+            if (result == BluetoothStatusCodes.SUCCESS) {
+                outboundWrites.removeFirst()
+                writeInFlight = true
+            } else {
+                // Stack momentarily busy (e.g. 201): keep the write at the head
+                // and retry shortly rather than dropping it.
+                Log.w(TAG, "REQUEST write not accepted ($result) — retrying in 20ms")
+                mainHandler.postDelayed({ pumpOutboundWrites() }, 20)
             }
-            return success
         } catch (e: SecurityException) {
+            // Drop the head write: writeInFlight stays false and
+            // onCharacteristicWrite won't fire (no write was issued), so
+            // leaving it queued would make every future pump retry the same
+            // doomed write and permanently stall the queue.
             Log.e(TAG, "Missing Bluetooth permissions for writeCharacteristic", e)
+            outboundWrites.removeFirstOrNull()
             onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
-            return false
         } catch (e: Exception) {
             Log.e(TAG, "Error writing REQUEST characteristic", e)
-            return false
+            outboundWrites.removeFirstOrNull()
         }
     }
 
@@ -590,6 +624,13 @@ class GattClientManager(
             stopRssiPolling()
             connectRetryCount = 0
             pendingMacAddress = null
+            // controlReady is @Volatile; the write queue is main-thread-confined
+            // (disconnect() may be invoked from a binder callback via onError).
+            controlReady = false
+            mainHandler.post {
+                writeInFlight = false
+                outboundWrites.clear()
+            }
             val currentGatt = gatt
             if (currentGatt != null) {
                 try {
