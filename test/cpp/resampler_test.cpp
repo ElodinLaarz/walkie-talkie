@@ -74,7 +74,7 @@ void testInterpolatorFrameCount() {
     std::cout << "Test Interpolator Frame Count: PASSED" << std::endl;
 }
 
-// 1 kHz sine at 48 kHz is well below the 7 kHz cutoff. After downsampling
+// 1 kHz sine at 48 kHz is well below the 11 kHz cutoff. After downsampling
 // the RMS amplitude should be ~unchanged (within filter-droop tolerance).
 void testDecimatorPassesLowFreq() {
     Resampler48to16 r;
@@ -87,10 +87,11 @@ void testDecimatorPassesLowFreq() {
 
     // Drop the first ~100 samples to skip FIR warmup, then compare RMS.
     const int kSkip = audio_config::kCodecFrameSize / 2;
-    double inputRms = rms(in.data() + kSkip * 3, n48 - kSkip * 3);
+    const int kSkipIn = kSkip * audio_config::kResampleRatio;
+    double inputRms = rms(in.data() + kSkipIn, n48 - kSkipIn);
     double outputRms = rms(out.data() + kSkip, n16 - kSkip);
     // Expect within 1 dB (ratio 0.89 .. 1.12). The droop at 1 kHz on a
-    // Hamming-windowed sinc with 7 kHz cutoff is < 0.2 dB in theory.
+    // Hamming-windowed sinc with 11 kHz cutoff is < 0.2 dB in theory.
     double ratio = outputRms / inputRms;
     if (!(ratio > 0.89 && ratio < 1.12)) {
         std::printf("decimator low-freq pass ratio %.3f out of bounds\n",
@@ -100,17 +101,17 @@ void testDecimatorPassesLowFreq() {
     std::cout << "Test Decimator Passes Low Freq: PASSED" << std::endl;
 }
 
-// 12 kHz sine at 48 kHz folds to 4 kHz at 16 kHz output if not filtered —
-// without the antialiasing FIR a 12 kHz tone would alias loudly. With the
-// FIR, output amplitude must be heavily attenuated. 12 kHz is well above
-// the 7 kHz cutoff; transition band ends around 9 kHz, so 12 kHz is firmly
-// in the stopband. Hamming gives ~50 dB minimum attenuation; we test a
-// loose bound (>20 dB / 10x reduction) to account for FIR ripple and the
-// finite test sample.
+// 18 kHz sine at 48 kHz folds to 6 kHz at 24 kHz output if not filtered —
+// without the antialiasing FIR an 18 kHz tone would alias loudly. With the
+// FIR, output amplitude must be heavily attenuated. 18 kHz is well above
+// the 11 kHz cutoff and the 12 kHz codec Nyquist; the transition band ends
+// around 13 kHz, so 18 kHz is firmly in the stopband. Hamming gives ~50 dB
+// minimum attenuation; we test a loose bound (>20 dB / 10x reduction) to
+// account for FIR ripple and the finite test sample.
 void testDecimatorRejectsHighFreq() {
     Resampler48to16 r;
     const int n48 = audio_config::kPlayoutFrameSize * 20;  // 400 ms
-    auto in = makeSine(n48, 12000.0, 48000.0);
+    auto in = makeSine(n48, 18000.0, 48000.0);
     std::vector<int16_t> out(n48 / audio_config::kResampleRatio + 16, 0);
 
     int n16 = r.process(in.data(), n48, out.data());
@@ -158,15 +159,15 @@ void testDecimatorDcGainUnity() {
     std::cout << "Test Decimator DC Gain Unity: PASSED" << std::endl;
 }
 
-// Round-trip: 1 kHz sine generated at 16 kHz, upsample to 48 kHz, downsample
-// back to 16 kHz. The output should match the input within filter-pair
+// Round-trip: 1 kHz sine generated at the codec rate, upsample to 48 kHz,
+// downsample back. The output should match the input within filter-pair
 // distortion. This is the primary correctness check for the pair — if either
 // resampler is wrong, this test catches it.
 void testRoundTripPreservesLowFreq() {
     Resampler16to48 up;
     Resampler48to16 down;
     const int n16 = audio_config::kCodecFrameSize * 20;  // 400 ms
-    auto src = makeSine(n16, 1000.0, 16000.0);
+    auto src = makeSine(n16, 1000.0, audio_config::kCodecSampleRate);
 
     std::vector<int16_t> mid(n16 * audio_config::kResampleRatio, 0);
     int nMid = up.process(src.data(), n16, mid.data());
