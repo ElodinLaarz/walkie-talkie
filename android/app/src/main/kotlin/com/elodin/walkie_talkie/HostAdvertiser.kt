@@ -69,12 +69,6 @@ class HostAdvertiser(private val context: Context) {
     @Volatile
     private var isStarting = false
 
-    // Captured before adapter.setName() so stop() can put the user's
-    // device-wide BT name back. Null means we never changed it (start
-    // bailed before mutating) or we already restored.
-    @Volatile
-    private var savedAdapterName: String? = null
-
     // The currently-active AdvertiseCallback. Each start() builds a fresh
     // callback (see [makeCallback]) and stores it here; stop() and any
     // failure path nulls it out. The callback's own methods compare
@@ -117,11 +111,6 @@ class HostAdvertiser(private val context: Context) {
             isAdvertising = false
             advertiser = null
             currentCallback = null
-            // Best-effort restore of the user's BT name on async failure —
-            // we may have set it already in the caller and the OS just
-            // refused to advertise. Same SecurityException swallow as
-            // restoreAdapterName().
-            restoreAdapterName()
             val reason = when (errorCode) {
                 ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
                 ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
@@ -220,22 +209,19 @@ class HostAdvertiser(private val context: Context) {
             isStarting = false
             advertiser = null
             if (currentCallback === cb) currentCallback = null
-            restoreAdapterName()
             Log.e(TAG, "Missing BLUETOOTH_ADVERTISE permission", e)
             false
         } catch (e: Exception) {
             isStarting = false
             advertiser = null
             if (currentCallback === cb) currentCallback = null
-            restoreAdapterName()
             Log.e(TAG, "Error starting advertising", e)
             false
         }
     }
 
     /**
-     * Stop LE advertising and restore the user's previous Bluetooth name.
-     * Safe to call when not running.
+     * Stop LE advertising. Safe to call when not running.
      *
      * Returns true on a clean stop (or when nothing was running), false if
      * the platform threw — letting the MethodChannel caller surface the
@@ -267,37 +253,7 @@ class HostAdvertiser(private val context: Context) {
                 Log.e(TAG, "Error stopping advertising", e)
             }
         }
-        // Restore even if stopAdvertising threw — we don't want a stuck
-        // SecurityException to permanently keep the user's phone renamed.
-        restoreAdapterName()
         return success
-    }
-
-    private fun restoreAdapterName() {
-        val saved = savedAdapterName ?: return
-        val adapter = bluetoothAdapter ?: return
-        try {
-            adapter.setName(saved)
-            // Only drop the rollback value once the OS confirmed it stuck.
-            // If setName throws (e.g., BLUETOOTH_CONNECT revoked between
-            // start and stop), keep savedAdapterName so a subsequent stop()
-            // or onDestroy() can retry the restore — losing the original
-            // here would leave the user's phone permanently renamed.
-            savedAdapterName = null
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Could not restore adapter name; will retry on next stop", e)
-        }
-    }
-
-    /** Truncate [s] to at most [maxBytes] UTF-8 bytes without splitting multi-byte chars. */
-    private fun truncateToUtf8Bytes(s: String, maxBytes: Int): String {
-        val bytes = s.toByteArray(Charsets.UTF_8)
-        if (bytes.size <= maxBytes) return s
-        var end = maxBytes
-        while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) {
-            end--
-        }
-        return String(bytes, 0, end, Charsets.UTF_8)
     }
 
     /**

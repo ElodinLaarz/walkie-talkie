@@ -596,10 +596,16 @@ class GattClientManager(
                 mainHandler.postDelayed({ pumpOutboundWrites() }, 20)
             }
         } catch (e: SecurityException) {
+            // Drop the head write: writeInFlight stays false and
+            // onCharacteristicWrite won't fire (no write was issued), so
+            // leaving it queued would make every future pump retry the same
+            // doomed write and permanently stall the queue.
             Log.e(TAG, "Missing Bluetooth permissions for writeCharacteristic", e)
+            outboundWrites.removeFirstOrNull()
             onError?.invoke("BLUETOOTH_PERMISSION_DENIED")
         } catch (e: Exception) {
             Log.e(TAG, "Error writing REQUEST characteristic", e)
+            outboundWrites.removeFirstOrNull()
         }
     }
 
