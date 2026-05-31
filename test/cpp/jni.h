@@ -19,6 +19,7 @@ typedef short jshort;
 typedef signed char jbyte;
 typedef int jsize;
 typedef unsigned char jboolean;
+typedef float jfloat;
 
 // Opaque reference handles
 typedef void* jobject;

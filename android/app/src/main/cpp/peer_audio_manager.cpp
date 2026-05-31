@@ -783,6 +783,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerVolume(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return;
     g_peerAudioManager->setPeerVolume(std::string(mac), volume);
     env->ReleaseStringUTFChars(macAddress, mac);
 }
@@ -793,6 +794,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerMuted(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return;
     g_peerAudioManager->setPeerMuted(std::string(mac), muted == JNI_TRUE);
     env->ReleaseStringUTFChars(macAddress, mac);
 }
