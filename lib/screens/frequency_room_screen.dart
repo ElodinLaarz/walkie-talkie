@@ -97,6 +97,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   late final BlockedPeersStore _blockedPeersStore;
   final Set<String> _removed = {};
 
+  final Map<String, double> _appliedVolumes = {};
+  final Map<String, bool> _appliedMutes = {};
+
   Timer? _progressTimer;
   StreamSubscription<MediaCommand>? _mediaSub;
   StreamSubscription<Map<String, dynamic>>? _audioEventsSub;
@@ -458,6 +461,29 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     }
   }
 
+  /// Syncs a peer's volume and muted settings to the native layer.
+  void _syncPeerAudioSettings(String peerId, String? macAddress) {
+    if (macAddress == null ||
+        macAddress.isEmpty ||
+        macAddress == 'Unknown device' ||
+        macAddress == 'Unknown') {
+      return;
+    }
+
+    final targetVol = _volumeFor(peerId);
+    final targetMuted = _peerMuted.contains(peerId);
+
+    if (_appliedVolumes[macAddress] != targetVol) {
+      unawaited(_audio.setPeerVolume(macAddress, targetVol));
+      _appliedVolumes[macAddress] = targetVol;
+    }
+
+    if (_appliedMutes[macAddress] != targetMuted) {
+      unawaited(_audio.setPeerMuted(macAddress, targetMuted));
+      _appliedMutes[macAddress] = targetMuted;
+    }
+  }
+
   /// Build a placeholder [MediaSourceLib] sized to cover [trackIdx]
   /// (i.e. with `trackIdx + 1` `Track 1 … Track N` entries) for the
   /// given [source].
@@ -812,13 +838,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
     return BlocListener<FrequencySessionCubit, FrequencySessionState>(
       listenWhen: (prev, next) {
-        // Only react to mediaState transitions inside the room — entering /
-        // leaving the room is handled at the WalkieTalkieApp router level.
-        if (prev is! SessionRoom || next is! SessionRoom) return false;
-        return prev.mediaState != next.mediaState;
+        if (prev is! SessionRoom || next is! SessionRoom) return true;
+        return prev.mediaState != next.mediaState ||
+            !listEquals(prev.roster, next.roster);
       },
       listener: (context, state) {
         if (state is! SessionRoom) return;
+
+        // Sync peer audio settings for all roster members
+        for (final peer in state.roster) {
+          _syncPeerAudioSettings(peer.peerId, peer.btDevice);
+        }
+
         if (state.mediaState != null) {
           _applyMediaSnapshot(state.mediaState!);
           return;
@@ -1195,6 +1226,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                 _peerMuted.remove(person.id);
               }
             });
+            _syncPeerAudioSettings(person.id, person.btDevice);
             // Mirror the toggle to disk so the next session sees the
             // same mute state. Fire-and-forget: the in-memory set is
             // the source of truth for the current frame, the persisted
@@ -1241,6 +1273,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     setState(() {
       _peerMuted.add(person.id);
     });
+    _syncPeerAudioSettings(person.id, person.btDevice);
     Navigator.pop(drawerCtx);
 
     bool blocked = false;
@@ -1250,7 +1283,10 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     } catch (_) {
       // Persistence failed — revert the optimistic change only if the peer
       // was not already muted before this report action.
-      if (mounted && !wasMuted) setState(() => _peerMuted.remove(person.id));
+      if (mounted && !wasMuted) {
+        setState(() => _peerMuted.remove(person.id));
+        _syncPeerAudioSettings(person.id, person.btDevice);
+      }
     }
 
     if (!mounted) return;

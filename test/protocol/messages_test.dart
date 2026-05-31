@@ -158,13 +158,16 @@ void main() {
       const base =
           '{"kind":"join_accepted","peerId":"p-host","seq":7,"atMs":1234,"v":1,"hostPeerId":"p-host","roster":[]}';
 
+      // Even PSMs are valid for BLE LE CoC — 128 (0x80) should parse fine.
       final evenPsm = base.replaceFirst('}', ',"voicePsm":128}');
+      final parsed = FrequencyMessage.decode(evenPsm) as JoinAccepted;
+      expect(parsed.voicePsm, 128);
+
       final outOfRangeLow = base.replaceFirst('}', ',"voicePsm":127}');
       final outOfRangeHigh = base.replaceFirst('}', ',"voicePsm":256}');
       final stringPsm = base.replaceFirst('}', ',"voicePsm":"129"}');
       final floatPsm = base.replaceFirst('}', ',"voicePsm":129.0}');
 
-      expect(() => FrequencyMessage.decode(evenPsm), throwsFormatException);
       expect(
         () => FrequencyMessage.decode(outOfRangeLow),
         throwsFormatException,

@@ -462,6 +462,19 @@ class GattClientManager(
         controlReady = false
         pendingRequestWrites.clear()
 
+        // Close any existing GATT reference to prevent resource leaks
+        val oldGatt = gatt
+        if (oldGatt != null) {
+            Log.i(TAG, "Closing existing BluetoothGatt before new connection attempt")
+            try {
+                oldGatt.disconnect()
+                oldGatt.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing old BluetoothGatt", e)
+            }
+            gatt = null
+        }
+
         try {
             val device = adapter.getRemoteDevice(macAddress)
             Log.i(TAG, "Connecting to host at $macAddress (attempt ${connectRetryCount + 1})")
@@ -577,8 +590,17 @@ class GattClientManager(
             stopRssiPolling()
             connectRetryCount = 0
             pendingMacAddress = null
-            gatt?.disconnect()
-            Log.i(TAG, "GATT client disconnect initiated")
+            val currentGatt = gatt
+            if (currentGatt != null) {
+                try {
+                    currentGatt.disconnect()
+                    currentGatt.close()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+                gatt = null
+            }
+            Log.i(TAG, "GATT client disconnected and closed")
             finishConnect(false)
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting GATT client", e)

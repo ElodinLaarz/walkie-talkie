@@ -115,6 +115,15 @@ class PeerAudioManager {
         return applied
     }
 
+    fun setPeerVolume(macAddress: String, volume: Float) {
+        nativeSetPeerVolume(macAddress, volume)
+    }
+
+    fun setPeerMuted(macAddress: String, muted: Boolean) {
+        nativeSetPeerMuted(macAddress, muted)
+    }
+
+
     /** Returns null if the peer isn't registered. */
     fun getTelemetry(macAddress: String): LinkTelemetry? {
         val raw = nativeGetTelemetry(macAddress) ?: return null
@@ -154,4 +163,6 @@ class PeerAudioManager {
     private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long)
     private external fun nativeSetPeerBitrate(macAddress: String, bps: Int): Int
     private external fun nativeGetTelemetry(macAddress: String): IntArray?
+    private external fun nativeSetPeerVolume(macAddress: String, volume: Float)
+    private external fun nativeSetPeerMuted(macAddress: String, muted: Boolean)
 }

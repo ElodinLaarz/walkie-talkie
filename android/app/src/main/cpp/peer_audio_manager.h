@@ -72,6 +72,10 @@ public:
     // Returns the actual bitrate applied, or -1 if the peer isn't registered.
     int setPeerBitrate(const std::string& macAddress, int bps);
 
+    // Set peer playback volume and mute state
+    void setPeerVolume(const std::string& macAddress, float volume);
+    void setPeerMuted(const std::string& macAddress, bool muted);
+
     // Snapshot current link telemetry for a peer.
     LinkTelemetry getTelemetry(const std::string& macAddress);
 

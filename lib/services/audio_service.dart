@@ -224,6 +224,39 @@ class AudioService {
     }
   }
 
+  /// Set playback volume for a specific peer's stream.
+  /// [volume] ranges from 0.0 (muted) to 1.0 (full volume).
+  Future<bool> setPeerVolume(String macAddress, double volume) async {
+    try {
+      final result = await _methodChannel.invokeMethod('setPeerVolume', {
+        'macAddress': macAddress,
+        'volume': volume,
+      });
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error setting peer volume for $macAddress to $volume: $e');
+      }
+      return false;
+    }
+  }
+
+  /// Mute or unmute a specific peer's stream.
+  Future<bool> setPeerMuted(String macAddress, bool muted) async {
+    try {
+      final result = await _methodChannel.invokeMethod('setPeerMuted', {
+        'macAddress': macAddress,
+        'muted': muted,
+      });
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error setting peer muted for $macAddress to $muted: $e');
+      }
+      return false;
+    }
+  }
+
   /// Set the audio output routing for the voice stream.
   ///
   /// Routes the mixed audio output to the specified device type:

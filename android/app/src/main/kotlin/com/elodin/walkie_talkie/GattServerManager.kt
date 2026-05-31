@@ -280,11 +280,21 @@ class GattServerManager(
      */
     fun stop() {
         try {
-            gattServer?.close()
+            val server = gattServer
+            if (server != null) {
+                for (device in connectedDevices.values) {
+                    try {
+                        server.cancelConnection(device)
+                    } catch (e: SecurityException) {
+                        // ignore
+                    }
+                }
+                server.close()
+            }
             gattServer = null
             connectedDevices.clear()
             negotiatedMtus.clear()
-            Log.i(TAG, "GATT server stopped")
+            Log.i(TAG, "GATT server stopped and connections cancelled")
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping GATT server", e)
         }

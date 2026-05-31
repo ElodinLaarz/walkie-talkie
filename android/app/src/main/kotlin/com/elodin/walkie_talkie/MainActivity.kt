@@ -222,6 +222,26 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "muted is required", null)
                     }
                 }
+                "setPeerVolume" -> {
+                    val macAddress = call.argument<String>("macAddress")
+                    val volume = call.argument<Double>("volume")
+                    if (macAddress != null && volume != null) {
+                        peerAudioManager?.setPeerVolume(macAddress, volume.toFloat())
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "macAddress and volume are required", null)
+                    }
+                }
+                "setPeerMuted" -> {
+                    val macAddress = call.argument<String>("macAddress")
+                    val muted = call.argument<Boolean>("muted")
+                    if (macAddress != null && muted != null) {
+                        peerAudioManager?.setPeerMuted(macAddress, muted)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "macAddress and muted are required", null)
+                    }
+                }
                 "startAdvertising" -> {
                     val sessionUuid = call.argument<String>("sessionUuid")
                     val displayName = call.argument<String>("displayName")

@@ -8,9 +8,6 @@
 
 // Constructor (if needed - add to header too)
 AudioMixer::AudioMixer() {
-    // Pre-allocate buffers
-    deviceSnapshotBuffer.reserve(kMaxDevices);
-    tempMixBuffer.resize(kMaxFrames);
 }
 
 // Implementation of AudioMixer methods
@@ -141,33 +138,68 @@ bool AudioMixer::isPoisoned(int deviceId) {
 void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int numFrames) {
     std::memset(outputBuffer, 0, numFrames * sizeof(int16_t));
 
-    // Get device list snapshot using pre-allocated buffer
-    deviceSnapshotBuffer.clear();
+    // Get device list snapshot using stack array to avoid heap allocations and concurrency data races
+    std::pair<int, std::shared_ptr<DeviceAudioBuffer>> deviceSnapshot[kMaxDevices];
+    size_t deviceCount = 0;
     {
         std::lock_guard<std::mutex> lock(deviceRegistryMutex);
         for (const auto& [id, buffer] : devices) {
             if (id != deviceId && buffer) {
-                deviceSnapshotBuffer.push_back({id, buffer});  // Copy shared_ptr
+                if (deviceCount < kMaxDevices) {
+                    deviceSnapshot[deviceCount++] = {id, buffer};  // Copy shared_ptr
+                }
             }
         }
     }
 
-    // Mix all other devices using pre-allocated temp buffer
-    for (const auto& [id, device] : deviceSnapshotBuffer) {
+    // Allocate temp mix buffer on the stack to avoid data races and heap allocations
+    int16_t tempMix[kMaxFrames];
+
+    // Mix all other devices using stack-allocated temp buffer
+    for (size_t d = 0; d < deviceCount; d++) {
+        const auto& [id, device] = deviceSnapshot[d];
         if (!device) continue;
 
+        // Skip mixing if the device is muted, but read to discard samples so they don't accumulate
+        if (device->muted.load(std::memory_order_relaxed)) {
+            device->ringBuffer.read(tempMix, std::min(static_cast<size_t>(numFrames), static_cast<size_t>(kMaxFrames)));
+            continue;
+        }
+
         // Use read() to consume the data from the ring buffer
-        size_t samplesRead = device->ringBuffer.read(tempMixBuffer.data(), std::min(numFrames, kMaxFrames));
+        size_t samplesRead = device->ringBuffer.read(tempMix, std::min(static_cast<size_t>(numFrames), static_cast<size_t>(kMaxFrames)));
         if (samplesRead > 0) {
+            float vol = device->volume.load(std::memory_order_relaxed);
+
             // Mix this device's audio into the output
             for (size_t i = 0; i < samplesRead; i++) {
-                int32_t mixed = static_cast<int32_t>(outputBuffer[i]) + static_cast<int32_t>(tempMixBuffer[i]);
+                int16_t sample = tempMix[i];
+                if (vol != 1.0f) {
+                    sample = static_cast<int16_t>(static_cast<float>(sample) * vol);
+                }
+                int32_t mixed = static_cast<int32_t>(outputBuffer[i]) + static_cast<int32_t>(sample);
                 // Clamp to int16_t range
                 outputBuffer[i] = static_cast<int16_t>(
                     std::max<int32_t>(-32768, std::min<int32_t>(32767, mixed))
                 );
             }
         }
+    }
+}
+
+void AudioMixer::setDeviceVolume(int deviceId, float volume) {
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    auto it = devices.find(deviceId);
+    if (it != devices.end() && it->second) {
+        it->second->volume.store(volume, std::memory_order_relaxed);
+    }
+}
+
+void AudioMixer::setDeviceMuted(int deviceId, bool muted) {
+    std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+    auto it = devices.find(deviceId);
+    if (it != devices.end() && it->second) {
+        it->second->muted.store(muted, std::memory_order_relaxed);
     }
 }
 
