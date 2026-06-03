@@ -89,7 +89,7 @@ dev_dependencies:
   # style attributes + drawable). Without these, cold start on Android 12/13/14
   # shows a brief flash of the legacy LaunchTheme before the OS splash.
   # Re-run `dart run flutter_native_splash:create` after editing the config.
-  flutter_native_splash: ^2.4.7
+  flutter_native_splash: ^2.4.8
   # In-memory sqflite for unit tests via FFI. Production uses the real
   # `sqflite` plugin on Android; tests inject `databaseFactoryFfi` so
   # they don't depend on the platform channel.
