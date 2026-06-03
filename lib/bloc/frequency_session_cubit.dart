@@ -1900,22 +1900,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         mac != null &&
         audio != null) {
       unawaited(
-        audio.stopVoiceTransport().then((_) {
-          // stopVoiceTransport is async; the user may have left or switched
-          // rooms while it was in flight. Re-check before dialing so we don't
-          // reconnect voice to a stale host after teardown.
-          final s = state;
-          if (isClosed ||
-              s is! SessionRoom ||
-              s.roomIsHost ||
-              s.macAddress != mac) {
-            return false;
-          }
-          return audio.connectVoiceClient(mac, voicePsm);
-        }).catchError((Object e) {
-          if (kDebugMode) debugPrint('connectVoiceClient failed: $e');
-          return false;
-        }),
+        audio
+            .stopVoiceTransport()
+            .then((_) {
+              // stopVoiceTransport is async; the user may have left or switched
+              // rooms while it was in flight. Re-check before dialing so we don't
+              // reconnect voice to a stale host after teardown.
+              final s = state;
+              if (isClosed ||
+                  s is! SessionRoom ||
+                  s.roomIsHost ||
+                  s.macAddress != mac) {
+                return false;
+              }
+              return audio.connectVoiceClient(mac, voicePsm);
+            })
+            .catchError((Object e) {
+              if (kDebugMode) debugPrint('connectVoiceClient failed: $e');
+              return false;
+            }),
       );
     }
   }

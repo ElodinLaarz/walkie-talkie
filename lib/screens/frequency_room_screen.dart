@@ -463,8 +463,9 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   /// Syncs a peer's volume and muted settings to the native layer.
   void _syncPeerAudioSettings(String peerId) {
-    final macAddress =
-        context.read<FrequencySessionCubit>().macForPeerId(peerId);
+    final macAddress = context.read<FrequencySessionCubit>().macForPeerId(
+      peerId,
+    );
     if (macAddress == null || macAddress.isEmpty) return;
 
     final targetVol = _volumeFor(peerId);
