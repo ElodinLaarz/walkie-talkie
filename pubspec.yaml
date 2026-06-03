@@ -68,7 +68,7 @@ dependencies:
   # reference io.sentry.android.replay.* without declaring the matching
   # sentry-android-replay artifact in the plugin's build.gradle, breaking
   # :app:compileDebugKotlin. Track upstream / un-pin in issue #441.
-  sentry_flutter: ">=9.19.0 <9.20.0"
+  sentry_flutter: ^9.21.0
 
 dev_dependencies:
   flutter_test:
