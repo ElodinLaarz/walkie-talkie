@@ -64,10 +64,12 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Crash Reporting (opt-in, privacy-first)
-  # Pinned to 9.19.x: 9.20.0 added Android SessionReplay code paths that
-  # reference io.sentry.android.replay.* without declaring the matching
+  # History: 9.20.0 added Android SessionReplay code paths that referenced
+  # io.sentry.android.replay.* without declaring the matching
   # sentry-android-replay artifact in the plugin's build.gradle, breaking
-  # :app:compileDebugKotlin. Track upstream / un-pin in issue #441.
+  # :app:compileDebugKotlin — so we pinned to 9.19.x (see #441). Fixed
+  # upstream as of 9.21.0 (verified :app:compileDebugKotlin builds clean),
+  # so the pin is lifted and we now track ^9.21.x.
   sentry_flutter: ^9.21.0
 
 dev_dependencies:
