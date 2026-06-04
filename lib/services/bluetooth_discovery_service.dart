@@ -25,14 +25,33 @@ class DiscoveryService {
   /// no BLE advertisements arrive (e.g. every host went silent simultaneously).
   Timer? _pruneTimer;
 
+  // Timeout for Bluetooth pre-flight checks. Long enough for a healthy stack,
+  // short enough to unblock discovery on flaky OEM stacks (#432).
+  static const Duration _kBtCheckTimeout = Duration(seconds: 3);
+
   /// Starts scanning for Frequency advertisements.
   Future<void> startScan() async {
     // 1. Check if Bluetooth is available and on.
-    if (await FlutterBluePlus.isSupported == false) {
+    final supported = await FlutterBluePlus.isSupported.timeout(
+      _kBtCheckTimeout,
+      onTimeout: () => false,
+    );
+    if (!supported) {
       throw Exception('Bluetooth LE is not supported on this device');
     }
 
-    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+    // Apply the timeout to the stream before .first so the subscription is
+    // cancelled on timeout (Future.timeout() cannot cancel a stream sub, #432).
+    final adapterState = await FlutterBluePlus.adapterState
+        .timeout(
+          _kBtCheckTimeout,
+          onTimeout: (sink) {
+            sink.add(BluetoothAdapterState.unknown);
+            sink.close();
+          },
+        )
+        .first;
+    if (adapterState != BluetoothAdapterState.on) {
       throw Exception('Bluetooth adapter is not on');
     }
 
