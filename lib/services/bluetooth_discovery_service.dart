@@ -28,11 +28,21 @@ class DiscoveryService {
   /// Starts scanning for Frequency advertisements.
   Future<void> startScan() async {
     // 1. Check if Bluetooth is available and on.
-    if (await FlutterBluePlus.isSupported == false) {
+    final supported = await FlutterBluePlus.isSupported.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => false,
+    );
+    if (!supported) {
       throw Exception('Bluetooth LE is not supported on this device');
     }
 
-    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+    // Guard with a timeout: some OEM stacks (Motorola/MediaTek) delay or never
+    // emit on adapterState, causing .first to hang indefinitely (#432).
+    final adapterState = await FlutterBluePlus.adapterState.first.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => BluetoothAdapterState.unknown,
+    );
+    if (adapterState != BluetoothAdapterState.on) {
       throw Exception('Bluetooth adapter is not on');
     }
 
