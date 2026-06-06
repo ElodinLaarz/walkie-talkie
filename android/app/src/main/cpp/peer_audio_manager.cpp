@@ -103,6 +103,14 @@ bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
         std::lock_guard<std::mutex> lock(peerRegistryMutex_);
         auto it = peers_.find(macAddress);
         if (it == peers_.end()) {
+            // VOICE-DIAG: frames arriving for a peer with no registered
+            // audio state — inbound leg is up but the decode path is dead.
+            // Throttled so a sustained mismatch doesn't flood logcat.
+            static int dropLog = 0;
+            if (dropLog++ % 50 == 0) {
+                LOGW("VOICE-DIAG drop: frame seq=%u for unregistered peer %s",
+                     seq, macAddress.c_str());
+            }
             return false;
         }
         state = it->second;  // shared_ptr keeps state alive past unlock.

@@ -148,6 +148,15 @@ class GattClientManager(
                     // the retry counter so the next failure starts fresh.
                     cancelPendingRetry()
                     connectRetryCount = 0
+                    // Drop the connection interval to the BLE minimum
+                    // (~11.25–15 ms). At the default ~30 ms interval the link
+                    // only carries ~33–35 voice packets/s, but we produce 50
+                    // fps (20 ms Opus frames) — the deficit accumulates in the
+                    // controller's tx buffer, so playout latency grows without
+                    // bound. HIGH priority gives ~66–88 pkt/s of headroom,
+                    // comfortably above 50 fps. The central owns the interval,
+                    // so this is set here on the guest's GATT client.
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     // Request MTU increase for better throughput
                     gatt.requestMtu(GattConstants.TARGET_ATT_MTU)
                 }

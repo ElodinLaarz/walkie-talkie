@@ -53,12 +53,16 @@ class L2capVoiceTransport(
         private val BACKOFF_MS = longArrayOf(250, 500, 1000, 2000, 5000)
 
         /**
-         * Per-socket send queue capacity. ~64 frames at one-per-20-ms is
-         * ~1.3 s of audio. Above this, the link can't keep up; we drop
-         * the oldest frame so latency stays bounded instead of blocking
-         * the audio capture thread.
+         * Per-socket send queue capacity. At one frame per 20 ms, this is
+         * the worst-case send-side latency the queue can inject before the
+         * drop-oldest policy ([enqueueFrame]) kicks in. Voice is
+         * latency-sensitive, so we keep this shallow: 6 frames is ~120 ms,
+         * enough to ride out a brief link stall without the queue itself
+         * becoming a multi-second backlog under full-duplex contention.
+         * (Was 64 ≈ 1.3 s, which pinned playout ~1.3 s stale once the link
+         * couldn't keep up.)
          */
-        const val SEND_QUEUE_CAPACITY = 64
+        const val SEND_QUEUE_CAPACITY = 6
 
         /** Length-prefix size: 2 bytes big-endian. */
         const val LENGTH_PREFIX_SIZE = 2
@@ -260,6 +264,7 @@ class L2capVoiceTransport(
             Log.w(TAG, "Writer for $addr couldn't open output stream: ${e.message}")
             return
         }
+        var sent = 0L
         try {
             while (true) {
                 val frame = io.sendQueue.take()
@@ -271,8 +276,13 @@ class L2capVoiceTransport(
                 }
                 try {
                     writeFramed(out, frame)
+                    // VOICE-DIAG: per-direction send rate + backlog. One leg
+                    // showing 0 sent pinpoints a one-direction-audio failure.
+                    if (++sent % 50L == 0L) {
+                        Log.i(TAG, "VOICE-DIAG tx $addr sent=$sent qDepth=${io.sendQueue.size}")
+                    }
                 } catch (e: IOException) {
-                    Log.i(TAG, "Writer for $addr ended: ${e.message}")
+                    Log.i(TAG, "Writer for $addr ended after $sent frames: ${e.message}")
                     break
                 }
             }
@@ -283,13 +293,14 @@ class L2capVoiceTransport(
 
     private fun receiveLoop(addr: String, io: SocketIo) {
         val socket = io.socket
+        var recv = 0L
         try {
             val input = DataInputStream(socket.inputStream)
             while (socket.isConnected) {
                 val frame = try {
                     readFramed(input)
                 } catch (e: IOException) {
-                    Log.i(TAG, "Receive loop ended for $addr: ${e.message}")
+                    Log.i(TAG, "Receive loop ended for $addr after $recv frames: ${e.message}")
                     break
                 } ?: break // EOF
                 if (frame.size < 8) {
@@ -297,6 +308,11 @@ class L2capVoiceTransport(
                     // reading; a malformed peer can't lock us out.
                     Log.w(TAG, "Frame from $addr shorter than VoiceFrame header — dropping")
                     continue
+                }
+                // VOICE-DIAG: per-direction receive rate. A registered+mixing
+                // peer with recv stuck at 0 means the inbound leg is dead.
+                if (++recv % 50L == 0L) {
+                    Log.i(TAG, "VOICE-DIAG rx $addr recv=$recv")
                 }
                 onVoiceFrame(addr, frame)
             }

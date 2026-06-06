@@ -31,23 +31,24 @@ void main() {
     test('bps values match audio_config.h operating points', () {
       // These three are the only values native PeerAudioManager will
       // honour after clamping. The Dart adapter must agree with the
-      // native enum so a `BitrateHint(bps: 16000)` lands as Mid and not
-      // as a "snap to nearest" surprise.
-      expect(BitrateLevel.low.bps, 8000);
-      expect(BitrateLevel.mid.bps, 16000);
-      expect(BitrateLevel.high.bps, 24000);
+      // native enum (audio_config.h kBitrateLow/Mid/High) so a
+      // `BitrateHint(bps: 32000)` lands as Mid and not as a "snap to
+      // nearest" surprise.
+      expect(BitrateLevel.low.bps, 16000);
+      expect(BitrateLevel.mid.bps, 32000);
+      expect(BitrateLevel.high.bps, 48000);
     });
 
     test('nearest snaps to the closest operating point, ties favour lower', () {
-      expect(BitrateLevel.nearest(8000), BitrateLevel.low);
-      expect(BitrateLevel.nearest(16000), BitrateLevel.mid);
-      expect(BitrateLevel.nearest(24000), BitrateLevel.high);
-      // 12000 is equidistant from low (8000) and mid (16000) — the
+      expect(BitrateLevel.nearest(16000), BitrateLevel.low);
+      expect(BitrateLevel.nearest(32000), BitrateLevel.mid);
+      expect(BitrateLevel.nearest(48000), BitrateLevel.high);
+      // 24000 is equidistant from low (16000) and mid (32000) — the
       // tie-break docstring says "favour the lower level."
-      expect(BitrateLevel.nearest(12000), BitrateLevel.low);
-      // 11000 is closer to low; 14000 closer to mid.
-      expect(BitrateLevel.nearest(11000), BitrateLevel.low);
-      expect(BitrateLevel.nearest(14000), BitrateLevel.mid);
+      expect(BitrateLevel.nearest(24000), BitrateLevel.low);
+      // 22000 is closer to low; 28000 closer to mid.
+      expect(BitrateLevel.nearest(22000), BitrateLevel.low);
+      expect(BitrateLevel.nearest(28000), BitrateLevel.mid);
     });
   });
 
