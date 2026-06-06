@@ -5,16 +5,18 @@ import '../protocol/messages.dart';
 /// the native side clamps a bitrate set to anything else into one of
 /// these, so keeping the Dart-side schedule in lockstep avoids surprises.
 enum BitrateLevel {
-  /// 8 kbps narrowband — used when the link is degraded and we need to
-  /// shed bytes to keep the jitter buffer fed.
-  low(8000),
+  /// 16 kbps — used when the link is degraded and we need to shed bytes
+  /// to keep the jitter buffer fed. Matches native `kBitrateLow`.
+  low(16000),
 
-  /// 16 kbps wideband — the default operating point the encoder boots in.
-  mid(16000),
+  /// 32 kbps — the default operating point the encoder boots in.
+  /// Matches native `kBitrateMid` / `kDefaultBitrate`.
+  mid(32000),
 
-  /// 24 kbps wideband — the best operating point the encoder will reach
-  /// when the link has been clean for a sustained window.
-  high(24000);
+  /// 48 kbps — the best operating point the encoder will reach when the
+  /// link has been clean for a sustained window. Matches native
+  /// `kBitrateHigh`.
+  high(48000);
 
   const BitrateLevel(this.bps);
 
