@@ -64,6 +64,24 @@ class L2capVoiceTransport(
          */
         const val SEND_QUEUE_CAPACITY = 6
 
+        /**
+         * Freshness budget for a queued frame. Voice is real-time: a frame
+         * that has waited longer than this before the writer could put it on
+         * the wire is already stale, and writing it only deepens the latency
+         * the listener hears. The writer drops such frames instead.
+         *
+         * This is the sender-side half of the end-to-end "favour the freshest
+         * audio" policy (the receiver caps its jitter buffer + playout ring the
+         * same way). It matters because the bottleneck is usually *below* this
+         * shallow app queue: once the kernel/controller L2CAP TX buffer backs
+         * up, `OutputStream.write()` blocks, queued frames age past this budget,
+         * and we shed them rather than letting the backlog grow unbounded.
+         * 200 ms ≈ 10 frames: comfortably past the [SEND_QUEUE_CAPACITY] (120
+         * ms) so a healthy link never trips it, tight enough that a congested
+         * one can't pin playout seconds stale.
+         */
+        const val STALE_FRAME_BUDGET_MS = 200L
+
         /** Length-prefix size: 2 bytes big-endian. */
         const val LENGTH_PREFIX_SIZE = 2
 
@@ -86,13 +104,20 @@ class L2capVoiceTransport(
      */
     private class SocketIo(
         val socket: BluetoothSocket,
-        val sendQueue: LinkedBlockingQueue<ByteArray>,
+        val sendQueue: LinkedBlockingQueue<QueuedFrame>,
         var recvThread: Thread? = null,
         var writerThread: Thread? = null,
     )
 
+    /**
+     * A frame waiting on the send queue, stamped with the monotonic time it was
+     * enqueued so the writer can shed it if it goes stale before reaching the
+     * wire (see [STALE_FRAME_BUDGET_MS]).
+     */
+    private class QueuedFrame(val bytes: ByteArray, val enqueuedNanos: Long)
+
     /** Sentinel pushed onto the send queue to terminate the writer thread. */
-    private val shutdownSentinel = ByteArray(0)
+    private val shutdownSentinel = QueuedFrame(ByteArray(0), 0L)
 
     // Host-side: server socket + accepted client sockets
     private var serverSocket: android.bluetooth.BluetoothServerSocket? = null
@@ -265,13 +290,28 @@ class L2capVoiceTransport(
             return
         }
         var sent = 0L
+        var droppedStale = 0L
         try {
             while (true) {
-                val frame = io.sendQueue.take()
-                if (frame === shutdownSentinel) break
+                val queued = io.sendQueue.take()
+                if (queued === shutdownSentinel) break
+                val frame = queued.bytes
                 if (frame.isEmpty()) continue
                 if (frame.size > MAX_FRAME_SIZE) {
                     Log.w(TAG, "Dropping oversized frame (${frame.size}B) for $addr")
+                    continue
+                }
+                // Favour the freshest audio: if this frame waited past the
+                // budget (the link couldn't drain it in time), drop it rather
+                // than writing seconds-old audio into the kernel L2CAP TX
+                // buffer — which we can neither flush nor drain. This is what
+                // gives the otherwise-reliable, ordered CoC stream UDP-like
+                // "shed late packets" behaviour at the app layer.
+                if (isFrameStale(System.nanoTime() - queued.enqueuedNanos,
+                                 STALE_FRAME_BUDGET_MS)) {
+                    if (++droppedStale % 50L == 0L) {
+                        Log.i(TAG, "VOICE-DIAG tx $addr dropped $droppedStale stale frames")
+                    }
                     continue
                 }
                 try {
@@ -355,7 +395,8 @@ class L2capVoiceTransport(
      */
     private fun enqueueFrame(io: SocketIo, frame: ByteArray) {
         if (frame.isEmpty()) return
-        while (!io.sendQueue.offer(frame)) {
+        val queued = QueuedFrame(frame, System.nanoTime())
+        while (!io.sendQueue.offer(queued)) {
             io.sendQueue.poll() // drop oldest, retry the offer
         }
     }
@@ -437,6 +478,15 @@ class L2capVoiceTransport(
     fun getConnectedClients(): List<String> =
         synchronized(clientSockets) { clientSockets.keys.toList() }
 }
+
+/**
+ * True if a frame that has waited [ageNanos] on the send queue has exceeded
+ * the [budgetMs] freshness budget and should be dropped rather than written.
+ * Pulled out as a pure function so the writer's drop decision is unit-testable
+ * without standing up real Bluetooth sockets and threads.
+ */
+internal fun isFrameStale(ageNanos: Long, budgetMs: Long): Boolean =
+    ageNanos > budgetMs * 1_000_000L
 
 // ── Framing helpers (package-private for unit tests) ───────────────────────
 

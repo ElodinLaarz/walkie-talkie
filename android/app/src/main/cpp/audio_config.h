@@ -99,6 +99,25 @@ constexpr size_t kJitterAdaptIntervalTicks = 50;
 // buffer right back into the ground.
 constexpr size_t kJitterShrinkAfterStableTicks = 500;
 
+// Playout anti-bloat (latency catch-up). The per-device mixer ring is the
+// rendezvous between the producer (decode / mic feed, ~50 Hz on a steady_clock)
+// and the consumer (the Oboe playout callback, on the audio *hardware* clock).
+// Those two clocks are not synchronised, so left unbounded the ring drifts
+// toward full (its physical capacity is ~680 ms at the codec rate) and *stays*
+// there — pinning everything you hear that far behind real time, and on a link
+// stall it then faithfully replays the stale backlog instead of catching up.
+//
+// The playout consumer caps the ring: before mixing, it drops the oldest
+// samples so no more than this many remain, always favouring the freshest
+// audio. A small drift trims a few samples per callback; a big burst (e.g. a
+// kernel L2CAP TX backlog draining all at once on recovery) is dropped in one
+// shot — so this single mechanism is both the continuous cap and the hard
+// catch-up. 3 frames = 60 ms: enough slack to ride out callback jitter without
+// underrunning, far below the ring's physical capacity.
+constexpr size_t kPlayoutMaxRingFillFrames = 3;
+constexpr size_t kPlayoutMaxRingFillSamples =
+    kPlayoutMaxRingFillFrames * static_cast<size_t>(kCodecFrameSize);  // 1440
+
 // Mixer tick.
 constexpr int kMixerTickIntervalMs = kFrameDurationMs;
 

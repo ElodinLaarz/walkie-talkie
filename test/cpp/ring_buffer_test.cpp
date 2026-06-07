@@ -169,6 +169,62 @@ void testAvailableToWriteAccountsForData() {
     std::cout << "Test AvailableToWrite Accounts For Data: PASSED" << std::endl;
 }
 
+// ── dropOldestToFill: consumer-side latency cap ───────────────────────────────
+
+void testDropOldestToFillNoOpWhenShallow() {
+    RingBuffer<int16_t, 32> rb;
+    int16_t in[4] = {1, 2, 3, 4};
+    rb.write(in, 4);
+    // Already at/below the cap — nothing to drop.
+    CHECK(rb.dropOldestToFill(4) == 0);
+    CHECK(rb.dropOldestToFill(10) == 0);
+    CHECK(rb.availableToRead() == 4);
+    std::cout << "Test dropOldestToFill No-Op When Shallow: PASSED" << std::endl;
+}
+
+void testDropOldestToFillDropsOldestAndKeepsFreshest() {
+    RingBuffer<int16_t, 32> rb;
+    int16_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    rb.write(in, 8);
+    // Cap to 3: drop the 5 oldest (1..5), keep the freshest 3 (6, 7, 8).
+    CHECK(rb.dropOldestToFill(3) == 5);
+    CHECK(rb.availableToRead() == 3);
+    int16_t out[3] = {};
+    CHECK(rb.read(out, 3) == 3);
+    CHECK(out[0] == 6);
+    CHECK(out[1] == 7);
+    CHECK(out[2] == 8);
+    std::cout << "Test dropOldestToFill Drops Oldest, Keeps Freshest: PASSED"
+              << std::endl;
+}
+
+void testDropOldestToFillWrapsCorrectly() {
+    // Force a wrapped read position, then cap — the dropped span must cross
+    // the array boundary without corrupting the surviving samples.
+    RingBuffer<int16_t, 8> rb;  // capacity 7
+    int16_t a[5] = {1, 2, 3, 4, 5};
+    CHECK(rb.write(a, 5) == 5);
+    CHECK(rb.read(a, 5) == 5);  // readIndex now at 5
+    int16_t b[6] = {10, 20, 30, 40, 50, 60};
+    CHECK(rb.write(b, 6) == 6);  // wraps around the boundary
+    // Keep freshest 2 (50, 60); drop 4 oldest.
+    CHECK(rb.dropOldestToFill(2) == 4);
+    int16_t out[2] = {};
+    CHECK(rb.read(out, 2) == 2);
+    CHECK(out[0] == 50);
+    CHECK(out[1] == 60);
+    std::cout << "Test dropOldestToFill Wraps Correctly: PASSED" << std::endl;
+}
+
+void testDropOldestToFillZeroFlushesAll() {
+    RingBuffer<int16_t, 32> rb;
+    int16_t in[6] = {1, 2, 3, 4, 5, 6};
+    rb.write(in, 6);
+    CHECK(rb.dropOldestToFill(0) == 6);
+    CHECK(rb.availableToRead() == 0);
+    std::cout << "Test dropOldestToFill Zero Flushes All: PASSED" << std::endl;
+}
+
 // ── SPSC stress: producer/consumer threads running concurrently ───────────────
 //
 // The producer writes 1-sample frames and the consumer reads them. After the
@@ -296,6 +352,10 @@ int main() {
     testPeekDoesNotConsume();
     testClearResetsState();
     testAvailableToWriteAccountsForData();
+    testDropOldestToFillNoOpWhenShallow();
+    testDropOldestToFillDropsOldestAndKeepsFreshest();
+    testDropOldestToFillWrapsCorrectly();
+    testDropOldestToFillZeroFlushesAll();
     testSpscStress();
     std::cout << "\nAll RingBuffer tests passed." << std::endl;
     return 0;

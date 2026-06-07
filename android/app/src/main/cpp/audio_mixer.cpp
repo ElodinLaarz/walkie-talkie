@@ -157,14 +157,29 @@ void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int
         const auto& [id, device] = deviceSnapshot[d];
         if (!device) continue;
 
+        // The ring read is clamped to the scratch size (kMaxFrames), so use
+        // that same clamped count for the latency cap. Widening it to the raw
+        // numFrames would loosen the cap under burst callbacks where
+        // numFrames > kMaxFrames (the read can only drain kMaxFrames, leaving
+        // the excess as backlog). max() with the read count keeps the cap from
+        // ever dropping samples this very call is about to consume.
+        const size_t readCount = std::min(static_cast<size_t>(numFrames),
+                                          static_cast<size_t>(kMaxFrames));
+        // Latency catch-up: fast-forward past any backlog so we mix the
+        // freshest audio instead of replaying a ring that drifted full (see
+        // audio_config::kPlayoutMaxRingFillSamples). Consumer-side, SPSC-safe.
+        const size_t fillCap =
+            std::max(audio_config::kPlayoutMaxRingFillSamples, readCount);
+        device->ringBuffer.dropOldestToFill(fillCap);
+
         // Skip mixing if the device is muted, but read to discard samples so they don't accumulate
         if (device->muted.load(std::memory_order_relaxed)) {
-            device->ringBuffer.read(tempMix, std::min(static_cast<size_t>(numFrames), static_cast<size_t>(kMaxFrames)));
+            device->ringBuffer.read(tempMix, readCount);
             continue;
         }
 
         // Use read() to consume the data from the ring buffer
-        size_t samplesRead = device->ringBuffer.read(tempMix, std::min(static_cast<size_t>(numFrames), static_cast<size_t>(kMaxFrames)));
+        size_t samplesRead = device->ringBuffer.read(tempMix, readCount);
         if (samplesRead > 0) {
             float vol = device->volume.load(std::memory_order_relaxed);
 
