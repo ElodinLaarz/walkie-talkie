@@ -380,10 +380,10 @@ going into a tunnel.
 
 These messages let the host steer per-link Opus bitrate in response to
 observed packet loss / jitter / mixer underruns. The named operating
-points (`kBitrateLow=8000`, `kBitrateMid=16000`, `kBitrateHigh=24000`) live
+points (`kBitrateLow=16000`, `kBitrateMid=32000`, `kBitrateHigh=48000`) live
 in `android/app/src/main/cpp/audio_config.h`. The native
 `OpusEncoder::setBitrate` clamps to the closed range
-`[kBitrateLow, kBitrateHigh]` = `[8000, 24000]` bps — any value inside
+`[kBitrateLow, kBitrateHigh]` = `[16000, 48000]` bps — any value inside
 that range is honoured verbatim; values outside are clamped to the nearer
 endpoint. The Low / Mid / High constants are the *recommended* working
 points, not a discrete set the encoder snaps to.
@@ -432,7 +432,7 @@ fans out to every subscribed guest, same as `roster_update`); guests
 addressed elsewhere. Mirrors the `remove_peer` targeting pattern.
 
 `bps` must be positive; the native layer clamps it to the closed range
-`[8000, 24000]` (see [§ Adaptive bitrate](#adaptive-bitrate)). Values
+`[16000, 48000]` (see [§ Adaptive bitrate](#adaptive-bitrate)). Values
 inside the range are honoured as-is; the Low / Mid / High constants are
 suggested operating points, not a snap-to set.
 
@@ -506,13 +506,13 @@ guests should treat it as `version_mismatch`-equivalent and disconnect.
 | sample rate | 16 kHz wideband (codec / mix); 48 kHz at the Oboe stream, downsampled 3:1 |
 | channels    | 1 (mono)                                             |
 | frame size  | 20 ms (320 samples per codec frame, 960 per Oboe callback) |
-| bitrate     | adaptive — three operating points at 8, 16, 24 kbps; default 16 kbps (`kBitrateMid` in `audio_config.h`) |
+| bitrate     | adaptive — three operating points at 16, 32, 48 kbps; default 32 kbps (`kBitrateMid` in `audio_config.h`) |
 
 The host nudges per-link bitrate via [`bitrate_hint`](#bitrate_hint-host--specific-guest)
 in response to [`link_quality`](#link_quality-guest--host) telemetry; the
-native encoder clamps to the closed range `[8000, 24000]` bps (Low and
-High are endpoints, not a discrete set). At worst-case 24 kbps × ≤12
-peers ≈ 290 kbps aggregate, comfortably under L2CAP throughput on any
+native encoder clamps to the closed range `[16000, 48000]` bps (Low and
+High are endpoints, not a discrete set). At worst-case 48 kbps × ≤12
+peers ≈ 576 kbps aggregate, comfortably under L2CAP throughput on any
 LE 4.2+ device.
 
 ### Voice frame format
@@ -687,8 +687,8 @@ This handles BLE's at-least-once write semantics without app-level acks.
   outside the contract.
 - **Beyond 12 peers.** The roster / media JSON envelope assumes ≤12 peers
   (the design's max group size). Larger groups need a different framing.
-  The voice plane scales linearly at the host; ~290 kbps for 12 peers at
-  24 kbps is comfortable, but mix-minus CPU load grows quadratically and
+  The voice plane scales linearly at the host; ~576 kbps for 12 peers at
+  48 kbps is comfortable, but mix-minus CPU load grows quadratically and
   needs profiling before raising the cap.
 
 ## Versioning

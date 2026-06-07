@@ -49,10 +49,10 @@ enum BitrateLevel {
 ///
 /// **Threshold schedule** (per [docs/protocol.md] §"adaptive bitrate"):
 ///   * `lossPct > 12 %` sustained for [downHoldMid] → step to [BitrateLevel.low]
-///     (8 kbps narrowband). Aggressive — we want to bail quickly when the
+///     (16 kbps). Aggressive — we want to bail quickly when the
 ///     wire is genuinely failing.
 ///   * `lossPct > 5 %` sustained for [downHoldMid] → step to [BitrateLevel.mid]
-///     (16 kbps wideband). Less aggressive; covers the "merely choppy"
+///     (32 kbps). Less aggressive; covers the "merely choppy"
 ///     case where high bitrate is overshooting capacity.
 ///   * `lossPct < 1 %` sustained for [upHold] → step **up one notch**.
 ///     Slower than the down-step on purpose — ramping back up should err

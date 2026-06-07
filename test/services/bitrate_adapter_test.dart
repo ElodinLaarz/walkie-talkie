@@ -233,11 +233,12 @@ void main() {
 
   group('Issue acceptance: thresholds → BitrateHint schedule', () {
     test(
-      '24 → 16 → 24: bad uplink trips down to Mid, recovery climbs back to High',
+      '48 → 32 → 48: bad uplink trips down to Mid, recovery climbs back to High',
       () {
         // Mirrors the two-device acceptance scenario in the issue:
-        //  * Inject ~10 % loss → within 4 s the encoder shifts to 16 kbps.
-        //  * Lift the drop → returns to 24 kbps within 30 s of clean samples.
+        //  * Inject ~10 % loss → within 4 s the encoder shifts to 32 kbps (Mid).
+        //  * Lift the drop → returns to 48 kbps (High) within 30 s of clean
+        //    samples.
         final a = BitrateAdapter();
         a.seed('g1', BitrateLevel.high);
         // 10 % is in the >5 % band — should drop one notch (not all the
@@ -258,7 +259,7 @@ void main() {
     );
 
     test(
-      '24 → 8 → 16 → 24: catastrophic loss bypasses Mid, then climbs back',
+      '48 → 16 → 32 → 48: catastrophic loss bypasses Mid, then climbs back',
       () {
         // Heavy loss (>12 %) goes straight to Low. From Low, a 30 s clean
         // run climbs to Mid; another 30 s climbs to High.
