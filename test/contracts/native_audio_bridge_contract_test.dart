@@ -62,5 +62,18 @@ void main() {
       expect(audioEngine, contains('playbackStream->write('));
       expect(audioEngine, contains('playoutScratch_'));
     });
+
+    test('unregisterVoicePeer releases a departed peer\'s native state', () {
+      final mainActivity = File(
+        'android/app/src/main/kotlin/com/elodin/walkie_talkie/MainActivity.kt',
+      ).readAsStringSync();
+
+      // Issue #476: the cubit calls this channel method on a peer's departure
+      // so the host doesn't leak one native PeerState per guest that ever
+      // connected. Native unregisterPeer + JNI already exist; this pins the
+      // MainActivity wiring that the Dart-side tests can't exercise directly.
+      expect(mainActivity, contains('"unregisterVoicePeer" ->'));
+      expect(mainActivity, contains('peerAudioManager?.unregisterPeer(mac)'));
+    });
   });
 }

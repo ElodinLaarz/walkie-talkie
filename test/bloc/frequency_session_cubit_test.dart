@@ -2993,6 +2993,165 @@ void main() {
       await t.inbox.close();
       t.transport.dispose();
     });
+
+    test('Leave dispatch unregisters the departed peer from the native voice '
+        'layer (issue #476)', () async {
+      final t = makeTestTransport();
+      final audio = _RecordingUnregisterAudio();
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(hours: 1),
+      );
+      final cubit = _makeCubit(
+        heartbeats: scheduler,
+        transport: t.transport,
+        audio: audio,
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+          ],
+        ),
+      );
+
+      // Deliver a Leave from p-guest over endpoint AA:BB. The transport
+      // records p-guest → AA:BB on this inbound message; the dispatch must
+      // resolve that MAC and unregister the native peer *before* forgetPeer
+      // wipes the mapping.
+      final leaveJson = const Leave(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 0,
+      ).encode();
+      for (final frag in encodeFragments(leaveJson)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      expect(audio.unregistered, ['AA:BB']);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test(
+      'RemovePeer dispatch unregisters the target peer from the native voice '
+      'layer (issue #476)',
+      () async {
+        final t = makeTestTransport();
+        final audio = _RecordingUnregisterAudio();
+        final scheduler = HeartbeatScheduler(
+          pingInterval: const Duration(hours: 1),
+        );
+        final cubit = _makeCubit(
+          heartbeats: scheduler,
+          transport: t.transport,
+          audio: audio,
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-guest', displayName: 'Maya'),
+            ],
+          ),
+        );
+
+        // RemovePeer targeting p-guest, delivered over p-guest's endpoint so
+        // the transport records p-guest → AA:BB before dispatch resolves and
+        // unregisters it.
+        final removeJson = const RemovePeer(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 0,
+          target: 'p-guest',
+        ).encode();
+        for (final frag in encodeFragments(removeJson)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        expect(audio.unregistered, ['AA:BB']);
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test('host: peer-lost unregisters the departed peer from the native voice '
+        'layer (issue #476)', () async {
+      final t = makeTestTransport();
+      final audio = _RecordingUnregisterAudio();
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(hours: 1),
+        missThreshold: const Duration(seconds: 15),
+        clock: () => fakeNow,
+      );
+      final cubit = _makeCubit(
+        heartbeats: scheduler,
+        transport: t.transport,
+        audio: audio,
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-stale', displayName: 'Stale'),
+          ],
+        ),
+      );
+
+      // Deliver one inbound message from p-stale so the transport records
+      // its endpoint (the peerId→MAC mapping the unregister resolves
+      // against) and the heartbeat plane notes it as last-seen at t=0.
+      final pingJson = const Heartbeat(
+        peerId: 'p-stale',
+        seq: 1,
+        atMs: 0,
+      ).encode();
+      for (final frag in encodeFragments(pingJson)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Advance past the silence threshold and tick → p-stale is declared
+      // lost, and its native voice state released before forgetPeer wipes
+      // the MAC.
+      fakeNow = fakeNow.add(const Duration(seconds: 20));
+      scheduler.debugTick();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(audio.unregistered, ['AA:BB']);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
   });
 
   // ── SignalReport / weak-signal ────────────────────────────────────────
@@ -5477,6 +5636,41 @@ class _StubLocalTalkingAudio extends AudioService {
 
   @override
   Stream<bool> get localTalking => _localTalking;
+
+  @override
+  Future<bool> stopAdvertising() async => true;
+
+  @override
+  Future<bool> stopGattServer() async => true;
+
+  @override
+  Future<bool> stopVoiceTransport() async => true;
+}
+
+/// AudioService stub that records the MACs passed to [unregisterPeer] so the
+/// peer-departure tests can assert the cubit releases a departed peer's native
+/// voice state (issue #476). The host join/teardown methods the cubit reaches
+/// are stubbed to no-ops (same rationale as [_StubLocalTalkingAudio]) so the
+/// tests never touch the real MethodChannel.
+class _RecordingUnregisterAudio extends AudioService {
+  final List<String> unregistered = <String>[];
+
+  @override
+  Future<bool> unregisterPeer(String macAddress) async {
+    unregistered.add(macAddress);
+    return true;
+  }
+
+  @override
+  Future<void> startGattServerAndAdvertise({
+    required String sessionUuid,
+    required String displayName,
+    Duration serverReadyTimeout = const Duration(seconds: 3),
+    bool Function()? shouldProceed,
+  }) async {}
+
+  @override
+  Future<int?> startVoiceServer() async => null;
 
   @override
   Future<bool> stopAdvertising() async => true;

@@ -31,6 +31,7 @@ void main() {
                 case 'setAudioOutput':
                 case 'connectVoiceClient':
                 case 'stopVoiceTransport':
+                case 'unregisterVoicePeer':
                   return true;
                 case 'startVoiceServer':
                   return 0x81;
@@ -519,6 +520,18 @@ void main() {
         expect(result, true);
         expect(log, [isMethodCall('stopVoiceTransport', arguments: null)]);
       });
+
+      test('unregisterPeer passes mac to native layer', () async {
+        log.clear();
+        final result = await audioService.unregisterPeer('AA:BB:CC:DD:EE:FF');
+        expect(result, true);
+        expect(log, [
+          isMethodCall(
+            'unregisterVoicePeer',
+            arguments: <String, dynamic>{'macAddress': 'AA:BB:CC:DD:EE:FF'},
+          ),
+        ]);
+      });
     });
 
     group('error path coverage (catch blocks return defaults)', () {
@@ -633,6 +646,11 @@ void main() {
       test('stopVoiceTransport returns false', () async {
         installFailing();
         expect(await audioService.stopVoiceTransport(), false);
+      });
+
+      test('unregisterPeer returns false', () async {
+        installFailing();
+        expect(await audioService.unregisterPeer('AA:BB'), false);
       });
 
       test('connectToHost returns false', () async {
