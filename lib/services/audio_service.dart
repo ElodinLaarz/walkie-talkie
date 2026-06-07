@@ -777,6 +777,33 @@ class AudioService {
     }
   }
 
+  /// Drop a departed peer's native voice state.
+  ///
+  /// Tears down the per-peer Opus encoder, decoder, jitter buffer, and mixer
+  /// slot the native `PeerAudioManager` holds for [macAddress]. Counterpart to
+  /// the implicit registration that happens when an L2CAP voice channel opens
+  /// (the host registers each guest; a guest registers the host).
+  ///
+  /// Called by [FrequencySessionCubit] on the control-plane departure paths
+  /// (Leave / RemovePeer / host-side heartbeat loss) so the host doesn't
+  /// accumulate one `PeerState` per guest that ever connected (issue #476).
+  ///
+  /// Safe to call for a MAC that was never registered — the native side
+  /// resolves an unknown MAC as a no-op. Returns true if the platform call
+  /// succeeded, false if it threw.
+  Future<bool> unregisterPeer(String macAddress) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(
+        'unregisterVoicePeer',
+        <String, dynamic>{'macAddress': macAddress},
+      );
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error unregistering peer $macAddress: $e');
+      return false;
+    }
+  }
+
   /// Stream of control-plane byte fragments from the native GATT layer.
   ///
   /// On the host side, each event carries bytes written to the REQUEST

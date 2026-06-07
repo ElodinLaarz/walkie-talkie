@@ -508,6 +508,23 @@ class MainActivity : FlutterActivity() {
                     voiceTransport = null
                     result.success(true)
                 }
+                "unregisterVoicePeer" -> {
+                    // Drop a departed peer's native PeerAudioManager state
+                    // (encoder/decoder/jitter buffer + mixer slot). Called by
+                    // the cubit on Leave / RemovePeer / heartbeat-loss so the
+                    // host doesn't leak one PeerState per guest that ever
+                    // connected (issue #476). The native unregisterPeer removes
+                    // the mixer device and resolves an unknown MAC as a no-op,
+                    // so this is safe even if voice never came up for the peer.
+                    val mac = call.argument<String>("macAddress")
+                    if (mac == null) {
+                        result.error("INVALID_ARGUMENT", "macAddress is required", null)
+                    } else {
+                        Log.i(TAG, "Unregistering voice peer $mac")
+                        peerAudioManager?.unregisterPeer(mac)
+                        result.success(true)
+                    }
+                }
                 "getLinkTelemetry" -> {
                     val mac = call.argument<String>("macAddress")
                     if (mac == null) {

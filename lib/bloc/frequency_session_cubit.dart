@@ -359,6 +359,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
               .where((p) => p.peerId != m.peerId)
               .toList();
           emit(current.copyWith(roster: updated));
+          // Resolve + drop the native voice peer before forgetPeer wipes the
+          // peerId→MAC mapping it depends on (issue #476).
+          _unregisterVoicePeer(m.peerId);
           _transport?.forgetPeer(m.peerId);
           _heartbeats.forgetPeer(m.peerId);
           _weakSignalDetector.forgetPeer(m.peerId);
@@ -373,6 +376,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
             .where((p) => p.peerId != m.target)
             .toList();
         emit(current.copyWith(roster: updated));
+        // Resolve + drop the native voice peer before forgetPeer wipes the
+        // peerId→MAC mapping it depends on (issue #476).
+        _unregisterVoicePeer(m.target);
         _transport?.forgetPeer(m.target);
         _heartbeats.forgetPeer(m.target);
         _weakSignalDetector.forgetPeer(m.target);
@@ -905,6 +911,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     return _transport?.endpointForPeer(peerId);
   }
 
+  /// Drop [peerId]'s native voice state (per-peer encoder/decoder/jitter
+  /// buffer + mixer slot) from the platform `PeerAudioManager`.
+  ///
+  /// Resolves the peer's MAC via [macForPeerId] **before** the caller drops
+  /// the transport's peerId→MAC mapping — [BleControlTransport.forgetPeer]
+  /// wipes it — so this must run *ahead* of `_transport.forgetPeer(peerId)`
+  /// in the departure cleanup paths.
+  ///
+  /// No-op when the peer has no known MAC (e.g. a guest seeing another
+  /// guest's `Leave`, where no L2CAP endpoint was ever recorded) or was never
+  /// registered with the voice layer — the native side resolves an unknown
+  /// MAC as a no-op. Without this the host leaks one `PeerState` per guest
+  /// that ever connected (issue #476).
+  void _unregisterVoicePeer(String peerId) {
+    final mac = macForPeerId(peerId);
+    if (mac == null) return;
+    unawaited(_audio?.unregisterPeer(mac));
+  }
+
   /// Build and send a `BitrateHint` to [targetPeerId]. Best-effort:
   /// transport-level failures are logged and swallowed so a single bad
   /// adapter step doesn't poison the rest of the dispatch loop.
@@ -1033,6 +1058,9 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       final updated = current.roster.where((p) => p.peerId != peerId).toList();
       if (updated.length == current.roster.length) return;
       emit(current.copyWith(roster: updated));
+      // Host dropped a guest for good — release its native voice state before
+      // forgetPeer wipes the peerId→MAC mapping it depends on (issue #476).
+      _unregisterVoicePeer(peerId);
       _transport?.forgetPeer(peerId);
       _weakSignalDetector.forgetPeer(peerId);
       final t = _transport;
