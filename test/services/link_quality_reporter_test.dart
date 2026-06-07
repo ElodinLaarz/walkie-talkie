@@ -5,12 +5,14 @@ import 'package:walkie_talkie/services/link_quality_reporter.dart';
 LinkTelemetrySnapshot _snap({
   int underrun = 0,
   int late = 0,
+  int lost = 0,
   int target = 3,
   int current = 3,
   int bps = 16000,
 }) => LinkTelemetrySnapshot(
   underrunCount: underrun,
   lateFrameCount: late,
+  lostFrameCount: lost,
   targetDepthFrames: target,
   currentDepthFrames: current,
   currentBitrateBps: bps,
@@ -103,11 +105,11 @@ void main() {
       },
     );
 
-    test('lossPct: lateDelta / expected * 100', () {
+    test('lossPct: lostDelta / expected * 100', () {
       // 2 s window → 100 expected frames (one Opus frame per 20 ms).
-      // 7 late frames in the delta → 7 % loss.
-      final prev = _snap(late: 10);
-      final curr = _snap(late: 17);
+      // 7 truly-lost frames in the delta → 7 % loss.
+      final prev = _snap(lost: 10);
+      final curr = _snap(lost: 17);
       final out = computeLinkQuality(
         previous: prev,
         current: curr,
@@ -116,12 +118,27 @@ void main() {
       expect(out.lossPct, closeTo(7.0, 1e-9));
     });
 
-    test('lossPct clamps to 100 when lateDelta exceeds expected', () {
-      // 1 s window expects 50 frames; 200 late frames is impossible in
+    test('lossPct ignores lateFrameCount entirely (Defect A decoupling)', () {
+      // Jitter-buffer late/overflow churn must NOT register as loss: a huge
+      // lateFrameCount delta with zero true loss is a clean link as far as
+      // the bitrate adapter is concerned. This is the exact failure that
+      // floored the encoder to 16 kbps on a loss-free (rx==tx) 2-device call.
+      final prev = _snap(late: 0, lost: 0);
+      final curr = _snap(late: 500, lost: 0);
+      final out = computeLinkQuality(
+        previous: prev,
+        current: curr,
+        elapsed: const Duration(seconds: 2),
+      );
+      expect(out.lossPct, 0.0);
+    });
+
+    test('lossPct clamps to 100 when lostDelta exceeds expected', () {
+      // 1 s window expects 50 frames; 200 lost frames is impossible in
       // practice (counter rollover, OS hibernation) but the function
       // mustn't return a 400 % loss value into the adapter.
-      final prev = _snap(late: 0);
-      final curr = _snap(late: 200);
+      final prev = _snap(lost: 0);
+      final curr = _snap(lost: 200);
       final out = computeLinkQuality(
         previous: prev,
         current: curr,
@@ -145,8 +162,8 @@ void main() {
     test('counter reset (delta < 0) clamps to zero rather than throwing', () {
       // Native side cleared and reseeded between snapshots — current is
       // *less* than previous. Treat as zero delta, not a negative rate.
-      final prev = _snap(underrun: 100, late: 100);
-      final curr = _snap(underrun: 0, late: 0);
+      final prev = _snap(underrun: 100, late: 100, lost: 100);
+      final curr = _snap(underrun: 0, late: 0, lost: 0);
       final out = computeLinkQuality(
         previous: prev,
         current: curr,
@@ -162,8 +179,8 @@ void main() {
       // up to Infinity even though the guard above only rejects
       // `<= Duration.zero`. The math must use microseconds (or some
       // other higher-resolution conversion) so the rate stays finite.
-      final prev = _snap(underrun: 0, late: 0);
-      final curr = _snap(underrun: 1, late: 1);
+      final prev = _snap(underrun: 0, late: 0, lost: 0);
+      final curr = _snap(underrun: 1, late: 1, lost: 1);
       final out = computeLinkQuality(
         previous: prev,
         current: curr,

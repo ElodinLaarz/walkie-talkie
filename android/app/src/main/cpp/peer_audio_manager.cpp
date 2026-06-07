@@ -2,8 +2,10 @@
 
 #include <android/log.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <thread>
 #include <utility>
 
@@ -11,6 +13,43 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+namespace {
+
+// Crossfade-merge two consecutive decoded PCM frames into one, time-
+// compressing 2 frames of input into 1 frame of output. Used by the jitter
+// buffer's drift drain: when the producer's clock outruns ours and the buffer
+// runs hot, collapsing two 20 ms frames into one releases 20 ms of accumulated
+// backlog. A linear A->B crossfade (weight ramps 0->1 across the frame) avoids
+// the hard click a frame-skip would make. Writes the result into `a` in place
+// and returns the merged sample count; operates on the shorter of the two
+// lengths (20 ms Opus frames are equal-length in practice).
+int crossfadeMergeFrames(int16_t* a, int aLen, const int16_t* b, int bLen) {
+    const int n = std::min(aLen, bLen);
+    if (n <= 0) return 0;
+    if (n == 1) {
+        // Degenerate frame: nothing to ramp across, so the merged output is
+        // just the later frame (w would be 1).
+        a[0] = b[0];
+        return 1;
+    }
+    // Precompute the ramp step so the per-sample inner loop is a multiply, not
+    // a divide — this runs in the 50 Hz mixer hot path.
+    const float step = 1.0f / static_cast<float>(n - 1);
+    for (int i = 0; i < n; ++i) {
+        const float w = static_cast<float>(i) * step;
+        const float mixed = static_cast<float>(a[i]) * (1.0f - w) +
+                            static_cast<float>(b[i]) * w;
+        // A convex blend of two int16 samples is in range mathematically, but
+        // clamp defensively: narrowing an out-of-range float-rounded value to
+        // int16_t is implementation-defined and could wrap into a loud glitch.
+        a[i] = static_cast<int16_t>(
+            std::clamp<long>(std::lround(mixed), INT16_MIN, INT16_MAX));
+    }
+    return n;
+}
+
+}  // namespace
 
 PeerAudioManager::PeerAudioManager() { LOGI("PeerAudioManager created"); }
 
@@ -36,8 +75,19 @@ int PeerAudioManager::registerPeer(const std::string& macAddress) {
 
     auto it = peers_.find(macAddress);
     if (it != peers_.end()) {
-        LOGI("Peer %s already registered with device ID %d", macAddress.c_str(),
-             it->second->deviceId);
+        // Re-register of a still-known peer (fast GATT reconnect, or a role
+        // swap that didn't tear the audio state down). Reset the jitter buffer
+        // so the rejoin starts at the cold-start depth with a fresh playhead,
+        // instead of inheriting a stale playhead and a target depth that
+        // ratcheted up on the previous link — both make the first seconds of a
+        // rejoin play out of a mis-sized buffer. Safe to take the per-peer
+        // mutex while holding peerRegistryMutex_: no path locks in reverse.
+        {
+            std::lock_guard<std::mutex> stateLock(it->second->mutex);
+            it->second->jitterBuffer->reset();
+        }
+        LOGI("Peer %s already registered with device ID %d (jitter reset)",
+             macAddress.c_str(), it->second->deviceId);
         return it->second->deviceId;
     }
 
@@ -194,6 +244,8 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
             static_cast<uint32_t>(state->jitterBuffer->underrunCount());
         t.lateFrameCount =
             static_cast<uint32_t>(state->jitterBuffer->lateFrameCount());
+        t.lostFrameCount =
+            static_cast<uint32_t>(state->jitterBuffer->lostFrameCount());
         t.jitterTargetDepth =
             static_cast<uint32_t>(state->jitterBuffer->targetDepth());
         t.jitterCurrentDepth =
@@ -258,6 +310,8 @@ void PeerAudioManager::mixerTickLoop() {
     // Pre-allocate scratch — the mixer thread runs every 20 ms, so the cost
     // of a tick matters more than memory.
     std::vector<int16_t> decodedBuffer(audio_config::kCodecMaxFrameSize);
+    // Second decode scratch — used only by the drift-drain crossfade-merge.
+    std::vector<int16_t> decodedBuffer2(audio_config::kCodecMaxFrameSize);
     std::vector<int16_t> mixedBuffer(kFrameSize);
     std::vector<uint8_t> opusBuffer(audio_config::kMaxOpusPacketSize);
 
@@ -355,6 +409,43 @@ void PeerAudioManager::mixerTickLoop() {
                         decodedBuffer.data(),
                         audio_config::kCodecMaxFrameSize);
                     state->consecutiveUnderruns = 0;
+
+                    // Drift drain (time-scaling "accelerate"). If the buffer is
+                    // still at/above the high watermark after this pop, the
+                    // producer's 50 Hz clock is outrunning ours. Pull one extra
+                    // frame and crossfade-merge it into the frame we just
+                    // decoded — two 20 ms input frames collapse into one 20 ms
+                    // output frame, draining the backlog by one without a hard
+                    // skip. Capped at one extra frame per tick so the time
+                    // compression stays subtle and spreads across ticks. (The
+                    // opposite drift — our clock outrunning the producer — is
+                    // handled by the underrun/PLC path below, which stretches.)
+                    if (decoded > 0 &&
+                        state->jitterBuffer->currentDepth() >=
+                            audio_config::kJitterHighWatermark) {
+                        auto extra = state->jitterBuffer->pop();
+                        if (extra.has_value()) {
+                            int decoded2 = state->decoder->decode(
+                                extra->opusData.data(),
+                                static_cast<int>(extra->opusData.size()),
+                                decodedBuffer2.data(),
+                                audio_config::kCodecMaxFrameSize);
+                            if (decoded2 > 0) {
+                                decoded = crossfadeMergeFrames(
+                                    decodedBuffer.data(), decoded,
+                                    decodedBuffer2.data(), decoded2);
+                            }
+                        }
+                        // A nullopt here can only be a hole-at-head: depth is
+                        // >= the high watermark, so pop() never reports an
+                        // underrun in this branch. pop() has already advanced
+                        // the playhead past one lost seq, and that advance IS
+                        // the drain we want — collapsing the missing 20 ms is
+                        // exactly the time compression drift-drain exists to do.
+                        // Deliberately no PLC for it: synthesizing concealment
+                        // would re-stretch the very gap we are draining. The
+                        // real frame decoded above is still played out this tick.
+                    }
                 } else {
                     // Underrun. PLC for one frame; if we've already PLC'd twice in
                     // a row, prefer popAny() so the buffer doesn't grow stale.
@@ -756,11 +847,12 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     return applied;
 }
 
-// Returns a 5-element int array with telemetry, or null if peer not found.
+// Returns a 6-element int array with telemetry, or null if peer not found.
 // Layout: [underrunCount, lateFrameCount, jitterTargetDepth,
-//          jitterCurrentDepth, currentBitrate]. Kotlin unpacks this into a
-// data class — keeping the marshaling cheap (no JNI object allocations) is
-// the point.
+//          jitterCurrentDepth, currentBitrate, lostFrameCount]. lostFrameCount
+// is appended last so the existing index layout is undisturbed. Kotlin unpacks
+// this into a data class — keeping the marshaling cheap (no JNI object
+// allocations) is the point.
 JNIEXPORT jintArray JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     JNIEnv* env, jobject thiz, jstring macAddress) {
@@ -772,16 +864,17 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
 
     if (!t.valid) return nullptr;
 
-    jintArray arr = env->NewIntArray(5);
+    jintArray arr = env->NewIntArray(6);
     if (!arr) return nullptr;
-    jint values[5] = {
+    jint values[6] = {
         static_cast<jint>(t.underrunCount),
         static_cast<jint>(t.lateFrameCount),
         static_cast<jint>(t.jitterTargetDepth),
         static_cast<jint>(t.jitterCurrentDepth),
         static_cast<jint>(t.currentBitrate),
+        static_cast<jint>(t.lostFrameCount),
     };
-    env->SetIntArrayRegion(arr, 0, 5, values);
+    env->SetIntArrayRegion(arr, 0, 6, values);
     return arr;
 }
 

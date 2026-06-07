@@ -43,6 +43,10 @@ public:
     struct LinkTelemetry {
         uint32_t underrunCount{0};
         uint32_t lateFrameCount{0};
+        // True network loss (seq-gap). This — not lateFrameCount — is what
+        // the bitrate adapter consumes, so jitter-buffer overflow/late drops
+        // can't be misread as link loss and floor the encoder.
+        uint32_t lostFrameCount{0};
         uint32_t jitterTargetDepth{0};
         uint32_t jitterCurrentDepth{0};
         int currentBitrate{audio_config::kDefaultBitrate};

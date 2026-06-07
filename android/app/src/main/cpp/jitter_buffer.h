@@ -27,9 +27,11 @@
 // **Adaptive target depth.** `tick()` is called every mixer tick by the
 // consumer; once per `kJitterAdaptIntervalTicks` it acts on the recent
 // underrun count: if any underruns occurred in the window, target depth
-// grows by one frame (capped at `kJitterMaxDepth`). If no underruns happened
-// for `kJitterShrinkAfterStableTicks`, target depth shrinks by one (floored
-// at `kJitterMinDepth`). Result: the buffer rides the smallest depth that
+// grows by one frame (capped at `kJitterMaxTargetDepth` — deliberately well
+// below the `kJitterMaxDepth` push cap, so a jittery link can't ratchet
+// playout latency to the overflow boundary). If no underruns happened for
+// `kJitterShrinkAfterStableTicks`, target depth shrinks by one (floored at
+// `kJitterMinDepth`). Result: the buffer rides the smallest depth that
 // doesn't glitch on the current link.
 //
 // **Cold-start handling.** Underruns are counted only after the buffer has
@@ -98,6 +100,14 @@ public:
     // these to the LinkQuality control-plane message).
     size_t underrunCount() const { return underrunCount_; }
     size_t lateFrameCount() const { return lateCount_; }
+    // True network loss: frames the playhead passed because they were never
+    // received, despite the buffer being filled to its target depth (the
+    // "hole-at-head" path in pop()). This is the RTP-style "frames lost in
+    // transit" signal — distinct from lateFrameCount, which counts frames
+    // that *did* arrive but were unusable (too late, or dropped on a full
+    // buffer). The bitrate adapter consumes THIS, so capacity/jitter churn
+    // can't masquerade as packet loss and floor the encoder.
+    size_t lostFrameCount() const { return lostCount_; }
     size_t targetDepth() const { return targetDepth_; }
     size_t currentDepth() const { return frames_.size(); }
     bool playheadInitialized() const { return playheadInit_; }
@@ -109,7 +119,7 @@ public:
 
     // Hard reset: clear queued frames and rolling state. Use on peer
     // unregister / re-register or on a session-level reset. Does NOT clear
-    // lifetime stats (underrunCount, lateFrameCount).
+    // lifetime stats (underrunCount, lateFrameCount, lostFrameCount).
     void reset();
 
 private:
@@ -136,6 +146,9 @@ private:
     // Lifetime stats.
     size_t underrunCount_{0};
     size_t lateCount_{0};
+    // Confirmed network losses (hole-at-head in pop()). Lifetime counter,
+    // retained across reset() like underrunCount_/lateCount_.
+    size_t lostCount_{0};
 
     // Adaptation rolling state.
     size_t ticksThisInterval_{0};

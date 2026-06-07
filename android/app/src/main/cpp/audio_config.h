@@ -62,10 +62,32 @@ constexpr int kMaxOpusPacketSize = 4000;
 // Adaptive jitter buffer bounds. Depth is measured in 20 ms frames.
 //   - kJitterMinDepth=2 → 40 ms playout latency floor (one tick of slack)
 //   - kJitterInitialDepth=3 → 60 ms, the BLE CE-jitter sweet spot
-//   - kJitterMaxDepth=10 → 200 ms ceiling. Above this the user notices.
+//   - kJitterMaxTargetDepth=6 → 120 ms. Ceiling the *adaptive target depth*
+//     may ratchet to. Capped well below the hard cap so a jittery link can't
+//     ratchet playout latency to kJitterMaxDepth (the old death spiral: the
+//     target grew to 10, the buffer rode the cap, and every fresh frame
+//     overflowed → a flood of late-drops). Backlog past this is drained by
+//     the decode-path time-scaling, not by growing latency.
+//   - kJitterHighWatermark=8 → 160 ms. When the *current* fill reaches this,
+//     the producer's 50 Hz clock is outrunning our 50 Hz consume clock (the
+//     two domains are unsynced). The decode pass time-compresses one extra
+//     frame per tick (crossfade-merge) to drain the backlog smoothly instead
+//     of letting it pile up to the hard cap and hard-drop.
+//   - kJitterMaxDepth=10 → 200 ms hard cap / push backstop. With the drain
+//     active the buffer should rarely reach this; it stays as a memory and
+//     worst-case-latency bound.
 constexpr size_t kJitterMinDepth = 2;
 constexpr size_t kJitterInitialDepth = 3;
+constexpr size_t kJitterMaxTargetDepth = 6;
+constexpr size_t kJitterHighWatermark = 8;
 constexpr size_t kJitterMaxDepth = 10;
+
+static_assert(kJitterMinDepth <= kJitterInitialDepth &&
+                  kJitterInitialDepth <= kJitterMaxTargetDepth &&
+                  kJitterMaxTargetDepth < kJitterHighWatermark &&
+                  kJitterHighWatermark < kJitterMaxDepth,
+              "jitter thresholds must be ordered: "
+              "min <= init <= maxTarget < highWatermark < maxDepth");
 
 // How often the jitter buffer reviews its target depth, in adapt() calls.
 // adapt() is invoked from the mixer tick (every kFrameDurationMs ms), so

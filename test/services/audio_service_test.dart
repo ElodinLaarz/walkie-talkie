@@ -818,7 +818,8 @@ void main() {
       });
 
       test('getLinkTelemetry returns parsed snapshot', () async {
-        handler = (_) async => [10, 5, 8, 4, 16000];
+        // Layout: [underrun, late, target, current, bitrate, lost].
+        handler = (_) async => [10, 5, 8, 4, 16000, 3];
         final snap = await audioService.getLinkTelemetry('AA:BB');
         expect(snap, isNotNull);
         expect(snap!.underrunCount, 10);
@@ -826,6 +827,7 @@ void main() {
         expect(snap.targetDepthFrames, 8);
         expect(snap.currentDepthFrames, 4);
         expect(snap.currentBitrateBps, 16000);
+        expect(snap.lostFrameCount, 3);
       });
 
       test('getLinkTelemetry returns null on wrong shape (length)', () async {
@@ -834,7 +836,9 @@ void main() {
       });
 
       test('getLinkTelemetry returns null on wrong type element', () async {
-        handler = (_) async => [1, 2, 3, 4, '16000']; // last is string
+        // 6 elements so the length check passes and the element-type check
+        // is what rejects it.
+        handler = (_) async => [1, 2, 3, 4, 5, '16000']; // last is string
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 
@@ -866,6 +870,7 @@ void main() {
       const a = LinkTelemetrySnapshot(
         underrunCount: 1,
         lateFrameCount: 2,
+        lostFrameCount: 7,
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,
@@ -873,6 +878,7 @@ void main() {
       const b = LinkTelemetrySnapshot(
         underrunCount: 1,
         lateFrameCount: 2,
+        lostFrameCount: 7,
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,
@@ -880,6 +886,7 @@ void main() {
       const c = LinkTelemetrySnapshot(
         underrunCount: 99,
         lateFrameCount: 2,
+        lostFrameCount: 7,
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,

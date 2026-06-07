@@ -95,6 +95,9 @@ class PeerAudioManager {
         val targetDepthFrames: Int,
         val currentDepthFrames: Int,
         val currentBitrateBps: Int,
+        // True network loss (seq-gap). Drives bitrate adaptation; lateFrameCount
+        // is kept for observability only.
+        val lostFrameCount: Int,
     )
 
     /**
@@ -126,7 +129,7 @@ class PeerAudioManager {
     /** Returns null if the peer isn't registered. */
     fun getTelemetry(macAddress: String): LinkTelemetry? {
         val raw = nativeGetTelemetry(macAddress) ?: return null
-        if (raw.size != 5) {
+        if (raw.size != 6) {
             Log.w(TAG, "getTelemetry returned unexpected array size ${raw.size}")
             return null
         }
@@ -136,6 +139,7 @@ class PeerAudioManager {
             targetDepthFrames = raw[2],
             currentDepthFrames = raw[3],
             currentBitrateBps = raw[4],
+            lostFrameCount = raw[5],
         )
     }
 

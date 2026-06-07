@@ -84,6 +84,13 @@ std::optional<JitterBuffer::Frame> JitterBuffer::pop() {
     // loss. Bulk-advancing would skip directly to the next queued frame
     // and time-compress audio, which is exactly the bug this branch fixes.
     if (playheadInit_ && seqLess(playhead_, frames_.front().seq)) {
+        // The expected seq was never received even though the buffer is full
+        // enough to play — this is confirmed packet loss, not a capacity or
+        // jitter artifact. Count every missing seq (a 3-frame hole fires this
+        // branch three times, once per advanced playhead), unlike the
+        // episode-gated underrun counter: the bitrate adapter wants the true
+        // per-frame loss rate.
+        ++lostCount_;
         if (primed_ && !inUnderrun_) {
             ++underrunCount_;
             ++underrunsThisInterval_;
@@ -127,8 +134,13 @@ void JitterBuffer::tick() {
     if (underrunsThisInterval_ > 0) {
         // Any underrun in the window: grow target depth, reset stability
         // counter. We grow conservatively (+1) rather than jumping to max —
-        // the link may have just been transiently bad.
-        if (targetDepth_ < audio_config::kJitterMaxDepth) {
+        // the link may have just been transiently bad. The ceiling is
+        // kJitterMaxTargetDepth (NOT kJitterMaxDepth): the adaptive target
+        // must not ratchet playout latency up to the hard cap, where the
+        // buffer would ride the overflow boundary and hard-drop every fresh
+        // frame. Sustained over-fill past the target is the time-scaling
+        // drain's job, not the target's.
+        if (targetDepth_ < audio_config::kJitterMaxTargetDepth) {
             ++targetDepth_;
         }
         stableIntervalsCount_ = 0;
