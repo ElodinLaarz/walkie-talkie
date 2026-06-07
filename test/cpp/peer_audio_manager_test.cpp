@@ -30,7 +30,6 @@
 
 #include "peer_audio_manager.h"
 
-#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -56,15 +55,17 @@ const int kFakeOpusLen = 1;
 const std::string kMacA = "AA:BB:CC:DD:EE:FF";
 const std::string kMacB = "11:22:33:44:55:66";
 
-// Sender timestamp ≈ "now" on the same monotonic clock the receive path reads,
-// so each frame's estimated transit is ~0 and the staleness-drop never fires —
-// these tests exercise seq handling, not the lag estimator. (The estimator has
-// its own dedicated test in playout_lag_estimator_test.cpp.)
-uint32_t nowMs() {
-    return static_cast<uint32_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+// A strictly-increasing fake sender timestamp. Each call jumps by a large step,
+// so the estimator's rawDelay (recvMs - senderTsMs) strictly DECREASES per
+// frame — every sample becomes a new sliding-window minimum and excess pins at
+// 0, so the staleness-drop never fires no matter how long the scheduler pauses
+// between this call and the native recvMs read. That keeps these seq-handling
+// tests deterministic on a loaded CI host. (The estimator's own behaviour is
+// covered in playout_lag_estimator_test.cpp.)
+uint32_t freshSenderTs() {
+    static uint32_t t = 1;
+    t += 100000;  // 100 s/frame: dwarfs any realistic scheduling gap
+    return t;
 }
 
 }  // namespace

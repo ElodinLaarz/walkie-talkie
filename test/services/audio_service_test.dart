@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/services/audio_service.dart';
@@ -846,6 +848,22 @@ void main() {
         expect(snap.targetDepthFrames, 8);
         expect(snap.currentDepthFrames, 4);
         expect(snap.currentBitrateBps, 16000);
+        expect(snap.lostFrameCount, 3);
+        expect(snap.currentLagMs, 120);
+        expect(snap.staleDropCount, 7);
+        expect(snap.recvCount, 2500);
+        expect(snap.lastSeq, 4242);
+      });
+
+      test('getLinkTelemetry parses an Int32List payload', () async {
+        // StandardMessageCodec encodes Kotlin's IntArray as Int32List, not a
+        // plain List — the parser is written to accept either. Guard that
+        // platform-typed-list path explicitly.
+        handler = (_) async =>
+            Int32List.fromList([10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242]);
+        final snap = await audioService.getLinkTelemetry('AA:BB');
+        expect(snap, isNotNull);
+        expect(snap!.underrunCount, 10);
         expect(snap.lostFrameCount, 3);
         expect(snap.currentLagMs, 120);
         expect(snap.staleDropCount, 7);
