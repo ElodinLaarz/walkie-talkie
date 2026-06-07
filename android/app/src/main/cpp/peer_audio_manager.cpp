@@ -146,7 +146,8 @@ std::string PeerAudioManager::getMacAddress(int deviceId) {
 }
 
 bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
-                                          uint32_t seq, const uint8_t* opusData,
+                                          uint32_t seq, uint32_t senderTsMs,
+                                          const uint8_t* opusData,
                                           int opusSize) {
     std::shared_ptr<PeerState> state;
     {
@@ -165,11 +166,47 @@ bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
         }
         state = it->second;  // shared_ptr keeps state alive past unlock.
     }
+
+    // Local arrival time on a monotonic clock. PlayoutLagEstimator only uses
+    // *differences* and its sliding-window-min cancels the (constant) offset
+    // between this steady clock and the sender's wall clock, so mixing the two
+    // domains is fine — and steady_clock avoids NTP wall-clock jumps.
+    const int64_t recvMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+
     // JitterBuffer is not thread-safe; we serialize against the mixer
     // thread's tick/pop here.
     std::lock_guard<std::mutex> stateLock(state->mutex);
-    return state->jitterBuffer->push(seq, opusData,
-                                     static_cast<size_t>(opusSize));
+
+    const int64_t excessMs = state->lagEstimator.feed(senderTsMs, recvMs);
+    state->lastLagMs = excessMs;
+
+    // Staleness drop (Kevin's timestamp-drop). A frame whose transit sits far
+    // above the best recent baseline has been languishing — most likely
+    // seconds deep in the sender's kernel L2CAP TX buffer, which our per-stage
+    // caps can't see. Playing it would pin playout that far behind real time,
+    // so drop it before it enters the jitter buffer.
+    //
+    // No-silence guard: only drop once the stream is live (playhead primed)
+    // AND there's already buffered audio to play in its place. On a cold start
+    // or a fully-drained buffer we accept even a stale frame rather than starve
+    // the consumer to silence — choppy-but-present beats dead air.
+    if (PlayoutLagEstimator::isStale(excessMs) &&
+        state->jitterBuffer->playheadInitialized() &&
+        state->jitterBuffer->currentDepth() > 0) {
+        ++state->staleDropCount;
+        return false;
+    }
+
+    const bool accepted =
+        state->jitterBuffer->push(seq, opusData, static_cast<size_t>(opusSize));
+    if (accepted) {
+        ++state->recvCount;
+        state->lastAcceptedSeq = seq;
+    }
+    return accepted;
 }
 
 int PeerAudioManager::setPeerBitrate(const std::string& macAddress, int bps) {
@@ -250,6 +287,11 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
             static_cast<uint32_t>(state->jitterBuffer->targetDepth());
         t.jitterCurrentDepth =
             static_cast<uint32_t>(state->jitterBuffer->currentDepth());
+        t.currentLagMs =
+            static_cast<uint32_t>(std::max<int64_t>(0, state->lastLagMs));
+        t.staleDropCount = state->staleDropCount;
+        t.recvCount = state->recvCount;
+        t.lastSeq = state->lastAcceptedSeq;
     }
     t.currentBitrate = state->bitrate.load(std::memory_order_relaxed);
     t.valid = true;
@@ -821,7 +863,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeClear(JNIEnv* env,
 JNIEXPORT void JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
     JNIEnv* env, jobject thiz, jstring macAddress, jbyteArray opusData,
-    jlong seq) {
+    jlong seq, jlong senderTsMs) {
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
@@ -830,6 +872,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
 
     g_peerAudioManager->onVoiceFramePushed(
         std::string(mac), static_cast<uint32_t>(seq),
+        static_cast<uint32_t>(senderTsMs),
         reinterpret_cast<const uint8_t*>(buf), static_cast<int>(size));
 
     env->ReleaseByteArrayElements(opusData, buf, JNI_ABORT);
@@ -847,12 +890,12 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     return applied;
 }
 
-// Returns a 6-element int array with telemetry, or null if peer not found.
+// Returns a 10-element int array with telemetry, or null if peer not found.
 // Layout: [underrunCount, lateFrameCount, jitterTargetDepth,
-//          jitterCurrentDepth, currentBitrate, lostFrameCount]. lostFrameCount
-// is appended last so the existing index layout is undisturbed. Kotlin unpacks
-// this into a data class — keeping the marshaling cheap (no JNI object
-// allocations) is the point.
+//          jitterCurrentDepth, currentBitrate, lostFrameCount, currentLagMs,
+//          staleDropCount, recvCount, lastSeq]. New fields are appended so the
+// existing index layout (0..5) is undisturbed. Kotlin unpacks this into a data
+// class — keeping the marshaling cheap (no JNI object allocations) is the point.
 JNIEXPORT jintArray JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     JNIEnv* env, jobject thiz, jstring macAddress) {
@@ -864,17 +907,21 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
 
     if (!t.valid) return nullptr;
 
-    jintArray arr = env->NewIntArray(6);
+    jintArray arr = env->NewIntArray(10);
     if (!arr) return nullptr;
-    jint values[6] = {
+    jint values[10] = {
         static_cast<jint>(t.underrunCount),
         static_cast<jint>(t.lateFrameCount),
         static_cast<jint>(t.jitterTargetDepth),
         static_cast<jint>(t.jitterCurrentDepth),
         static_cast<jint>(t.currentBitrate),
         static_cast<jint>(t.lostFrameCount),
+        static_cast<jint>(t.currentLagMs),
+        static_cast<jint>(t.staleDropCount),
+        static_cast<jint>(t.recvCount),
+        static_cast<jint>(t.lastSeq),
     };
-    env->SetIntArrayRegion(arr, 0, 6, values);
+    env->SetIntArrayRegion(arr, 0, 10, values);
     return arr;
 }
 

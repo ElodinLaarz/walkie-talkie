@@ -836,8 +836,9 @@ void main() {
       });
 
       test('getLinkTelemetry returns parsed snapshot', () async {
-        // Layout: [underrun, late, target, current, bitrate, lost].
-        handler = (_) async => [10, 5, 8, 4, 16000, 3];
+        // Layout: [underrun, late, target, current, bitrate, lost, lagMs,
+        // staleDrops, recv, lastSeq].
+        handler = (_) async => [10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242];
         final snap = await audioService.getLinkTelemetry('AA:BB');
         expect(snap, isNotNull);
         expect(snap!.underrunCount, 10);
@@ -846,17 +847,21 @@ void main() {
         expect(snap.currentDepthFrames, 4);
         expect(snap.currentBitrateBps, 16000);
         expect(snap.lostFrameCount, 3);
+        expect(snap.currentLagMs, 120);
+        expect(snap.staleDropCount, 7);
+        expect(snap.recvCount, 2500);
+        expect(snap.lastSeq, 4242);
       });
 
       test('getLinkTelemetry returns null on wrong shape (length)', () async {
-        handler = (_) async => [1, 2, 3]; // only 3 elements
+        handler = (_) async => [1, 2, 3]; // not 10 elements
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 
       test('getLinkTelemetry returns null on wrong type element', () async {
-        // 6 elements so the length check passes and the element-type check
+        // 10 elements so the length check passes and the element-type check
         // is what rejects it.
-        handler = (_) async => [1, 2, 3, 4, 5, '16000']; // last is string
+        handler = (_) async => [1, 2, 3, 4, 5, 6, 7, 8, 9, '4242']; // last is string
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 
@@ -892,6 +897,10 @@ void main() {
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,
+        currentLagMs: 80,
+        staleDropCount: 0,
+        recvCount: 1000,
+        lastSeq: 1234,
       );
       const b = LinkTelemetrySnapshot(
         underrunCount: 1,
@@ -900,6 +909,10 @@ void main() {
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,
+        currentLagMs: 80,
+        staleDropCount: 0,
+        recvCount: 1000,
+        lastSeq: 1234,
       );
       const c = LinkTelemetrySnapshot(
         underrunCount: 99,
@@ -908,6 +921,10 @@ void main() {
         targetDepthFrames: 3,
         currentDepthFrames: 4,
         currentBitrateBps: 16000,
+        currentLagMs: 80,
+        staleDropCount: 0,
+        recvCount: 1000,
+        lastSeq: 1234,
       );
 
       test('identical instances are equal', () {

@@ -30,6 +30,7 @@
 
 #include "peer_audio_manager.h"
 
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -55,6 +56,17 @@ const int kFakeOpusLen = 1;
 const std::string kMacA = "AA:BB:CC:DD:EE:FF";
 const std::string kMacB = "11:22:33:44:55:66";
 
+// Sender timestamp ≈ "now" on the same monotonic clock the receive path reads,
+// so each frame's estimated transit is ~0 and the staleness-drop never fires —
+// these tests exercise seq handling, not the lag estimator. (The estimator has
+// its own dedicated test in playout_lag_estimator_test.cpp.)
+uint32_t nowMs() {
+    return static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
 }  // namespace
 
 // Verify that onVoiceFramePushed returns false for an unregistered peer —
@@ -63,7 +75,7 @@ const std::string kMacB = "11:22:33:44:55:66";
 void testUnregisteredPeerReturnsFalse() {
     PeerAudioManager mgr;
 
-    CHECK(!mgr.onVoiceFramePushed(kMacA, 1, kFakeOpus, kFakeOpusLen));
+    CHECK(!mgr.onVoiceFramePushed(kMacA, 1, nowMs(), kFakeOpus, kFakeOpusLen));
 
     std::cout << "Test Unregistered Peer Returns False: PASSED" << std::endl;
 }
@@ -74,7 +86,7 @@ void testNormalSeqAccepted() {
     mgr.registerPeer(kMacA);
 
     for (uint32_t seq = 1; seq <= 10; ++seq) {
-        CHECK(mgr.onVoiceFramePushed(kMacA, seq, kFakeOpus, kFakeOpusLen));
+        CHECK(mgr.onVoiceFramePushed(kMacA, seq, nowMs(), kFakeOpus, kFakeOpusLen));
     }
 
     mgr.clear();
@@ -99,7 +111,7 @@ void testHighUint32SeqCastAndAccepted() {
     // static_cast<uint32_t> used in nativeOnVoiceFrameReceived.
     for (int64_t seqJlong = 0x7FFFFFFDLL; seqJlong != 0x80000002LL; ++seqJlong) {
         uint32_t seq = static_cast<uint32_t>(seqJlong);
-        CHECK(mgr.onVoiceFramePushed(kMacA, seq, kFakeOpus, kFakeOpusLen));
+        CHECK(mgr.onVoiceFramePushed(kMacA, seq, nowMs(), kFakeOpus, kFakeOpusLen));
     }
 
     mgr.clear();
@@ -116,12 +128,12 @@ void testUint32RolloverAccepted() {
     mgr.registerPeer(kMacA);
 
     // 3 frames ending at the max uint32 value.
-    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFDu, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFEu, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFFu, kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFDu, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFEu, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 0xFFFFFFFFu, nowMs(), kFakeOpus, kFakeOpusLen));
     // 2 frames after the rollover: treated as forward frames by unsigned delta.
-    CHECK(mgr.onVoiceFramePushed(kMacA, 0x00000000u, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacA, 0x00000001u, kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 0x00000000u, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 0x00000001u, nowMs(), kFakeOpus, kFakeOpusLen));
 
     mgr.clear();
     std::cout << "Test uint32 Rollover Accepted: PASSED" << std::endl;
@@ -136,11 +148,11 @@ void testSeqGapAcceptedByJitterBuffer() {
     mgr.registerPeer(kMacA);
 
     for (uint32_t seq = 1; seq <= 4; ++seq) {
-        CHECK(mgr.onVoiceFramePushed(kMacA, seq, kFakeOpus, kFakeOpusLen));
+        CHECK(mgr.onVoiceFramePushed(kMacA, seq, nowMs(), kFakeOpus, kFakeOpusLen));
     }
 
     // Seqs 5-25 are absent (burst loss). Seq 26 must still be accepted.
-    CHECK(mgr.onVoiceFramePushed(kMacA, 26, kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 26, nowMs(), kFakeOpus, kFakeOpusLen));
 
     mgr.clear();
     std::cout << "Test Seq Gap Accepted By JitterBuffer: PASSED" << std::endl;
@@ -151,9 +163,9 @@ void testDuplicateRejected() {
     PeerAudioManager mgr;
     mgr.registerPeer(kMacA);
 
-    CHECK(mgr.onVoiceFramePushed(kMacA, 42, kFakeOpus, kFakeOpusLen));
-    CHECK(!mgr.onVoiceFramePushed(kMacA, 42, kFakeOpus, kFakeOpusLen));  // dup
-    CHECK(mgr.onVoiceFramePushed(kMacA, 43, kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 42, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(!mgr.onVoiceFramePushed(kMacA, 42, nowMs(), kFakeOpus, kFakeOpusLen));  // dup
+    CHECK(mgr.onVoiceFramePushed(kMacA, 43, nowMs(), kFakeOpus, kFakeOpusLen));
 
     mgr.clear();
     std::cout << "Test Duplicate Rejected: PASSED" << std::endl;
@@ -181,13 +193,13 @@ void testMultiplePeersAreIndependent() {
     mgr.registerPeer(kMacA);
     mgr.registerPeer(kMacB);
 
-    CHECK(mgr.onVoiceFramePushed(kMacA, 1, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacB, 100, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacA, 2, kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 1, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacB, 100, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 2, nowMs(), kFakeOpus, kFakeOpusLen));
 
     // Duplicate on B must not affect A.
-    CHECK(!mgr.onVoiceFramePushed(kMacB, 100, kFakeOpus, kFakeOpusLen));
-    CHECK(mgr.onVoiceFramePushed(kMacA, 3, kFakeOpus, kFakeOpusLen));
+    CHECK(!mgr.onVoiceFramePushed(kMacB, 100, nowMs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 3, nowMs(), kFakeOpus, kFakeOpusLen));
 
     mgr.clear();
     std::cout << "Test Multiple Peers Are Independent: PASSED" << std::endl;

@@ -9,6 +9,10 @@ LinkTelemetrySnapshot _snap({
   int target = 3,
   int current = 3,
   int bps = 16000,
+  int lagMs = 0,
+  int staleDrops = 0,
+  int recv = 0,
+  int lastSeq = 0,
 }) => LinkTelemetrySnapshot(
   underrunCount: underrun,
   lateFrameCount: late,
@@ -16,6 +20,10 @@ LinkTelemetrySnapshot _snap({
   targetDepthFrames: target,
   currentDepthFrames: current,
   currentBitrateBps: bps,
+  currentLagMs: lagMs,
+  staleDropCount: staleDrops,
+  recvCount: recv,
+  lastSeq: lastSeq,
 );
 
 void main() {

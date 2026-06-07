@@ -548,6 +548,10 @@ class MainActivity : FlutterActivity() {
                                 t.currentDepthFrames,
                                 t.currentBitrateBps,
                                 t.lostFrameCount,
+                                t.currentLagMs,
+                                t.staleDropCount,
+                                t.recvCount,
+                                t.lastSeq,
                             ))
                         }
                     }
@@ -763,11 +767,23 @@ class MainActivity : FlutterActivity() {
                   ((frameBytes[1].toInt() and 0xFF) shl 16) or
                   ((frameBytes[2].toInt() and 0xFF) shl 8) or
                   (frameBytes[3].toInt() and 0xFF)
+        // Bytes 4-7: senderTsMs (low 32 bits of the sender's encode-time wall
+        // clock). Previously parsed-and-discarded; now forwarded so native can
+        // estimate end-to-end staleness and drop frames that arrived too late.
+        val senderTsMs = ((frameBytes[4].toInt() and 0xFF) shl 24) or
+                         ((frameBytes[5].toInt() and 0xFF) shl 16) or
+                         ((frameBytes[6].toInt() and 0xFF) shl 8) or
+                         (frameBytes[7].toInt() and 0xFF)
         val opusPayload = frameBytes.copyOfRange(8, frameBytes.size)
         if (firstDecodedFramePeers.add(addr)) {
             sendEventToFlutter(mapOf("type" to "firstDecodedFrame", "address" to addr))
         }
-        peerAudioManager?.onVoiceFrameReceived(addr, opusPayload, seq.toLong() and 0xFFFFFFFFL)
+        peerAudioManager?.onVoiceFrameReceived(
+            addr,
+            opusPayload,
+            seq.toLong() and 0xFFFFFFFFL,
+            senderTsMs.toLong() and 0xFFFFFFFFL,
+        )
     }
 
     // Register addr as a peer in the native manager and add its mixer slot.
