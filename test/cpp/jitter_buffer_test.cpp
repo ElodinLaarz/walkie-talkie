@@ -488,6 +488,53 @@ void testTargetDepthCapsAtMaxTarget() {
     std::cout << "Test Target Depth Caps At Max Target: PASSED" << std::endl;
 }
 
+// Eviction at the cap must not paper over a pre-existing hole-at-head: the
+// genuinely-missing seqs ahead of the playhead stay counted as loss (and
+// PLC-paced); only an eviction of the exact playhead frame advances it. This is
+// the case the always-advance form silently swallowed (PR #481 review).
+void testEvictionPreservesHoleAtHeadLoss() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x42};
+
+    // Drain a contiguous run so the playhead sits at 103 with an empty buffer.
+    // popAny() (not pop()) so the drain doesn't stall on the target-depth
+    // underrun gate once the buffer dips below kJitterInitialDepth.
+    seedAtDepth(jb, 100, audio_config::kJitterInitialDepth);  // 100,101,102
+    for (int i = 0; i < 3; ++i) {
+        auto f = jb.popAny();
+        assert(f.has_value());
+    }
+    assert(jb.playhead() == 103);
+
+    // Open a 5-seq hole at the head (103..107 never arrive) and fill to the cap
+    // with 108..(108+max-1).
+    for (size_t i = 0; i < audio_config::kJitterMaxDepth; ++i) {
+        assert(jb.push(static_cast<uint32_t>(108 + i), data, 1));
+    }
+    assert(jb.currentDepth() == audio_config::kJitterMaxDepth);
+    assert(jb.playhead() == 103);  // hole still open
+    const size_t preLost = jb.lostFrameCount();
+
+    // A newer arrival at the cap evicts the oldest (108). Because 108 != the
+    // playhead (103), the playhead must NOT jump — the 103..107 losses are real.
+    assert(jb.push(static_cast<uint32_t>(108 + audio_config::kJitterMaxDepth),
+                   data, 1));
+    assert(jb.playhead() == 103);  // regression guard: not advanced past the hole
+
+    // Drain the hole: 103..107 are true losses (5), then 108 is now missing too
+    // (we evicted it) for 1 more, before 109 finally plays.
+    for (int i = 0; i < 6; ++i) {
+        assert(!jb.pop().has_value());  // hole-at-head -> PLC, playhead++
+    }
+    auto first = jb.pop();
+    assert(first.has_value() && first->seq == 109);
+    // All six skipped seqs counted as loss (the 5 real holes are NOT hidden).
+    assert(jb.lostFrameCount() == preLost + 6);
+
+    std::cout << "Test Eviction Preserves Hole-At-Head Loss: PASSED"
+              << std::endl;
+}
+
 }  // namespace
 
 int main() {
@@ -497,6 +544,7 @@ int main() {
         testHoleAtHeadProducesPLC();
         testMultiFrameHoleProducesContiguousPLC();
         testPushCapsAtMaxDepth();
+        testEvictionPreservesHoleAtHeadLoss();
         testNormalFlowAfterFilling();
         testLateFrameDropped();
         testDuplicateRejected();

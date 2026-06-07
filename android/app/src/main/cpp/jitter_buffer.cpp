@@ -53,11 +53,17 @@ bool JitterBuffer::push(uint32_t seq, const uint8_t* data, size_t size) {
         }
         const uint32_t droppedSeq = frames_.front().seq;
         frames_.pop_front();
-        // The evicted frame will never play; advance the playhead just past it
-        // so pop()'s hole-at-head check doesn't later miscount the deliberate
-        // skip as confirmed network loss.
-        if (playheadInit_ && !seqLess(droppedSeq, playhead_)) {
-            playhead_ = droppedSeq + 1;
+        // Only advance the playhead when the evicted frame is exactly the one
+        // we were about to play — then the deliberate skip isn't miscounted as
+        // a hole-at-head (network loss). When there is already a hole at the
+        // head (droppedSeq > playhead_), the intervening seqs are genuine
+        // losses that pop() must still count and PLC-pace; advancing the
+        // playhead over them would hide real loss from the bitrate adapter.
+        // (front is never behind the playhead — arrivals before it are rejected
+        // as late — so droppedSeq >= playhead_ always; equality is the
+        // contiguous case.)
+        if (playheadInit_ && droppedSeq == playhead_) {
+            ++playhead_;
         }
         // pop_front() invalidated `it`; recompute the insertion point.
         it = frames_.begin();
