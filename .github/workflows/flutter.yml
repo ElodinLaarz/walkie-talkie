@@ -102,3 +102,29 @@ jobs:
             exit 1
           fi
           echo "::notice::Debug AAB ${SIZE_MIB} MiB is within the 100 MiB regression alarm."
+
+      # Build a sideloadable APK and publish it as a workflow artifact so a
+      # change on a PR can be installed on a real device for on-device
+      # validation without a local Flutter toolchain. PROFILE (not debug) on
+      # purpose: it is AOT-compiled and behaves like release for timing-
+      # sensitive paths (audio jitter / bitrate adaptation), which is exactly
+      # what these builds are usually validated against — a debug APK's JIT VM
+      # would misrepresent that. Profile uses the debug signing config, so no
+      # signing secrets are needed and this works on fork PRs. NOT for Play
+      # distribution — release.yml owns the signed release artifact.
+      #
+      # The native C++ build path is identical to the debug AAB step above, so
+      # if that succeeds this does too. JAVA_HOME is set here (step-scoped, like
+      # the AAB step) because AGP requires JDK 17.
+      - name: Build profile APK (sideload artifact)
+        run: |
+          set -euo pipefail
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          flutter build apk --profile
+
+      - name: Upload profile APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walkie-talkie-profile-apk
+          path: build/app/outputs/flutter-apk/app-profile.apk
+          retention-days: 14

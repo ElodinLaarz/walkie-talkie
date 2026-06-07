@@ -59,7 +59,6 @@ void main() {
       expect(BitrateAdapter.dropToLowLossPct, 12.0);
       expect(BitrateAdapter.dropToMidLossPct, 5.0);
       expect(BitrateAdapter.cleanLossPct, 1.0);
-      expect(BitrateAdapter.cleanUnderrunsPerSec, 0.1);
       expect(BitrateAdapter.downHoldMid, const Duration(seconds: 4));
       expect(BitrateAdapter.upHold, const Duration(seconds: 30));
     });
@@ -175,17 +174,40 @@ void main() {
       },
     );
 
-    test('upstep blocked when underruns/sec exceeds the clean ceiling', () {
-      // lossPct = 0, but underruns > 0.1 / s — not clean enough.
+    test(
+      'upstep is NOT blocked by underruns when loss is clean (regression: '
+      'jitter must not strand the encoder low)',
+      () {
+        // Regression guard for the "degraded and stayed there" bug: a
+        // lossless but jittery link (high underruns, zero true loss) MUST
+        // still recover. Underruns are a clock-drift signal, not a capacity
+        // signal — PR #477 removed them from the down-path; this asserts the
+        // up-path is symmetric, so a once-downstepped encoder can climb back.
+        final a = BitrateAdapter();
+        a.seed('g1', BitrateLevel.low);
+        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0, underrunsPerSec: 5.0));
+        final out = _feed(
+          a,
+          _lq(peerId: 'g1', atMs: 30000, lossPct: 0.0, underrunsPerSec: 5.0),
+        );
+        expect(out, BitrateLevel.mid);
+        expect(a.levelFor('g1'), BitrateLevel.mid);
+      },
+    );
+
+    test('upstep still blocked by genuine packet loss (lossPct ≥ 1 %)', () {
+      // The loss gate is the *only* thing that should hold recovery back.
+      // 1 % is the boundary (cleanLossPct) — at the threshold it is not
+      // "clean enough" (strict `<`), so no upstep.
       final a = BitrateAdapter();
-      a.seed('g1', BitrateLevel.mid);
-      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0, underrunsPerSec: 0.5));
+      a.seed('g1', BitrateLevel.low);
+      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 1.0, underrunsPerSec: 0.0));
       final out = _feed(
         a,
-        _lq(peerId: 'g1', atMs: 60000, lossPct: 0.0, underrunsPerSec: 0.5),
+        _lq(peerId: 'g1', atMs: 30000, lossPct: 1.0, underrunsPerSec: 0.0),
       );
       expect(out, isNull);
-      expect(a.levelFor('g1'), BitrateLevel.mid);
+      expect(a.levelFor('g1'), BitrateLevel.low);
     });
 
     test('upstep blocked when lossPct is in the dead zone (≥1 % but ≤5 %)', () {
@@ -211,11 +233,12 @@ void main() {
 
   group('Issue acceptance: thresholds → BitrateHint schedule', () {
     test(
-      '24 → 16 → 24: bad uplink trips down to Mid, recovery climbs back to High',
+      '48 → 32 → 48: bad uplink trips down to Mid, recovery climbs back to High',
       () {
         // Mirrors the two-device acceptance scenario in the issue:
-        //  * Inject ~10 % loss → within 4 s the encoder shifts to 16 kbps.
-        //  * Lift the drop → returns to 24 kbps within 30 s of clean samples.
+        //  * Inject ~10 % loss → within 4 s the encoder shifts to 32 kbps (Mid).
+        //  * Lift the drop → returns to 48 kbps (High) within 30 s of clean
+        //    samples.
         final a = BitrateAdapter();
         a.seed('g1', BitrateLevel.high);
         // 10 % is in the >5 % band — should drop one notch (not all the
@@ -236,7 +259,7 @@ void main() {
     );
 
     test(
-      '24 → 8 → 16 → 24: catastrophic loss bypasses Mid, then climbs back',
+      '48 → 16 → 32 → 48: catastrophic loss bypasses Mid, then climbs back',
       () {
         // Heavy loss (>12 %) goes straight to Low. From Low, a 30 s clean
         // run climbs to Mid; another 30 s climbs to High.
