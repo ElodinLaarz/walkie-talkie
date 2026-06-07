@@ -146,6 +146,11 @@ void testMultiFrameHoleProducesContiguousPLC() {
     // Episode invariant: h1 and h2 belong to the same starvation episode,
     // counted exactly once.
     assert(jb.underrunCount() == 1);
+    // True loss, however, is per-frame: BOTH missing seqs (11, 12) count, so
+    // the bitrate adapter sees the real loss rate rather than an episode count.
+    assert(jb.lostFrameCount() == 2);
+    // And neither missing frame is a late/overflow drop.
+    assert(jb.lateFrameCount() == 0);
 
     std::cout << "Test Multi-Frame Hole Produces Contiguous PLC: PASSED"
               << std::endl;
@@ -405,6 +410,72 @@ void testResetClearsQueueAndState() {
     std::cout << "Test Reset Clears Queue And State: PASSED" << std::endl;
 }
 
+// Defect A: the hole-at-head path increments lostFrameCount (true seq-gap
+// loss) exactly once per confirmed-missing seq, and does NOT touch
+// lateFrameCount. This is the counter the bitrate adapter consumes, so
+// jitter-buffer late/overflow churn can't masquerade as packet loss.
+void testLostFrameCountOnHole() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x5a};
+    // Present 20, 22, 23, 24; seq 21 lost. Depth (4) >= target (3) so the
+    // depth-underrun branch doesn't fire — isolates the hole path.
+    assert(jb.push(20, data, 1));
+    assert(jb.push(22, data, 1));
+    assert(jb.push(23, data, 1));
+    assert(jb.push(24, data, 1));
+    assert(jb.lostFrameCount() == 0);
+
+    auto p20 = jb.pop();  // playhead 20 -> release, ph advances to 21
+    assert(p20.has_value() && p20->seq == 20);
+    assert(jb.lostFrameCount() == 0);
+
+    auto hole = jb.pop();  // ph=21 missing, front=22 -> confirmed loss
+    assert(!hole.has_value());
+    assert(jb.lostFrameCount() == 1);
+    assert(jb.lateFrameCount() == 0);
+
+    auto p22 = jb.pop();  // ph=22 now matches front
+    assert(p22.has_value() && p22->seq == 22);
+    assert(jb.lostFrameCount() == 1);
+
+    std::cout << "Test Lost Frame Count On Hole: PASSED" << std::endl;
+}
+
+// Defect B: the adaptive target depth caps at kJitterMaxTargetDepth, NOT
+// kJitterMaxDepth. A jittery link must not be able to ratchet playout latency
+// up to the hard cap, where the buffer rides the overflow boundary and
+// hard-drops every fresh frame (the degradation/artifacting death spiral).
+void testTargetDepthCapsAtMaxTarget() {
+    JitterBuffer jb;
+    // Prime so underruns are counted.
+    seedAtDepth(jb, 1, audio_config::kJitterInitialDepth);
+    assert(jb.pop().has_value());
+
+    // Drive far more counted-underrun intervals than the distance from the
+    // initial depth to the hard cap — if the ceiling were kJitterMaxDepth the
+    // target would reach it.
+    for (size_t round = 0; round < audio_config::kJitterMaxDepth + 5; ++round) {
+        while (jb.popAny().has_value()) {
+        }
+        // Seed more than the cap, contiguous with the playhead, so a pop
+        // always succeeds regardless of the (growing) target and clears
+        // inUnderrun_ for a fresh episode.
+        seedAtDepth(jb, jb.playhead(), audio_config::kJitterMaxTargetDepth + 2);
+        assert(jb.pop().has_value());
+        while (jb.popAny().has_value()) {
+        }
+        assert(!jb.pop().has_value());  // starve on empty -> +1 underrun episode
+        for (size_t i = 0; i < audio_config::kJitterAdaptIntervalTicks; ++i) {
+            jb.tick();
+        }
+    }
+
+    assert(jb.targetDepth() == audio_config::kJitterMaxTargetDepth);
+    assert(jb.targetDepth() < audio_config::kJitterMaxDepth);
+
+    std::cout << "Test Target Depth Caps At Max Target: PASSED" << std::endl;
+}
+
 }  // namespace
 
 int main() {
@@ -423,6 +494,8 @@ int main() {
         testWraparoundOrdering();
         testPopAnyWhenBelowTarget();
         testResetClearsQueueAndState();
+        testLostFrameCountOnHole();
+        testTargetDepthCapsAtMaxTarget();
         std::cout << "All JitterBuffer tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;

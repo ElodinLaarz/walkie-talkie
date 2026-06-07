@@ -7,12 +7,20 @@ import 'audio_service.dart';
 /// wire format wants per-second rates and a percentage, so we delta and
 /// scale here.
 ///
-/// **Loss model.** `lossPct` is `lateFrameDelta / expectedFrames * 100`,
-/// where `expectedFrames = elapsed_ms / 20` (one Opus frame per
-/// `audio_config::kFrameDurationMs`). This conservatively assumes the
-/// talker was speaking continuously across the window. When voice isn't
-/// flowing, `lateFrameDelta` is 0, `lossPct` is 0, and the adapter sees
-/// a clean sample — which is fine: no audio means link quality is moot.
+/// **Loss model.** `lossPct` is `lostFrameDelta / expectedFrames * 100`,
+/// where `lostFrameDelta` is the change in the native jitter buffer's *true*
+/// loss counter (frames the playhead passed because they never arrived —
+/// RTP-style seq-gap loss) and `expectedFrames = elapsed_ms / 20` (one Opus
+/// frame per `audio_config::kFrameDurationMs`). This conservatively assumes
+/// the talker was speaking continuously across the window. When voice isn't
+/// flowing, `lostFrameDelta` is 0, `lossPct` is 0, and the adapter sees a
+/// clean sample — which is fine: no audio means link quality is moot.
+///
+/// We deliberately do **not** use `lateFrameCount` here. Late/overflow drops
+/// are a jitter-buffer *capacity* signal, not packet loss — driving the
+/// encoder bitrate down on them is both wrong (a smaller 50 fps payload does
+/// nothing for clock drift or fixed-interval jitter) and self-perpetuating
+/// (the buffer keeps overflowing, so the bitrate floors and never recovers).
 /// The percentage is clamped to [0, 100] so a counter rollover or bad
 /// snapshot can't push absurd values into the adapter.
 ///
@@ -59,7 +67,10 @@ import 'audio_service.dart';
   // Clamp to zero to swallow a counter reset (e.g. native side cleared and
   // reseeded between snapshots) without poisoning the adapter with a
   // negative rate.
-  final lateDelta = (current.lateFrameCount - previous.lateFrameCount).clamp(
+  // True network loss (seq-gap), NOT lateFrameCount — see the loss-model note
+  // above for why jitter-buffer late/overflow drops must never feed the
+  // bitrate adapter.
+  final lostDelta = (current.lostFrameCount - previous.lostFrameCount).clamp(
     0,
     1 << 31,
   );
@@ -70,7 +81,7 @@ import 'audio_service.dart';
 
   final lossPctRaw = expectedFrames <= 0
       ? 0.0
-      : (lateDelta / expectedFrames) * 100.0;
+      : (lostDelta / expectedFrames) * 100.0;
   // `num.clamp` returns `num`, not `double`; the record's `lossPct` field is
   // typed `double`, so spell the conversion explicitly to keep the analyzer
   // (and a strict-mode reader) happy.

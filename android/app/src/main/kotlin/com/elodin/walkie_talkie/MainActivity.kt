@@ -523,6 +523,7 @@ class MainActivity : FlutterActivity() {
                                 t.targetDepthFrames,
                                 t.currentDepthFrames,
                                 t.currentBitrateBps,
+                                t.lostFrameCount,
                             ))
                         }
                     }

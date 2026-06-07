@@ -11,8 +11,16 @@ class LinkTelemetrySnapshot {
   /// Lifetime mixer-tick underruns for this peer's stream.
   final int underrunCount;
 
-  /// Lifetime jitter-buffer drops (frames that arrived too late to play).
+  /// Lifetime jitter-buffer drops (frames that arrived too late to play, or
+  /// were dropped on a full buffer). Observability only — does NOT drive
+  /// bitrate adaptation, because it conflates jitter/capacity with loss.
+  /// See [lostFrameCount].
   final int lateFrameCount;
+
+  /// Lifetime true network loss: frames confirmed never-arrived (a seq the
+  /// playhead passed because it wasn't received despite an adequately-filled
+  /// buffer). This is the RTP-style loss signal the bitrate adapter reacts to.
+  final int lostFrameCount;
 
   /// Adaptive jitter buffer target depth in 20 ms frames.
   final int targetDepthFrames;
@@ -26,6 +34,7 @@ class LinkTelemetrySnapshot {
   const LinkTelemetrySnapshot({
     required this.underrunCount,
     required this.lateFrameCount,
+    required this.lostFrameCount,
     required this.targetDepthFrames,
     required this.currentDepthFrames,
     required this.currentBitrateBps,
@@ -37,6 +46,7 @@ class LinkTelemetrySnapshot {
       other is LinkTelemetrySnapshot &&
           underrunCount == other.underrunCount &&
           lateFrameCount == other.lateFrameCount &&
+          lostFrameCount == other.lostFrameCount &&
           targetDepthFrames == other.targetDepthFrames &&
           currentDepthFrames == other.currentDepthFrames &&
           currentBitrateBps == other.currentBitrateBps;
@@ -45,6 +55,7 @@ class LinkTelemetrySnapshot {
   int get hashCode => Object.hash(
     underrunCount,
     lateFrameCount,
+    lostFrameCount,
     targetDepthFrames,
     currentDepthFrames,
     currentBitrateBps,
@@ -605,10 +616,11 @@ class AudioService {
         'getLinkTelemetry',
         <String, dynamic>{'macAddress': macAddress},
       );
-      if (raw is! List || raw.length != 5) return null;
-      // Native returns a 5-element int array: [underruns, late, target,
-      // current, bitrate]. Element-wise check guards against a truncated
-      // or padded response from a stale platform handler.
+      if (raw is! List || raw.length != 6) return null;
+      // Native returns a 6-element int array: [underruns, late, target,
+      // current, bitrate, lost]. lostFrameCount is appended last so the
+      // historical index layout is undisturbed. Element-wise check guards
+      // against a truncated or padded response from a stale platform handler.
       final values = raw.map((e) => e is int ? e : null).toList();
       if (values.any((v) => v == null)) return null;
       return LinkTelemetrySnapshot(
@@ -617,6 +629,7 @@ class AudioService {
         targetDepthFrames: values[2]!,
         currentDepthFrames: values[3]!,
         currentBitrateBps: values[4]!,
+        lostFrameCount: values[5]!,
       );
     } catch (e) {
       if (kDebugMode) {
