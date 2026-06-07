@@ -436,6 +436,15 @@ void PeerAudioManager::mixerTickLoop() {
                                     decodedBuffer2.data(), decoded2);
                             }
                         }
+                        // A nullopt here can only be a hole-at-head: depth is
+                        // >= the high watermark, so pop() never reports an
+                        // underrun in this branch. pop() has already advanced
+                        // the playhead past one lost seq, and that advance IS
+                        // the drain we want — collapsing the missing 20 ms is
+                        // exactly the time compression drift-drain exists to do.
+                        // Deliberately no PLC for it: synthesizing concealment
+                        // would re-stretch the very gap we are draining. The
+                        // real frame decoded above is still played out this tick.
                     }
                 } else {
                     // Underrun. PLC for one frame; if we've already PLC'd twice in
