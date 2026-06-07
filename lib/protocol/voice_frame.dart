@@ -21,9 +21,12 @@ const int kVoiceHeaderSize = 8;
 /// - `seq` — per-link monotonic counter starting at 1. The host uses it to
 ///   detect drops: if 16 consecutive values are missing from a peer, the
 ///   host stops mixing that peer's stream until the next valid frame.
-/// - `senderTsMs` — low 32 bits of the sender's wall-clock at encode time
-///   (ms-since-epoch mod 2^32). Combined with `seq`, the host estimates
-///   jitter and drops frames whose playback window has already passed.
+/// - `senderTsMs` — low 32 bits of the sender's **monotonic** clock at encode
+///   time (`SystemClock.elapsedRealtime`, ms-since-boot mod 2^32 — NOT
+///   wall-clock, so it can't jump under NTP). The receiver pairs it with its
+///   own monotonic arrival clock to estimate end-to-end staleness and drop
+///   frames whose playback window has already passed (see
+///   `PlayoutLagEstimator`).
 /// - `payload` — Opus-compressed audio; see `docs/protocol.md § Voice plane`
 ///   for the recommended codec parameters (16 kHz, mono, 20 ms, 24 kbps).
 class VoiceFrame {

@@ -194,6 +194,21 @@ void JitterBuffer::tick() {
     underrunsThisInterval_ = 0;
 }
 
+void JitterBuffer::resyncPlayheadIfEmpty(uint32_t seq) {
+    // Only safe while empty: with frames queued, pop() would clobber the
+    // playhead from the front frame's seq anyway, and we could strand a
+    // queued frame behind an advanced playhead.
+    if (!frames_.empty()) {
+        return;
+    }
+    // Never rewind: if seq is already behind the playhead, leave it.
+    if (playheadInit_ && seqLess(seq, playhead_)) {
+        return;
+    }
+    playhead_ = seq;
+    playheadInit_ = true;
+}
+
 void JitterBuffer::resetAdaptCounters() {
     ticksThisInterval_ = 0;
     underrunsThisInterval_ = 0;

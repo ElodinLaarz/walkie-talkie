@@ -31,6 +31,25 @@ class LinkTelemetrySnapshot {
   /// The encoder bitrate currently emitted toward this peer, in bps.
   final int currentBitrateBps;
 
+  /// Current end-to-end staleness estimate in ms: how far the most recent
+  /// frame's transit sat above the best recent baseline (clock-offset-cancelled
+  /// — see native `PlayoutLagEstimator`). This is the "lag" the listener feels;
+  /// the debug dashboard graphs it over time.
+  final int currentLagMs;
+
+  /// Lifetime frames dropped on arrival because they were too stale to play
+  /// (excess > `kStaleDropBudgetMs`). Rising fast means the link can't keep up
+  /// and we're shedding backlog to stay current.
+  final int staleDropCount;
+
+  /// Lifetime frames accepted into the jitter buffer. Delta over wall-clock
+  /// gives the receive throughput (target ~50/s).
+  final int recvCount;
+
+  /// Most recently accepted sequence number — the live head-of-stream the
+  /// dashboard shows as "current packet".
+  final int lastSeq;
+
   const LinkTelemetrySnapshot({
     required this.underrunCount,
     required this.lateFrameCount,
@@ -38,6 +57,10 @@ class LinkTelemetrySnapshot {
     required this.targetDepthFrames,
     required this.currentDepthFrames,
     required this.currentBitrateBps,
+    required this.currentLagMs,
+    required this.staleDropCount,
+    required this.recvCount,
+    required this.lastSeq,
   });
 
   @override
@@ -49,7 +72,11 @@ class LinkTelemetrySnapshot {
           lostFrameCount == other.lostFrameCount &&
           targetDepthFrames == other.targetDepthFrames &&
           currentDepthFrames == other.currentDepthFrames &&
-          currentBitrateBps == other.currentBitrateBps;
+          currentBitrateBps == other.currentBitrateBps &&
+          currentLagMs == other.currentLagMs &&
+          staleDropCount == other.staleDropCount &&
+          recvCount == other.recvCount &&
+          lastSeq == other.lastSeq;
 
   @override
   int get hashCode => Object.hash(
@@ -59,6 +86,10 @@ class LinkTelemetrySnapshot {
     targetDepthFrames,
     currentDepthFrames,
     currentBitrateBps,
+    currentLagMs,
+    staleDropCount,
+    recvCount,
+    lastSeq,
   );
 }
 
@@ -616,10 +647,11 @@ class AudioService {
         'getLinkTelemetry',
         <String, dynamic>{'macAddress': macAddress},
       );
-      if (raw is! List || raw.length != 6) return null;
-      // Native returns a 6-element int array: [underruns, late, target,
-      // current, bitrate, lost]. lostFrameCount is appended last so the
-      // historical index layout is undisturbed. Element-wise check guards
+      if (raw is! List || raw.length != 10) return null;
+      // Native returns a 10-element int array: [underruns, late, target,
+      // current, bitrate, lost, lagMs, staleDrops, recv, lastSeq]. The newer
+      // fields (indices 6-9, the staleness/dashboard telemetry) are appended so
+      // the historical 0-5 layout is undisturbed. Element-wise check guards
       // against a truncated or padded response from a stale platform handler.
       final values = raw.map((e) => e is int ? e : null).toList();
       if (values.any((v) => v == null)) return null;
@@ -630,6 +662,10 @@ class AudioService {
         currentDepthFrames: values[3]!,
         currentBitrateBps: values[4]!,
         lostFrameCount: values[5]!,
+        currentLagMs: values[6]!,
+        staleDropCount: values[7]!,
+        recvCount: values[8]!,
+        lastSeq: values[9]!,
       );
     } catch (e) {
       if (kDebugMode) {

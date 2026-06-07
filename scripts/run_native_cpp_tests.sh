@@ -12,6 +12,7 @@ for required in \
     test/cpp/resampler_test.cpp \
     test/cpp/talking_event_queue_test.cpp \
     test/cpp/ring_buffer_test.cpp \
+    test/cpp/playout_lag_estimator_test.cpp \
     test/cpp/opus_codec_test.cpp \
     test/cpp/vad_detector_test.cpp \
     test/cpp/playback_stream_config_test.cpp \
@@ -26,7 +27,8 @@ for required in \
     android/app/src/main/cpp/peer_audio_manager.cpp \
     android/app/src/main/cpp/peer_audio_manager.h \
     android/app/src/main/cpp/jitter_buffer.cpp \
-    android/app/src/main/cpp/jitter_buffer.h; do
+    android/app/src/main/cpp/jitter_buffer.h \
+    android/app/src/main/cpp/playout_lag_estimator.h; do
   if [ ! -f "$required" ]; then
     echo "$required missing — failing fast"
     exit 1
@@ -78,6 +80,15 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     test/cpp/ring_buffer_test.cpp \
     -o build/cpp_test/ring_buffer_test
 build/cpp_test/ring_buffer_test
+
+# playout_lag_estimator_test exercises header-only playout_lag_estimator.h —
+# the sliding-window-min staleness estimator behind the timestamp-drop fix.
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    test/cpp/playout_lag_estimator_test.cpp \
+    -o build/cpp_test/playout_lag_estimator_test
+build/cpp_test/playout_lag_estimator_test
 
 # vad_detector_test exercises the two-sided hysteresis state machine extracted
 # from audio_engine.cpp (#248). Header-only; no extra link deps beyond the STL.

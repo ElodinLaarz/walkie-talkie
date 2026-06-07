@@ -548,6 +548,10 @@ class MainActivity : FlutterActivity() {
                                 t.currentDepthFrames,
                                 t.currentBitrateBps,
                                 t.lostFrameCount,
+                                t.currentLagMs,
+                                t.staleDropCount,
+                                t.recvCount,
+                                t.lastSeq,
                             ))
                         }
                     }
@@ -763,11 +767,25 @@ class MainActivity : FlutterActivity() {
                   ((frameBytes[1].toInt() and 0xFF) shl 16) or
                   ((frameBytes[2].toInt() and 0xFF) shl 8) or
                   (frameBytes[3].toInt() and 0xFF)
+        // Bytes 4-7: senderTsMs (low 32 bits of the sender's encode-time on a
+        // MONOTONIC clock — SystemClock.elapsedRealtime, ms-since-boot, not
+        // wall-clock; see buildVoiceFrame). Previously parsed-and-discarded; now
+        // forwarded so native can estimate end-to-end staleness and drop frames
+        // that arrived too late.
+        val senderTsMs = ((frameBytes[4].toInt() and 0xFF) shl 24) or
+                         ((frameBytes[5].toInt() and 0xFF) shl 16) or
+                         ((frameBytes[6].toInt() and 0xFF) shl 8) or
+                         (frameBytes[7].toInt() and 0xFF)
         val opusPayload = frameBytes.copyOfRange(8, frameBytes.size)
         if (firstDecodedFramePeers.add(addr)) {
             sendEventToFlutter(mapOf("type" to "firstDecodedFrame", "address" to addr))
         }
-        peerAudioManager?.onVoiceFrameReceived(addr, opusPayload, seq.toLong() and 0xFFFFFFFFL)
+        peerAudioManager?.onVoiceFrameReceived(
+            addr,
+            opusPayload,
+            seq.toLong() and 0xFFFFFFFFL,
+            senderTsMs.toLong() and 0xFFFFFFFFL,
+        )
     }
 
     // Register addr as a peer in the native manager and add its mixer slot.
@@ -799,7 +817,13 @@ class MainActivity : FlutterActivity() {
 
     // Encode [opusData] + [seq] into the 8-byte VoiceFrame wire format (big-endian).
     private fun buildVoiceFrame(opusData: ByteArray, seq: Int): ByteArray {
-        val ts = (System.currentTimeMillis() and 0xFFFFFFFFL).toInt()
+        // senderTsMs is a MONOTONIC timestamp (SystemClock.elapsedRealtime, ms
+        // since boot incl. deep sleep), not wall-clock. The receiver's staleness
+        // estimator pairs it with its own monotonic steady_clock; using
+        // System.currentTimeMillis() here would expose senderTsMs to NTP / manual
+        // clock jumps, and a backward jump >= the stale budget would make every
+        // frame look stale and black out audio for a full baseline window.
+        val ts = (android.os.SystemClock.elapsedRealtime() and 0xFFFFFFFFL).toInt()
         val frame = ByteArray(8 + opusData.size)
         frame[0] = ((seq ushr 24) and 0xFF).toByte()
         frame[1] = ((seq ushr 16) and 0xFF).toByte()

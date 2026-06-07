@@ -121,6 +121,22 @@ constexpr size_t kPlayoutMaxRingFillSamples =
 // Mixer tick.
 constexpr int kMixerTickIntervalMs = kFrameDurationMs;
 
+// End-to-end staleness (Kevin's timestamp-drop). The receiver derives a frame's
+// staleness from the VoiceFrame `senderTsMs` versus local arrival, baselined
+// against a sliding-window minimum to cancel the unknown cross-device clock
+// offset (see playout_lag_estimator.h).
+//   - kLagBaselineWindowMs: how far back the "best recent transit" baseline
+//     looks. Long enough to span a talkspurt and ride out slow clock drift,
+//     short enough that a backlog that builds within it still surfaces as
+//     excess. 5 s.
+//   - kStaleDropBudgetMs: a frame whose transit sits more than this above the
+//     baseline is too late to be worth playing and is dropped before decode
+//     (guarded so we never starve the last available frame into silence). Fixed
+//     at 200 ms — deliberately not adapted to channel quality (that complexity
+//     isn't worth it here).
+constexpr uint32_t kLagBaselineWindowMs = 5000;
+constexpr uint32_t kStaleDropBudgetMs = 200;
+
 }  // namespace audio_config
 
 #endif  // AUDIO_CONFIG_H

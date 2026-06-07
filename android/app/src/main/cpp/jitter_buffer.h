@@ -121,6 +121,19 @@ public:
     bool playheadInitialized() const { return playheadInit_; }
     uint32_t playhead() const { return playhead_; }
 
+    // Resync the playhead to `seq` when (and only when) the buffer is empty.
+    //
+    // Used by the caller after it has *intentionally* shed frames before they
+    // entered the buffer (the staleness drop in PeerAudioManager): the seqs it
+    // dropped would otherwise read as a hole-at-head when the next accepted
+    // frame plays, inflating lostFrameCount (which drives bitrate) and forcing
+    // one-frame-per-tick PLC pacing across a gap that wasn't network loss.
+    // Resyncing the playhead to the resumed seq makes the deliberate shed a
+    // clean cut instead. Only moves the playhead forward and only while empty,
+    // so it can never strand a queued frame or rewind the playhead — and it is
+    // gated to the shed path, so genuine packet loss is still counted normally.
+    void resyncPlayheadIfEmpty(uint32_t seq);
+
     // Reset the rolling counters used by adapt(). Stats above continue to
     // accumulate for telemetry; this only affects adaptation decisions.
     void resetAdaptCounters();

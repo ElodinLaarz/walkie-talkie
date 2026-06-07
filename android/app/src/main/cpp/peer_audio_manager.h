@@ -14,6 +14,7 @@
 #include "audio_mixer.h"
 #include "jitter_buffer.h"
 #include "opus_codec.h"
+#include "playout_lag_estimator.h"
 #include "vad_detector.h"
 
 // Owns the per-peer audio plumbing on the host (or the host's mirror image
@@ -50,6 +51,16 @@ public:
         uint32_t jitterTargetDepth{0};
         uint32_t jitterCurrentDepth{0};
         int currentBitrate{audio_config::kDefaultBitrate};
+        // End-to-end staleness telemetry (drives the in-app debug dashboard).
+        // currentLagMs: the latest PlayoutLagEstimator excess — how far behind
+        // the best recent transit the most recent frame arrived (ms).
+        // staleDropCount: lifetime frames dropped on arrival as too stale.
+        // recvCount: lifetime frames accepted into the jitter buffer.
+        // lastSeq: most recently accepted seq (the live head-of-stream).
+        uint32_t currentLagMs{0};
+        uint32_t staleDropCount{0};
+        uint32_t recvCount{0};
+        uint32_t lastSeq{0};
         bool valid{false};
     };
 
@@ -68,8 +79,13 @@ public:
     // from the L2CAP receive path. `seq` is the protocol's per-link uint32.
     // Returns true if accepted; false if dropped (late, duplicate, or peer
     // not registered).
+    // `senderTsMs` is the VoiceFrame header's sender encode-time on a MONOTONIC
+    // clock (SystemClock.elapsedRealtime, low 32 bits of ms-since-boot — not
+    // wall-clock, so it can't jump under NTP); used to estimate end-to-end
+    // staleness and drop frames that arrive too late to play (PlayoutLagEstimator).
     bool onVoiceFramePushed(const std::string& macAddress, uint32_t seq,
-                            const uint8_t* opusData, int opusSize);
+                            uint32_t senderTsMs, const uint8_t* opusData,
+                            int opusSize);
 
     // Set this peer's outbound encoder bitrate. Called when LinkQuality
     // telemetry suggests adapting. Clamped to [kBitrateLow, kBitrateHigh].
@@ -128,6 +144,18 @@ private:
             // Per-peer VAD. Guarded by `mutex` so reads from isPeerTalking() are
         // race-free even when the mixer thread is running.
         VadDetector peerVad{audio_config::kCodecSampleRate};
+        // End-to-end staleness (Kevin's timestamp-drop). Fed on the receive
+        // path with each frame's senderTsMs + local arrival time. All fields
+        // below are touched under `mutex`.
+        PlayoutLagEstimator lagEstimator;
+        int64_t lastLagMs{0};        // most recent staleness estimate (ms)
+        uint32_t staleDropCount{0};  // frames dropped on arrival as too stale
+        uint32_t recvCount{0};       // frames accepted into the jitter buffer
+        uint32_t lastAcceptedSeq{0}; // last accepted seq (live head-of-stream)
+        // True while we're shedding a stale backlog (dropping frames before the
+        // jitter buffer). On the next accepted frame we resync the playhead so
+        // the shed gap isn't miscounted as a hole-at-head loss.
+        bool sheddingStale{false};
     };
 
     void mixerTickLoop();

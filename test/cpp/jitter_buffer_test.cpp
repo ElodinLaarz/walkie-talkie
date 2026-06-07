@@ -535,6 +535,42 @@ void testEvictionPreservesHoleAtHeadLoss() {
               << std::endl;
 }
 
+// resyncPlayheadIfEmpty: used by the stale-shed path so dropped seqs aren't
+// later miscounted as a hole-at-head. Only acts on an empty buffer, only moves
+// forward, and a subsequent contiguous pop sees no hole (no false loss).
+void testResyncPlayheadIfEmpty() {
+    JitterBuffer jb;
+    const uint8_t data[1] = {0x42};
+
+    // Establish a playhead, then drain to empty (playhead at 101).
+    assert(jb.push(100, data, 1));
+    auto f = jb.popAny();
+    assert(f.has_value() && f->seq == 100);
+    assert(jb.playhead() == 101);
+    assert(jb.currentDepth() == 0);
+
+    // Simulate a stale shed: seqs 101..199 were dropped before the buffer.
+    // Resync to the resumed seq 200 — playhead jumps with no loss counted.
+    const auto preLost = jb.lostFrameCount();
+    jb.resyncPlayheadIfEmpty(200);
+    assert(jb.playhead() == 200);
+
+    // The resumed frame now plays as a clean head, NOT a 99-frame hole.
+    assert(jb.push(200, data, 1));
+    seedAtDepth(jb, 201, audio_config::kJitterInitialDepth - 1);  // reach target
+    auto g = jb.pop();
+    assert(g.has_value() && g->seq == 200);
+    assert(jb.lostFrameCount() == preLost);  // no phantom loss from the shed
+
+    // No-op while non-empty (a queued frame must never be stranded).
+    assert(jb.currentDepth() > 0);
+    const uint32_t headBefore = jb.playhead();
+    jb.resyncPlayheadIfEmpty(999);
+    assert(jb.playhead() == headBefore);
+
+    std::cout << "Test Resync Playhead If Empty: PASSED" << std::endl;
+}
+
 }  // namespace
 
 int main() {
@@ -545,6 +581,7 @@ int main() {
         testMultiFrameHoleProducesContiguousPLC();
         testPushCapsAtMaxDepth();
         testEvictionPreservesHoleAtHeadLoss();
+        testResyncPlayheadIfEmpty();
         testNormalFlowAfterFilling();
         testLateFrameDropped();
         testDuplicateRejected();

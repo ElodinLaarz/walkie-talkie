@@ -66,12 +66,24 @@ class PeerAudioManager {
      * this is an over-the-wire input boundary, and one bad packet must not
      * crash the foreground service.
      */
-    fun onVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long) {
+    fun onVoiceFrameReceived(
+        macAddress: String,
+        opusData: ByteArray,
+        seq: Long,
+        senderTsMs: Long,
+    ) {
         if (seq !in 0..0xFFFF_FFFFL) {
             Log.w(TAG, "Dropping voice frame from $macAddress: seq=$seq is not a valid uint32")
             return
         }
-        nativeOnVoiceFrameReceived(macAddress, opusData, seq)
+        // senderTsMs is the VoiceFrame header's low-32 sender encode time; it is
+        // already masked to a uint32 on the wire, but range-check defensively so
+        // a malformed parse can't sign-extend a negative into native.
+        if (senderTsMs !in 0..0xFFFF_FFFFL) {
+            Log.w(TAG, "Dropping voice frame from $macAddress: senderTsMs=$senderTsMs out of range")
+            return
+        }
+        nativeOnVoiceFrameReceived(macAddress, opusData, seq, senderTsMs)
     }
 
     fun clear() {
@@ -98,6 +110,15 @@ class PeerAudioManager {
         // True network loss (seq-gap). Drives bitrate adaptation; lateFrameCount
         // is kept for observability only.
         val lostFrameCount: Int,
+        // End-to-end staleness telemetry for the debug dashboard.
+        // currentLagMs: latest estimated staleness (ms above best recent transit).
+        // staleDropCount: lifetime frames dropped on arrival as too stale.
+        // recvCount: lifetime frames accepted into the jitter buffer.
+        // lastSeq: most recently accepted seq (live head-of-stream).
+        val currentLagMs: Int,
+        val staleDropCount: Int,
+        val recvCount: Int,
+        val lastSeq: Int,
     )
 
     /**
@@ -129,7 +150,7 @@ class PeerAudioManager {
     /** Returns null if the peer isn't registered. */
     fun getTelemetry(macAddress: String): LinkTelemetry? {
         val raw = nativeGetTelemetry(macAddress) ?: return null
-        if (raw.size != 6) {
+        if (raw.size != 10) {
             Log.w(TAG, "getTelemetry returned unexpected array size ${raw.size}")
             return null
         }
@@ -140,6 +161,10 @@ class PeerAudioManager {
             currentDepthFrames = raw[3],
             currentBitrateBps = raw[4],
             lostFrameCount = raw[5],
+            currentLagMs = raw[6],
+            staleDropCount = raw[7],
+            recvCount = raw[8],
+            lastSeq = raw[9],
         )
     }
 
@@ -163,7 +188,7 @@ class PeerAudioManager {
     private external fun nativeStopMixerThread()
     private external fun nativeSetCallback(callback: Any)
     private external fun nativeClear()
-    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long)
+    private external fun nativeOnVoiceFrameReceived(macAddress: String, opusData: ByteArray, seq: Long, senderTsMs: Long)
     private external fun nativeSetPeerBitrate(macAddress: String, bps: Int): Int
     private external fun nativeGetTelemetry(macAddress: String): IntArray?
     private external fun nativeSetPeerVolume(macAddress: String, volume: Float)
