@@ -620,8 +620,17 @@ class MainActivity : FlutterActivity() {
     private fun startVoiceCapture(
         loopbackTestMode: Boolean,
         attempt: Int,
-        onResult: ((Boolean) -> Unit)?
+        onResult: ((Boolean) -> Unit)?,
+        sessionId: Int = voiceSessionId
     ) {
+        if (sessionId != voiceSessionId) {
+            // stopVoiceCapture ran (bumping voiceSessionId) while this retry was
+            // queued on the main looper. The start belongs to an ended session;
+            // proceeding would spin up a zombie engine/mixer after teardown.
+            Log.i(TAG, "startVoiceCapture: stale retry for ended session; aborting")
+            onResult?.invoke(false)
+            return
+        }
         if (peerAudioManager != null) {
             onResult?.invoke(true)
             return
@@ -634,7 +643,7 @@ class MainActivity : FlutterActivity() {
                 return
             }
             Handler(Looper.getMainLooper()).postDelayed({
-                startVoiceCapture(loopbackTestMode, attempt + 1, onResult)
+                startVoiceCapture(loopbackTestMode, attempt + 1, onResult, sessionId)
             }, START_VOICE_RETRY_MS)
             return
         }
@@ -696,7 +705,10 @@ class MainActivity : FlutterActivity() {
         // exists, so their frames get a device slot instead of being dropped.
         voiceTransport?.getConnectedClients()?.forEach { mac ->
             Log.i(TAG, "Re-registering voice peer connected during startup: $mac")
-            pm.registerPeer(mac)
+            // Go through registerVoicePeer (not pm.registerPeer directly) so the
+            // Kotlin-side audioMixerManager gets the device slot too; a bare
+            // registerPeer leaves the mixer out of sync with the native peer set.
+            registerVoicePeer(mac)
         }
         onResult?.invoke(true)
     }

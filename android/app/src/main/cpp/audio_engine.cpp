@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -271,6 +272,17 @@ static void stopTalkingEventWorker() {
 static std::mutex g_engineMutex;
 static AudioEngine* g_audioEngine = nullptr;
 
+// Monotonic epoch bumped every time nativeStart creates a new AudioEngine.
+// The auto-restart thread captures the epoch at schedule time and bails if it
+// has changed by the time it wakes, so a stop()+start() during the backoff
+// ladder (which yields a *different* engine instance) is not clobbered by a
+// restart meant for the engine that originally disconnected. A plain
+// raw-pointer comparison can't do this safely: a freed engine address may be
+// reused by the replacement (ABA), making a new engine look like the old one.
+// Atomic so onErrorAfterClose can read it without taking g_engineMutex (which
+// could deadlock if the callback fires synchronously under a stop()).
+static std::atomic<uint64_t> g_engineGeneration{0};
+
 // Restart guard for ErrorDisconnected auto-recovery. Static (not a member of
 // AudioEngineErrorCallback) so the detached restart thread does not capture a
 // pointer to the callback instance — the engine can destroy the callback while
@@ -285,8 +297,9 @@ static std::atomic<bool> g_restartScheduled{false};
 // All other errors are reported immediately in onErrorBeforeClose.
 //
 // Both recording and playback streams share a single instance (see AudioEngine
-// ctor). g_restartScheduled is the deduplicate guard; the lambda captures
-// nothing so the thread has no lifetime dependency on the callback object.
+// ctor). g_restartScheduled is the deduplicate guard; the restart lambda
+// captures only the engine epoch (a value), so the thread has no lifetime
+// dependency on the callback object.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
@@ -656,10 +669,17 @@ void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
     }
 
     LOGI("Audio device disconnected — scheduling auto-restart");
+    // Snapshot the engine epoch now so the restart applies only to the instance
+    // that actually disconnected. If a stop()+start() cycle swaps in a new
+    // engine during the backoff ladder below, the epoch changes and the thread
+    // bails instead of clobbering the fresh session.
+    const uint64_t scheduledGen =
+        g_engineGeneration.load(std::memory_order_acquire);
     // No `this` capture: the callback object may be destroyed while this
     // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
-    // All state the thread needs is in the static globals above.
-    std::thread([]() {
+    // All state the thread needs is in the static globals above (plus the
+    // captured epoch).
+    std::thread([scheduledGen]() {
         // A route change (BT headset connect/disconnect) leaves the new audio
         // endpoint briefly unavailable; reopening immediately races that settle
         // and fails. Back off and retry a few times before giving up. The lock
@@ -675,8 +695,13 @@ void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(kBackoffMs[attempt]));
             std::lock_guard<std::mutex> lock(g_engineMutex);
-            if (g_audioEngine == nullptr) {
-                // Engine was intentionally stopped (nativeStop); not an error.
+            if (g_audioEngine == nullptr ||
+                g_engineGeneration.load(std::memory_order_acquire) !=
+                    scheduledGen) {
+                // Engine was intentionally stopped (nativeStop), or stopped and
+                // replaced by a newer instance (nativeStop + nativeStart) while
+                // we were backing off. Either way the disconnect we were
+                // recovering from is moot; don't touch the current engine.
                 engineGone = true;
                 break;
             }
@@ -742,6 +767,9 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv* env,
     std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine == nullptr) {
         g_audioEngine = new AudioEngine();
+        // New instance — advance the epoch so any in-flight auto-restart
+        // scheduled against the previous engine bails instead of restarting us.
+        g_engineGeneration.fetch_add(1, std::memory_order_relaxed);
     }
     return g_audioEngine->start();
 }
