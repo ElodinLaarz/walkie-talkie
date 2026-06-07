@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <thread>
 #include <utility>
 
@@ -25,12 +26,25 @@ namespace {
 // lengths (20 ms Opus frames are equal-length in practice).
 int crossfadeMergeFrames(int16_t* a, int aLen, const int16_t* b, int bLen) {
     const int n = std::min(aLen, bLen);
+    if (n <= 0) return 0;
+    if (n == 1) {
+        // Degenerate frame: nothing to ramp across, so the merged output is
+        // just the later frame (w would be 1).
+        a[0] = b[0];
+        return 1;
+    }
+    // Precompute the ramp step so the per-sample inner loop is a multiply, not
+    // a divide — this runs in the 50 Hz mixer hot path.
+    const float step = 1.0f / static_cast<float>(n - 1);
     for (int i = 0; i < n; ++i) {
-        const float w =
-            (n > 1) ? static_cast<float>(i) / static_cast<float>(n - 1) : 1.0f;
+        const float w = static_cast<float>(i) * step;
         const float mixed = static_cast<float>(a[i]) * (1.0f - w) +
                             static_cast<float>(b[i]) * w;
-        a[i] = static_cast<int16_t>(std::lround(mixed));
+        // A convex blend of two int16 samples is in range mathematically, but
+        // clamp defensively: narrowing an out-of-range float-rounded value to
+        // int16_t is implementation-defined and could wrap into a loud glitch.
+        a[i] = static_cast<int16_t>(
+            std::clamp<long>(std::lround(mixed), INT16_MIN, INT16_MAX));
     }
     return n;
 }
