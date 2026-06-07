@@ -167,10 +167,11 @@ bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
         state = it->second;  // shared_ptr keeps state alive past unlock.
     }
 
-    // Local arrival time on a monotonic clock. PlayoutLagEstimator only uses
-    // *differences* and its sliding-window-min cancels the (constant) offset
-    // between this steady clock and the sender's wall clock, so mixing the two
-    // domains is fine — and steady_clock avoids NTP wall-clock jumps.
+    // Local arrival time on a monotonic clock. Both ends are now monotonic
+    // (sender: SystemClock.elapsedRealtime; receiver: steady_clock), so neither
+    // jumps under NTP. PlayoutLagEstimator only uses *differences*, and its
+    // sliding-window-min cancels the constant offset between the two monotonic
+    // epochs.
     const int64_t recvMs =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch())

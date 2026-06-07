@@ -815,7 +815,13 @@ class MainActivity : FlutterActivity() {
 
     // Encode [opusData] + [seq] into the 8-byte VoiceFrame wire format (big-endian).
     private fun buildVoiceFrame(opusData: ByteArray, seq: Int): ByteArray {
-        val ts = (System.currentTimeMillis() and 0xFFFFFFFFL).toInt()
+        // senderTsMs is a MONOTONIC timestamp (SystemClock.elapsedRealtime, ms
+        // since boot incl. deep sleep), not wall-clock. The receiver's staleness
+        // estimator pairs it with its own monotonic steady_clock; using
+        // System.currentTimeMillis() here would expose senderTsMs to NTP / manual
+        // clock jumps, and a backward jump >= the stale budget would make every
+        // frame look stale and black out audio for a full baseline window.
+        val ts = (android.os.SystemClock.elapsedRealtime() and 0xFFFFFFFFL).toInt()
         val frame = ByteArray(8 + opusData.size)
         frame[0] = ((seq ushr 24) and 0xFF).toByte()
         frame[1] = ((seq ushr 16) and 0xFF).toByte()

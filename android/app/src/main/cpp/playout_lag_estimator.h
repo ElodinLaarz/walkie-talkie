@@ -10,14 +10,17 @@
 // `senderTsMs` (the sender's encode-time wall clock, low 32 bits of
 // ms-since-epoch) and the local arrival time.
 //
-// **Why this is not just `now - senderTsMs`.** The two devices' wall clocks are
-// unsynchronised — the whole reason the audio pipeline jitters — so the raw
-// difference `arrival - senderTsMs` carries an arbitrary, unknown clock offset
-// (and the best-case one-way transit). That absolute number is meaningless on
-// its own. What *is* meaningful is how far a given frame sits **above the best
-// recent frame**: that excess is real queuing/backlog delay (e.g. a frame that
-// languished seconds in the sender's kernel L2CAP TX buffer), independent of
-// the clock offset.
+// **Why this is not just `now - senderTsMs`.** `senderTsMs` and the local
+// arrival time come from two *different* monotonic clocks (sender:
+// SystemClock.elapsedRealtime; receiver: steady_clock), each with its own
+// arbitrary epoch — so the raw difference `arrival - senderTsMs` carries an
+// unknown constant offset (and the best-case one-way transit). That absolute
+// number is meaningless on its own. What *is* meaningful is how far a given
+// frame sits **above the best recent frame**: that excess is real
+// queuing/backlog delay (e.g. a frame that languished seconds in the sender's
+// kernel L2CAP TX buffer), independent of the offset. Both clocks are
+// monotonic, so neither jumps under NTP — only their (constant) difference
+// matters, and the window cancels it.
 //
 // **Method.** Maintain the minimum of `rawDelay = arrival - senderTsMs` over a
 // sliding time window (`kLagBaselineWindowMs`). The offset cancels in the
