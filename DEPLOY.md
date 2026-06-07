@@ -46,7 +46,7 @@ flutter build apk --profile > build.log 2>&1   # last cmd = real exit
 ```bash
 cd /mnt/c/Users/<you>/.../walkie-talkie     # worktree root
 mkdir -p logs
-rm -rf build/.cxx                            # nuke stale cmake cache
+rm -rf android/app/.cxx                      # nuke stale cmake cache
 flutter build apk --profile > logs/build.log 2>&1
 # out: build/app/outputs/flutter-apk/app-profile.apk
 ```
