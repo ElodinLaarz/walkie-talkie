@@ -198,7 +198,18 @@ bool PeerAudioManager::onVoiceFramePushed(const std::string& macAddress,
         state->jitterBuffer->playheadInitialized() &&
         state->jitterBuffer->currentDepth() > 0) {
         ++state->staleDropCount;
+        state->sheddingStale = true;
         return false;
+    }
+
+    // Accepting. If we were shedding a stale backlog, the seqs we dropped would
+    // otherwise read as a hole-at-head when this frame plays — inflating
+    // lostFrameCount (which drives bitrate) and PLC-pacing a gap that wasn't
+    // network loss. Resync the playhead to this seq (effective only once the
+    // buffer has drained to empty) so the shed is a clean cut, not phantom loss.
+    if (state->sheddingStale) {
+        state->jitterBuffer->resyncPlayheadIfEmpty(seq);
+        state->sheddingStale = false;
     }
 
     const bool accepted =

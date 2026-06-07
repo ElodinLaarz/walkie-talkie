@@ -767,9 +767,11 @@ class MainActivity : FlutterActivity() {
                   ((frameBytes[1].toInt() and 0xFF) shl 16) or
                   ((frameBytes[2].toInt() and 0xFF) shl 8) or
                   (frameBytes[3].toInt() and 0xFF)
-        // Bytes 4-7: senderTsMs (low 32 bits of the sender's encode-time wall
-        // clock). Previously parsed-and-discarded; now forwarded so native can
-        // estimate end-to-end staleness and drop frames that arrived too late.
+        // Bytes 4-7: senderTsMs (low 32 bits of the sender's encode-time on a
+        // MONOTONIC clock — SystemClock.elapsedRealtime, ms-since-boot, not
+        // wall-clock; see buildVoiceFrame). Previously parsed-and-discarded; now
+        // forwarded so native can estimate end-to-end staleness and drop frames
+        // that arrived too late.
         val senderTsMs = ((frameBytes[4].toInt() and 0xFF) shl 24) or
                          ((frameBytes[5].toInt() and 0xFF) shl 16) or
                          ((frameBytes[6].toInt() and 0xFF) shl 8) or

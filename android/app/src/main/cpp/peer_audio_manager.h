@@ -79,9 +79,10 @@ public:
     // from the L2CAP receive path. `seq` is the protocol's per-link uint32.
     // Returns true if accepted; false if dropped (late, duplicate, or peer
     // not registered).
-    // `senderTsMs` is the VoiceFrame header's sender encode-time (low 32 bits
-    // of ms-since-epoch); used to estimate end-to-end staleness and drop frames
-    // that arrive too late to be worth playing (see PlayoutLagEstimator).
+    // `senderTsMs` is the VoiceFrame header's sender encode-time on a MONOTONIC
+    // clock (SystemClock.elapsedRealtime, low 32 bits of ms-since-boot — not
+    // wall-clock, so it can't jump under NTP); used to estimate end-to-end
+    // staleness and drop frames that arrive too late to play (PlayoutLagEstimator).
     bool onVoiceFramePushed(const std::string& macAddress, uint32_t seq,
                             uint32_t senderTsMs, const uint8_t* opusData,
                             int opusSize);
@@ -151,6 +152,10 @@ private:
         uint32_t staleDropCount{0};  // frames dropped on arrival as too stale
         uint32_t recvCount{0};       // frames accepted into the jitter buffer
         uint32_t lastAcceptedSeq{0}; // last accepted seq (live head-of-stream)
+        // True while we're shedding a stale backlog (dropping frames before the
+        // jitter buffer). On the next accepted frame we resync the playhead so
+        // the shed gap isn't miscounted as a hole-at-head loss.
+        bool sheddingStale{false};
     };
 
     void mixerTickLoop();

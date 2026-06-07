@@ -7,8 +7,9 @@
 #include "audio_config.h"
 
 // Estimates per-peer end-to-end playout staleness from the VoiceFrame's
-// `senderTsMs` (the sender's encode-time wall clock, low 32 bits of
-// ms-since-epoch) and the local arrival time.
+// `senderTsMs` (the sender's encode-time on a MONOTONIC clock —
+// `SystemClock.elapsedRealtime`, low 32 bits of ms-since-boot, NOT wall-clock)
+// and the local arrival time.
 //
 // **Why this is not just `now - senderTsMs`.** `senderTsMs` and the local
 // arrival time come from two *different* monotonic clocks (sender:
