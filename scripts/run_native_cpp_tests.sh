@@ -14,8 +14,10 @@ for required in \
     test/cpp/ring_buffer_test.cpp \
     test/cpp/opus_codec_test.cpp \
     test/cpp/vad_detector_test.cpp \
+    test/cpp/playback_stream_config_test.cpp \
     test/cpp/peer_audio_manager_test.cpp \
     android/app/src/main/cpp/audio_mixer.cpp \
+    android/app/src/main/cpp/playback_stream_config.h \
     android/app/src/main/cpp/talking_event_queue.h \
     android/app/src/main/cpp/ring_buffer.h \
     android/app/src/main/cpp/opus_codec.h \
@@ -85,6 +87,17 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
     test/cpp/vad_detector_test.cpp \
     -o build/cpp_test/vad_detector_test
 build/cpp_test/vad_detector_test
+
+# playback_stream_config_test pins the output Oboe stream config that fixes the
+# quiet-playout bug. Header-only: needs Oboe's (header-only) Definitions.h, no
+# Oboe library and no NDK.
+${CXX:-g++} -std=c++17 -Wall -Wextra -pthread \
+    -I test/cpp \
+    -I android/app/src/main/cpp \
+    -I android/app/src/main/cpp/oboe/include \
+    test/cpp/playback_stream_config_test.cpp \
+    -o build/cpp_test/playback_stream_config_test
+build/cpp_test/playback_stream_config_test
 
 # opus_codec_test exercises OpusEncoder/OpusDecoder from opus_codec.cpp.
 # Requires libopus and pkg-config.

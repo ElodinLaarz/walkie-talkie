@@ -14,6 +14,7 @@
 
 #include "audio_config.h"
 #include "audio_mixer.h"
+#include "playback_stream_config.h"
 #include "resampler.h"
 #include "talking_event_queue.h"
 #include "vad_detector.h"
@@ -416,22 +417,24 @@ public:
             return false;
         }
 
+        // Playout config (Usage/ContentType/PerformanceMode/SharingMode) lives
+        // in playback_stream_config.h so a host test can pin it. In short:
+        // VoiceCommunication usage routes playout to STREAM_VOICE_CALL (the
+        // stream the volume keys control in MODE_IN_COMMUNICATION) and follows
+        // the comm-device route; None + Shared keep it off the MMAP fast path,
+        // which bypasses the speaker loudness DSP on devices that grant MMAP.
         oboe::AudioStreamBuilder playbackBuilder;
         playbackBuilder.setDirection(oboe::Direction::Output)
-            ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-            ->setSharingMode(oboe::SharingMode::Exclusive)
+            ->setUsage(audio_engine_config::kPlaybackUsage)
+            ->setContentType(audio_engine_config::kPlaybackContentType)
+            ->setPerformanceMode(audio_engine_config::kPlaybackPerformanceMode)
+            ->setSharingMode(audio_engine_config::kPlaybackSharingMode)
             ->setFormat(kFormat)
             ->setChannelCount(kChannelCount)
             ->setSampleRate(kSampleRate)
             ->setErrorCallback(errorCallback.get());
 
         result = playbackBuilder.openStream(playbackStream);
-        if (result != oboe::Result::OK) {
-            LOGE("Exclusive playback open failed (%s) — retrying Shared",
-                 oboe::convertToText(result));
-            playbackBuilder.setSharingMode(oboe::SharingMode::Shared);
-            result = playbackBuilder.openStream(playbackStream);
-        }
         if (result != oboe::Result::OK) {
             LOGE("Failed to create playback stream: %s",
                  oboe::convertToText(result));
