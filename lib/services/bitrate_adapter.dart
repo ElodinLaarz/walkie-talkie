@@ -54,11 +54,27 @@ enum BitrateLevel {
 ///   * `lossPct > 5 %` sustained for [downHoldMid] → step to [BitrateLevel.mid]
 ///     (16 kbps wideband). Less aggressive; covers the "merely choppy"
 ///     case where high bitrate is overshooting capacity.
-///   * `lossPct < 1 %` AND `underrunsPerSec < 0.1` sustained for [upHold]
-///     → step **up one notch**. Slower than the down-step on purpose —
-///     ramping back up should err on the side of caution so a brief lull
-///     in loss doesn't immediately re-collide with whatever caused the
-///     downstep.
+///   * `lossPct < 1 %` sustained for [upHold] → step **up one notch**.
+///     Slower than the down-step on purpose — ramping back up should err
+///     on the side of caution so a brief lull in loss doesn't immediately
+///     re-collide with whatever caused the downstep.
+///
+/// **Why the up-step ignores `underrunsPerSec`.** Both the down-steps and
+/// the up-step are gated on *true* packet loss (`lossPct`) alone. They are
+/// deliberately symmetric: PR #477 established that mixer underruns are a
+/// jitter / clock-drift signal, not a capacity signal — a smaller (or
+/// larger) 50 fps payload does nothing for unsynchronised playout clocks,
+/// so underruns must not drive the encoder bitrate in *either* direction.
+/// An earlier revision gated the up-step on `underrunsPerSec < 0.1`, which
+/// re-introduced exactly the bug #477 fixed on the down-path: a lossless
+/// but jittery link (the common case for two unsynced 50 Hz domains over
+/// BLE) keeps `underrunsPerSec` above the ceiling indefinitely, so once the
+/// encoder stepped down for any reason it could **never** climb back —
+/// "degraded and stayed there" for the rest of the call. Gating recovery
+/// on loss only lets a clean-but-jittery link recover; genuine loss still
+/// blocks the up-step because real loss raises `lossPct` (a hole-at-head
+/// bumps both the loss counter and the underrun counter), and `lossPct`
+/// alone is sufficient to hold the line.
 ///
 /// **Hysteresis.** A single bad sample never trips a downstep; it must
 /// hold for [downHoldMid] or [downHoldLow] in wall-clock time. Up-steps
@@ -96,10 +112,6 @@ class BitrateAdapter {
 
   /// Loss ceiling for considering a step up. Per the issue spec: 1 %.
   static const double cleanLossPct = 1.0;
-
-  /// Underrun-rate ceiling for considering a step up. Per the issue spec:
-  /// 0.1 / s.
-  static const double cleanUnderrunsPerSec = 0.1;
 
   /// Sustained-bad dwell required before a downstep fires. Per the issue
   /// spec: 4 s. Same dwell is used for the >12 % and >5 % rules — both
@@ -163,9 +175,11 @@ class BitrateAdapter {
 
     final wantsDownLow = sample.lossPct > dropToLowLossPct;
     final wantsDownMid = !wantsDownLow && sample.lossPct > dropToMidLossPct;
-    final wantsUp =
-        sample.lossPct < cleanLossPct &&
-        sample.underrunsPerSec < cleanUnderrunsPerSec;
+    // Up-step is gated on true packet loss only — NOT on underruns. See the
+    // class doc ("Why the up-step ignores underrunsPerSec"): underruns are a
+    // jitter / clock-drift signal, and gating recovery on them strands the
+    // encoder at a low rate forever on a lossless-but-jittery link.
+    final wantsUp = sample.lossPct < cleanLossPct;
 
     // Categorise the sample's preferred direction. A sample that's
     // neither "wants up" nor "wants down" lives in the dead zone — it

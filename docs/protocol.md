@@ -399,13 +399,21 @@ A guest's view of the receive-side voice link from the host. Sampled from
 the native `PeerAudioManager` telemetry every few seconds (`LinkQualityReporter`
 in the Dart layer). Fields:
 
-- `lossPct` — number in `[0, 100]`. Fraction of expected frames the jitter
-  buffer rejected as too late to play.
+- `lossPct` — number in `[0, 100]`. Fraction of expected frames confirmed
+  **lost in transit** — the jitter buffer's seq-gap (hole-at-head) counter,
+  i.e. a sequence number the playhead passed because it never arrived even
+  though the buffer was filled to its target depth. This is RTP-style packet
+  loss and is the **only** signal the bitrate adapter steps on, up or down.
+  It is deliberately *not* the late/overflow drop count: late/overflow drops
+  are a jitter-buffer capacity signal, and driving the encoder on them floors
+  the bitrate on a lossless-but-jittery link and never recovers (PR #477).
 - `jitterMs` — int ≥ 0. Current jitter buffer fill in ms (depth × 20 ms).
   Observability only; the adapter doesn't use it.
-- `underrunsPerSec` — number ≥ 0. Rate of mixer-tick underruns in the
-  sampled window. Non-zero means the buffer drained faster than the wire
-  could refill.
+- `underrunsPerSec` — number ≥ 0. Rate of mixer-tick underrun *episodes* in
+  the sampled window. Non-zero means the buffer drained faster than the wire
+  could refill — typically clock drift between the two unsynchronised 50 Hz
+  domains, not packet loss. Observability only: the adapter does **not** gate
+  on it in either direction (see `lossPct`).
 
 The host runs its own send-side telemetry locally and does **not** emit
 `link_quality` over the wire.
