@@ -156,8 +156,11 @@ void testMultiFrameHoleProducesContiguousPLC() {
               << std::endl;
 }
 
-// push() must enforce kJitterMaxDepth. A stalled consumer or flooding
-// producer can't grow the buffer without bound.
+// push() keeps depth <= kJitterMaxDepth. At the cap a *newer* arrival is
+// admitted by evicting the oldest queued frame (freshness bias) — depth stays
+// pinned at the cap and the overflow is recorded in lateFrameCount, but the
+// fresh audio is kept rather than rejected. The eviction must not be miscounted
+// as network loss (lostFrameCount).
 void testPushCapsAtMaxDepth() {
     JitterBuffer jb;
     const uint8_t data[1] = {0x42};
@@ -168,16 +171,25 @@ void testPushCapsAtMaxDepth() {
     }
     assert(jb.currentDepth() == audio_config::kJitterMaxDepth);
 
-    // Next push must be rejected (counts as late so telemetry sees the
-    // overflow signal).
+    // A newer arrival at the cap is accepted by evicting the oldest (seq 100).
     bool ok = jb.push(
         static_cast<uint32_t>(100 + audio_config::kJitterMaxDepth),
         data, 1);
-    assert(!ok);
-    assert(jb.currentDepth() == audio_config::kJitterMaxDepth);
+    assert(ok);
+    assert(jb.currentDepth() == audio_config::kJitterMaxDepth);  // still capped
     assert(jb.lateFrameCount() == 1);
+    assert(jb.lostFrameCount() == 0);  // eviction is not network loss
 
-    std::cout << "Test Push Caps At Max Depth: PASSED" << std::endl;
+    // The freshest audio survived: seq 100 was evicted, so the first frames to
+    // pop are 101, 102, … contiguously (no hole-at-head from the skip).
+    auto f1 = jb.pop();
+    assert(f1.has_value() && f1->seq == 101);
+    auto f2 = jb.pop();
+    assert(f2.has_value() && f2->seq == 102);
+    assert(jb.lostFrameCount() == 0);
+
+    std::cout << "Test Push Caps At Max Depth (favor-fresh evict): PASSED"
+              << std::endl;
 }
 
 void testNormalFlowAfterFilling() {

@@ -8,6 +8,7 @@
 #include <memory>
 #include <cstring>
 #include <algorithm>
+#include "audio_config.h"
 #include "ring_buffer.h"
 
 // Per-device audio buffer with lock-free ring buffer for real-time safety.

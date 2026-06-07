@@ -41,9 +41,14 @@
 // one underrun (not one per tick), so an idle peer or a long talkspurt gap
 // doesn't ratchet target depth upward in the absence of real network jitter.
 //
-// **Bounded memory.** `push()` enforces `kJitterMaxDepth`: if the buffer is
-// already at the cap, the new frame is dropped (with a `lateFrameCount` bump
-// for telemetry). This caps both memory and worst-case playout latency.
+// **Bounded memory + freshness bias.** `push()` enforces `kJitterMaxDepth`:
+// at the cap it evicts the OLDEST queued frame to admit a newer arrival
+// (advancing the playhead past the dropped seq so the skip isn't miscounted
+// as loss), with a `lateFrameCount` bump for telemetry. An arrival older than
+// everything queued is itself dropped instead. This caps memory and worst-case
+// playout latency *and* biases the buffer toward the freshest audio, so a
+// burst (e.g. a TX backlog draining at once on recovery) catches up rather
+// than replaying stale frames at the head.
 //
 // **Threading.** This class is **not** thread-safe on its own. The caller
 // must serialize all `push`/`pop`/`popAny`/`tick`/`reset` calls — typically
@@ -70,9 +75,12 @@ public:
     //   - exact duplicate of an already-queued seq (first arrival wins; not
     //     counted as late, since this is a transport retransmit, not actual
     //     packet ordering trouble),
-    //   - buffer already at `kJitterMaxDepth` (counts toward `lateFrameCount`
-    //     so the link-quality reporter sees the overflow as a sustained
-    //     mismatch between produce and consume rates).
+    //   - buffer already at `kJitterMaxDepth` AND this seq is older than the
+    //     oldest queued frame (counts toward `lateFrameCount`). A *newer*
+    //     arrival at the cap is instead accepted by evicting the oldest queued
+    //     frame — see the freshness-bias note in the class comment — so the
+    //     `lateFrameCount` bump there flags the overflow without dropping the
+    //     fresh audio.
     bool push(uint32_t seq, const uint8_t* data, size_t size);
 
     // Pop the next in-order frame for playback. Returns nullopt and

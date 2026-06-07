@@ -157,6 +157,16 @@ void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int
         const auto& [id, device] = deviceSnapshot[d];
         if (!device) continue;
 
+        // Latency catch-up: fast-forward past any backlog so we mix the
+        // freshest audio instead of replaying a ring that drifted full (see
+        // audio_config::kPlayoutMaxRingFillSamples). Consumer-side and so
+        // SPSC-safe. The cap is widened to the current read size so we never
+        // drop samples this very call is about to consume.
+        const size_t fillCap = std::max(
+            audio_config::kPlayoutMaxRingFillSamples,
+            static_cast<size_t>(numFrames));
+        device->ringBuffer.dropOldestToFill(fillCap);
+
         // Skip mixing if the device is muted, but read to discard samples so they don't accumulate
         if (device->muted.load(std::memory_order_relaxed)) {
             device->ringBuffer.read(tempMix, std::min(static_cast<size_t>(numFrames), static_cast<size_t>(kMaxFrames)));

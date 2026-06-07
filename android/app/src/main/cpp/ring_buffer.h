@@ -73,6 +73,29 @@ public:
         return toRead;
     }
 
+    // Consumer-side latency cap: drop the oldest samples so that at most
+    // `maxFill` remain available to read. Returns the number dropped.
+    //
+    // Like read(), this only advances readIndex and never touches writeIndex,
+    // so it stays strictly within the SPSC contract — only the single consumer
+    // may call it. Used by the playout mixer to "fast-forward" past an
+    // accumulated backlog (clock drift between producer and consumer, or a
+    // burst draining all at once after a link stall) rather than replaying
+    // stale audio. A no-op when the fill is already at or below `maxFill`.
+    size_t dropOldestToFill(size_t maxFill) {
+        size_t readPos = readIndex.load(std::memory_order_relaxed);
+        size_t writePos = writeIndex.load(std::memory_order_acquire);
+
+        size_t available = availableToRead(readPos, writePos);
+        if (available <= maxFill) {
+            return 0;
+        }
+        size_t toDrop = available - maxFill;
+        size_t newReadPos = (readPos + toDrop) % Capacity;
+        readIndex.store(newReadPos, std::memory_order_release);
+        return toDrop;
+    }
+
     // Peek at samples without consuming them. Returns number of samples copied.
     size_t peek(T* output, size_t count) const {
         size_t readPos = readIndex.load(std::memory_order_relaxed);

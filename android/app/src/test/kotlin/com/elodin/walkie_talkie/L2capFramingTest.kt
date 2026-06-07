@@ -116,6 +116,30 @@ class L2capFramingTest {
     }
 
     /**
+     * The writer's freshness gate: a frame whose queue wait exceeds the budget
+     * is stale and must be dropped; one within budget is kept. Boundary is
+     * exclusive (exactly-at-budget is still fresh) to match the `>` in
+     * [isFrameStale].
+     */
+    @Test
+    fun staleFrameDetection() {
+        val budgetMs = L2capVoiceTransport.STALE_FRAME_BUDGET_MS
+        val budgetNanos = budgetMs * 1_000_000L
+        // Fresh: well under budget.
+        assertTrue("a just-enqueued frame is fresh", !isFrameStale(0L, budgetMs))
+        assertTrue("half-budget is fresh", !isFrameStale(budgetNanos / 2, budgetMs))
+        // Exactly at the budget is still fresh (strict greater-than).
+        assertTrue("exactly-at-budget is fresh", !isFrameStale(budgetNanos, budgetMs))
+        // One nanosecond over is stale.
+        assertTrue("one ns over budget is stale", isFrameStale(budgetNanos + 1, budgetMs))
+        // Multi-second backlog is unambiguously stale.
+        assertTrue(
+            "a 2 s-old frame is stale",
+            isFrameStale(2_000L * 1_000_000L, budgetMs),
+        )
+    }
+
+    /**
      * The contention test that issue #101 calls out as the missing acceptance
      * criterion: many concurrent producers all push frames into one queue,
      * a single drainer thread writes them framed onto a pipe, and the
