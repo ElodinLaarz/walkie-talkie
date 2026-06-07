@@ -424,6 +424,18 @@ class L2capVoiceTransport(
      */
     internal fun activeClientCount(): Int =
         synchronized(clientSockets) { clientSockets.size }
+
+    /**
+     * Snapshot of the addresses of currently-connected host-side clients.
+     *
+     * Used to recover from the host startup race: a guest can open its L2CAP
+     * channel (and the host's [onClientConnected] -> registerVoicePeer can
+     * give up against a not-yet-created mixer) while the foreground service is
+     * still coming up. Once the mixer exists, the caller re-registers everyone
+     * in this list so their frames get a device slot instead of being dropped.
+     */
+    fun getConnectedClients(): List<String> =
+        synchronized(clientSockets) { clientSockets.keys.toList() }
 }
 
 // ── Framing helpers (package-private for unit tests) ───────────────────────

@@ -21,6 +21,13 @@ class MainActivity : FlutterActivity() {
         private const val CONTROL_BYTES_EVENT_CHANNEL = "com.elodin.walkie_talkie/control_bytes"
         private const val LOOPBACK_TEST_DEVICE_ID = -1
 
+        // startVoiceCapture retry budget while the foreground service comes up.
+        // startForegroundService is async, so WalkieTalkieService.getRunning()
+        // can be null for a few ms after Flutter calls startVoice. 10 x 100ms =
+        // up to 1s; the service is observed ready in ~30ms.
+        private const val START_VOICE_MAX_RETRIES = 10
+        private const val START_VOICE_RETRY_MS = 100L
+
         init {
             System.loadLibrary("walkie_talkie_audio")
         }
@@ -198,14 +205,14 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "startVoice" -> {
-                    result.success(startVoiceCapture(loopbackTestMode = false))
+                    startVoiceCapture(loopbackTestMode = false) { ok -> result.success(ok) }
                 }
                 "stopVoice" -> {
                     stopVoiceCapture()
                     result.success(true)
                 }
                 "startLoopbackTest" -> {
-                    result.success(startVoiceCapture(loopbackTestMode = true))
+                    startVoiceCapture(loopbackTestMode = true) { ok -> result.success(ok) }
                 }
                 "stopLoopbackTest" -> {
                     stopVoiceCapture()
@@ -609,14 +616,56 @@ class MainActivity : FlutterActivity() {
         mediaSessionBridge?.attach()
     }
 
-    private fun startVoiceCapture(loopbackTestMode: Boolean): Boolean {
-        if (peerAudioManager != null) return true
-        Log.i(TAG, if (loopbackTestMode) "Starting loopback voice test" else "Starting voice capture")
+    /**
+     * Start mic capture + the Oboe engine + per-peer mixer.
+     *
+     * The foreground [WalkieTalkieService] hosts the engine and is launched via
+     * `startForegroundService` (async): its `onCreate` — which publishes the
+     * `getRunning()` handle — can land a few ms AFTER Flutter's `startVoice`
+     * call arrives. Bailing on a null service here permanently dead-ends the
+     * host (no engine, no mixer; the guest's L2CAP frames get no device slot and
+     * are dropped) — the root cause of "joined the room but hear nothing". So
+     * when the service isn't up yet we retry on the main thread instead of
+     * failing, mirroring [registerVoicePeer].
+     *
+     * Async: replies via [onResult] once the engine is up or the retry budget is
+     * exhausted, so the Flutter `startVoice` result reflects the real outcome.
+     */
+    private fun startVoiceCapture(loopbackTestMode: Boolean, onResult: ((Boolean) -> Unit)? = null) {
+        startVoiceCapture(loopbackTestMode, attempt = 0, onResult = onResult)
+    }
+
+    private fun startVoiceCapture(
+        loopbackTestMode: Boolean,
+        attempt: Int,
+        onResult: ((Boolean) -> Unit)?,
+        sessionId: Int = voiceSessionId
+    ) {
+        if (sessionId != voiceSessionId) {
+            // stopVoiceCapture ran (bumping voiceSessionId) while this retry was
+            // queued on the main looper. The start belongs to an ended session;
+            // proceeding would spin up a zombie engine/mixer after teardown.
+            Log.i(TAG, "startVoiceCapture: stale retry for ended session; aborting")
+            onResult?.invoke(false)
+            return
+        }
+        if (peerAudioManager != null) {
+            onResult?.invoke(true)
+            return
+        }
         val service = WalkieTalkieService.getRunning()
         if (service == null) {
-            Log.e(TAG, "Cannot start voice: WalkieTalkieService is not running")
-            return false
+            if (attempt >= START_VOICE_MAX_RETRIES) {
+                Log.e(TAG, "Cannot start voice: WalkieTalkieService not running after $attempt retries")
+                onResult?.invoke(false)
+                return
+            }
+            Handler(Looper.getMainLooper()).postDelayed({
+                startVoiceCapture(loopbackTestMode, attempt + 1, onResult, sessionId)
+            }, START_VOICE_RETRY_MS)
+            return
         }
+        Log.i(TAG, if (loopbackTestMode) "Starting loopback voice test" else "Starting voice capture")
         service.setLoopbackTestMode(loopbackTestMode)
         audioRoutingManager?.startAutoDetect { outputType ->
             sendEventToFlutter(mapOf(
@@ -637,7 +686,8 @@ class MainActivity : FlutterActivity() {
             audioRoutingManager?.stopAutoDetect()
             audioMixerManager?.clear()
             audioMixerManager = null
-            return false
+            onResult?.invoke(false)
+            return
         }
         // Init the per-peer manager and wire its outbound callback to L2CAP.
         val pm = PeerAudioManager()
@@ -666,7 +716,19 @@ class MainActivity : FlutterActivity() {
         })
         pm.startMixerThread()
         peerAudioManager = pm
-        return true
+        // A guest can dial the L2CAP voice channel while we were still waiting
+        // for the service to come up (host race): its onClientConnected ->
+        // registerVoicePeer fired against a null peerAudioManager and gave up.
+        // Re-register every currently-connected voice client now that the mixer
+        // exists, so their frames get a device slot instead of being dropped.
+        voiceTransport?.getConnectedClients()?.forEach { mac ->
+            Log.i(TAG, "Re-registering voice peer connected during startup: $mac")
+            // Go through registerVoicePeer (not pm.registerPeer directly) so the
+            // Kotlin-side audioMixerManager gets the device slot too; a bare
+            // registerPeer leaves the mixer out of sync with the native peer set.
+            registerVoicePeer(mac)
+        }
+        onResult?.invoke(true)
     }
 
     private fun stopVoiceCapture() {

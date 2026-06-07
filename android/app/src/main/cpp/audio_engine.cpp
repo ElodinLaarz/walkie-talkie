@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -271,6 +272,17 @@ static void stopTalkingEventWorker() {
 static std::mutex g_engineMutex;
 static AudioEngine* g_audioEngine = nullptr;
 
+// Monotonic epoch bumped every time nativeStart creates a new AudioEngine.
+// The auto-restart thread captures the epoch at schedule time and bails if it
+// has changed by the time it wakes, so a stop()+start() during the backoff
+// ladder (which yields a *different* engine instance) is not clobbered by a
+// restart meant for the engine that originally disconnected. A plain
+// raw-pointer comparison can't do this safely: a freed engine address may be
+// reused by the replacement (ABA), making a new engine look like the old one.
+// Atomic so onErrorAfterClose can read it without taking g_engineMutex (which
+// could deadlock if the callback fires synchronously under a stop()).
+static std::atomic<uint64_t> g_engineGeneration{0};
+
 // Restart guard for ErrorDisconnected auto-recovery. Static (not a member of
 // AudioEngineErrorCallback) so the detached restart thread does not capture a
 // pointer to the callback instance — the engine can destroy the callback while
@@ -285,8 +297,9 @@ static std::atomic<bool> g_restartScheduled{false};
 // All other errors are reported immediately in onErrorBeforeClose.
 //
 // Both recording and playback streams share a single instance (see AudioEngine
-// ctor). g_restartScheduled is the deduplicate guard; the lambda captures
-// nothing so the thread has no lifetime dependency on the callback object.
+// ctor). g_restartScheduled is the deduplicate guard; the restart lambda
+// captures only the engine epoch (a value), so the thread has no lifetime
+// dependency on the callback object.
 class AudioEngineErrorCallback : public oboe::AudioStreamErrorCallback {
 public:
     void onErrorBeforeClose(oboe::AudioStream* stream, oboe::Result error) override {
@@ -384,7 +397,19 @@ public:
             ->setDataCallback(this)
             ->setErrorCallback(errorCallback.get());
 
+        // Bluetooth SCO/A2DP routes have no exclusive low-latency (MMAP) path,
+        // so an Exclusive open fails the instant a headset becomes the active
+        // device — which is exactly what kills the engine on headset hot-plug.
+        // Fall back to Shared: built-in speaker/earpiece still negotiate
+        // Exclusive, while BT gets a working Shared stream instead of a dead
+        // engine.
         oboe::Result result = recordingBuilder.openStream(recordingStream);
+        if (result != oboe::Result::OK) {
+            LOGE("Exclusive recording open failed (%s) — retrying Shared",
+                 oboe::convertToText(result));
+            recordingBuilder.setSharingMode(oboe::SharingMode::Shared);
+            result = recordingBuilder.openStream(recordingStream);
+        }
         if (result != oboe::Result::OK) {
             LOGE("Failed to create recording stream: %s",
                  oboe::convertToText(result));
@@ -401,6 +426,12 @@ public:
             ->setErrorCallback(errorCallback.get());
 
         result = playbackBuilder.openStream(playbackStream);
+        if (result != oboe::Result::OK) {
+            LOGE("Exclusive playback open failed (%s) — retrying Shared",
+                 oboe::convertToText(result));
+            playbackBuilder.setSharingMode(oboe::SharingMode::Shared);
+            result = playbackBuilder.openStream(playbackStream);
+        }
         if (result != oboe::Result::OK) {
             LOGE("Failed to create playback stream: %s",
                  oboe::convertToText(result));
@@ -638,27 +669,60 @@ void AudioEngineErrorCallback::onErrorAfterClose(oboe::AudioStream* /*stream*/,
     }
 
     LOGI("Audio device disconnected — scheduling auto-restart");
+    // Snapshot the engine epoch now so the restart applies only to the instance
+    // that actually disconnected. If a stop()+start() cycle swaps in a new
+    // engine during the backoff ladder below, the epoch changes and the thread
+    // bails instead of clobbering the fresh session.
+    const uint64_t scheduledGen =
+        g_engineGeneration.load(std::memory_order_acquire);
     // No `this` capture: the callback object may be destroyed while this
     // thread blocks on g_engineMutex (e.g. nativeStop runs concurrently).
-    // All state the thread needs is in the static globals above.
-    std::thread([]() {
-        std::lock_guard<std::mutex> lock(g_engineMutex);
-        if (g_audioEngine != nullptr) {
-            // stop() is idempotent on already-closed streams; it resets
-            // the worker thread and shared_ptrs before start() reopens them.
-            g_audioEngine->stop();
-            const bool ok = g_audioEngine->start();
-            g_restartScheduled.store(false, std::memory_order_release);
-            if (!ok) {
-                LOGE("Auto-restart after disconnect failed — reporting to Flutter");
-                emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
-            } else {
-                LOGI("Auto-restart after disconnect succeeded");
+    // All state the thread needs is in the static globals above (plus the
+    // captured epoch).
+    std::thread([scheduledGen]() {
+        // A route change (BT headset connect/disconnect) leaves the new audio
+        // endpoint briefly unavailable; reopening immediately races that settle
+        // and fails. Back off and retry a few times before giving up. The lock
+        // is re-acquired per attempt (not held across the sleeps) so a
+        // concurrent nativeStop can tear the engine down without blocking for
+        // the full backoff ladder.
+        static constexpr int kMaxAttempts = 5;
+        static constexpr int kBackoffMs[kMaxAttempts] = {150, 300, 600, 1000, 1500};
+        bool ok = false;
+        bool engineGone = false;
+        for (int attempt = 0; attempt < kMaxAttempts && !ok && !engineGone;
+             ++attempt) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(kBackoffMs[attempt]));
+            std::lock_guard<std::mutex> lock(g_engineMutex);
+            if (g_audioEngine == nullptr ||
+                g_engineGeneration.load(std::memory_order_acquire) !=
+                    scheduledGen) {
+                // Engine was intentionally stopped (nativeStop), or stopped and
+                // replaced by a newer instance (nativeStop + nativeStart) while
+                // we were backing off. Either way the disconnect we were
+                // recovering from is moot; don't touch the current engine.
+                engineGone = true;
+                break;
             }
-        } else {
-            // Engine was intentionally stopped (nativeStop); not an error.
-            g_restartScheduled.store(false, std::memory_order_release);
+            // stop() is idempotent on already-closed streams; it resets the
+            // worker thread and shared_ptrs before start() reopens them.
+            g_audioEngine->stop();
+            ok = g_audioEngine->start();
+            if (ok) {
+                LOGI("Auto-restart after disconnect succeeded (attempt %d)",
+                     attempt + 1);
+            } else {
+                LOGE("Auto-restart attempt %d/%d failed", attempt + 1,
+                     kMaxAttempts);
+            }
+        }
+        g_restartScheduled.store(false, std::memory_order_release);
+        if (engineGone) {
             LOGI("Auto-restart skipped — engine already stopped");
+        } else if (!ok) {
+            LOGE("Auto-restart after disconnect failed — reporting to Flutter");
+            emitAudioErrorEvent(oboe::Result::ErrorDisconnected);
         }
     }).detach();
 }
@@ -703,6 +767,9 @@ Java_com_elodin_walkie_1talkie_AudioEngineManager_nativeStart(JNIEnv* env,
     std::lock_guard<std::mutex> lock(g_engineMutex);
     if (g_audioEngine == nullptr) {
         g_audioEngine = new AudioEngine();
+        // New instance — advance the epoch so any in-flight auto-restart
+        // scheduled against the previous engine bails instead of restarting us.
+        g_engineGeneration.fetch_add(1, std::memory_order_relaxed);
     }
     return g_audioEngine->start();
 }
