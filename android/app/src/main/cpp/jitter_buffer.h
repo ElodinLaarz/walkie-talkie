@@ -27,9 +27,11 @@
 // **Adaptive target depth.** `tick()` is called every mixer tick by the
 // consumer; once per `kJitterAdaptIntervalTicks` it acts on the recent
 // underrun count: if any underruns occurred in the window, target depth
-// grows by one frame (capped at `kJitterMaxDepth`). If no underruns happened
-// for `kJitterShrinkAfterStableTicks`, target depth shrinks by one (floored
-// at `kJitterMinDepth`). Result: the buffer rides the smallest depth that
+// grows by one frame (capped at `kJitterMaxTargetDepth` — deliberately well
+// below the `kJitterMaxDepth` push cap, so a jittery link can't ratchet
+// playout latency to the overflow boundary). If no underruns happened for
+// `kJitterShrinkAfterStableTicks`, target depth shrinks by one (floored at
+// `kJitterMinDepth`). Result: the buffer rides the smallest depth that
 // doesn't glitch on the current link.
 //
 // **Cold-start handling.** Underruns are counted only after the buffer has
@@ -117,7 +119,7 @@ public:
 
     // Hard reset: clear queued frames and rolling state. Use on peer
     // unregister / re-register or on a session-level reset. Does NOT clear
-    // lifetime stats (underrunCount, lateFrameCount).
+    // lifetime stats (underrunCount, lateFrameCount, lostFrameCount).
     void reset();
 
 private:
