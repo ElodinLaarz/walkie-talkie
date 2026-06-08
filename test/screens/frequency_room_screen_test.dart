@@ -299,6 +299,41 @@ void main() {
       expect(find.text('HOST'), findsOneWidget);
     });
 
+    testWidgets(
+      'chrome exposes a settings cog so telemetry is reachable in-room',
+      // Settings (and from there Diagnostics → Voice debug) was previously
+      // only reachable from the discovery screen, so telemetry was invisible
+      // once inside a room. The cog lives in the chrome alongside the existing
+      // output / invite / leave actions.
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room(isHost: true)));
+        await tester.pump();
+        expect(find.byIcon(Icons.settings), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'chrome does not overflow at a narrow 360dp width (four-button layout)',
+      // The layout guarantee behind the settings cog: with the leading pill
+      // Flexible, the four fixed-width action buttons must still fit without a
+      // RenderFlex overflow. Worst case is host (extra HOST chip) on the
+      // narrowest phone we target (moto g play ≈ 360dp). A regression here
+      // throws a FlutterError during paint, which takeException() surfaces.
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(_wrap(_room(isHost: true)));
+        await tester.pump();
+
+        expect(find.byIcon(Icons.settings), findsOneWidget);
+        expect(find.text('HOST'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('host chip is absent for guests', (tester) async {
       await tester.pumpWidget(_wrap(_room(isHost: false)));
       await tester.pump();

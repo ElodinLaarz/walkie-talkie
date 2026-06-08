@@ -12,6 +12,7 @@ import '../protocol/messages.dart';
 import '../protocol/peer.dart';
 import '../services/audio_service.dart';
 import '../services/blocked_peers_store.dart';
+import '../services/settings_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import '../widgets/frequency_toast_host.dart';
@@ -25,6 +26,7 @@ import '../widgets/media_source_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/queue_sheet.dart';
+import 'frequency_settings_screen.dart';
 
 /// Main "On air" room — voice + now playing.
 class FrequencyRoomScreen extends StatefulWidget {
@@ -74,6 +76,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
 
   bool _meMuted = false;
   bool _holdingPtt = false;
+
+  /// Guards [_showSettings] against a rapid double-tap pushing two
+  /// [FrequencySettingsScreen] routes onto the navigator (the user would
+  /// otherwise have to pop twice to get back to the room).
+  bool _navigatingToSettings = false;
 
   /// Per-peer playback volume, keyed by peerId. Populated lazily —
   /// only entries the user has explicitly adjusted exist; everything
@@ -1054,49 +1061,77 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-            decoration: BoxDecoration(
-              color: pillBg,
-              borderRadius: BorderRadius.circular(999),
-            ),
+          // Leading status cluster (on-air pill + HOST chip) takes whatever
+          // width the trailing action buttons don't need. Expanded replaces
+          // the old Spacer and the pill is Flexible with an ellipsizing status
+          // text, so the four fixed-width action buttons always fit and the
+          // chrome never RenderFlex-overflows on narrow phones (the row was
+          // already at the 412dp edge with three buttons).
+          Expanded(
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                statusIcon,
-                const SizedBox(width: 6),
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: pillText,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (phase == ConnectionPhase.online) ...[
-                  Text(
-                    ' · ',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 11,
-                      color: pillText,
-                      fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: pillBg,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        statusIcon,
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            statusText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              color: pillText,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        if (phase == ConnectionPhase.online) ...[
+                          Text(
+                            ' · ',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              color: pillText,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              widget.freq,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: kMonoStyle.copyWith(
+                                fontSize: 11,
+                                color: pillText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  Text(
-                    widget.freq,
-                    style: kMonoStyle.copyWith(fontSize: 11, color: pillText),
-                  ),
+                ),
+                if (widget.isHost) ...[
+                  const SizedBox(width: 8),
+                  FreqChip(label: 'HOST'),
                 ],
               ],
             ),
           ),
-          if (widget.isHost) ...[
-            const SizedBox(width: 8),
-            FreqChip(label: 'HOST'),
-          ],
-          const Spacer(),
+          const SizedBox(width: 8),
           GhostButton(
             icon: _output.icon,
             onPressed: _showOutputSheet,
@@ -1105,6 +1140,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           GhostButton(
             icon: Icons.add,
             onPressed: _showInviteSheet,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          ),
+          GhostButton(
+            icon: Icons.settings,
+            onPressed: _showSettings,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           ),
           GhostButton(
@@ -1390,6 +1430,25 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
+
+  Future<void> _showSettings() async {
+    // Settings is otherwise only reachable from the discovery screen; surface
+    // it here so the Diagnostics → Voice debug telemetry dashboard is
+    // accessible without leaving the room. SettingsStore is the same provider
+    // singleton the discovery screen's _openSettings reads.
+    if (_navigatingToSettings) return;
+    _navigatingToSettings = true;
+    try {
+      final store = context.read<SettingsStore>();
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => FrequencySettingsScreen(settingsStore: store),
+        ),
+      );
+    } finally {
+      if (mounted) _navigatingToSettings = false;
     }
   }
 
