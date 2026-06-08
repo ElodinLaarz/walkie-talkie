@@ -93,6 +93,16 @@
 -dontwarn org.checkerframework.**
 -dontwarn com.google.errorprone.**
 
+# Flutter Play Store deferred components (Play Feature Delivery).
+# io.flutter.embedding.engine.deferredcomponents.PlayStoreDeferredComponentManager
+# — kept by the `io.flutter.embedding.engine.**` rule above — references the
+# Play Core SplitInstall API. This app does not use deferred components, so the
+# Play Core library is intentionally absent from the classpath. Without this
+# rule, release R8 (`isMinifyEnabled = true`) fails the build with
+# "Missing class com.google.android.play.core.*". The referenced code path is
+# never invoked, so suppressing the missing-reference error is safe.
+-dontwarn com.google.android.play.core.**
+
 # ============================================================================
 # Oboe audio library
 # ============================================================================
