@@ -32,13 +32,7 @@ class AudioRoutingManager(private val ctx: Context) {
      */
     fun setOutput(output: String): Boolean {
         try {
-            // Save original state on first call so we can restore it later
-            if (savedMode == null) {
-                savedMode = audioManager.mode
-                savedDevice = audioManager.communicationDevice
-            }
-
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            enterCommunicationMode()
 
             when (output) {
                 "bluetooth" -> {
@@ -49,7 +43,7 @@ class AudioRoutingManager(private val ctx: Context) {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                     }
                     if (bt != null) {
-                        val success = audioManager.setCommunicationDevice(bt)
+                        val success = applyCommunicationDevice(bt)
                         if (success) {
                             Log.i(TAG, "Routed audio to Bluetooth: ${bt.productName}")
                         } else {
@@ -66,7 +60,7 @@ class AudioRoutingManager(private val ctx: Context) {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     }
                     if (ear != null) {
-                        val success = audioManager.setCommunicationDevice(ear)
+                        val success = applyCommunicationDevice(ear)
                         if (success) {
                             Log.i(TAG, "Routed audio to earpiece")
                         } else {
@@ -83,7 +77,7 @@ class AudioRoutingManager(private val ctx: Context) {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     }
                     if (spk != null) {
-                        val success = audioManager.setCommunicationDevice(spk)
+                        val success = applyCommunicationDevice(spk)
                         if (success) {
                             Log.i(TAG, "Routed audio to speaker")
                         } else {
@@ -107,6 +101,44 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
+     * Switch the device into communication mode, saving the prior state once so
+     * cleanup() can restore it.
+     *
+     * Must run *before* the Oboe playback stream opens. A
+     * Usage::VoiceCommunication output stream opened while still in MODE_NORMAL
+     * gets a stale normal-mode route, and AudioFlinger does not re-evaluate an
+     * already-open stream when the mode flips afterward — only an actual
+     * comm-device *change* re-routes it. That mismatch is why playout was silent
+     * until the user manually toggled earpiece⇄speaker (each toggle is a real
+     * device change, which forces the open stream to re-route).
+     */
+    private fun enterCommunicationMode() {
+        if (savedMode == null) {
+            savedMode = audioManager.mode
+            savedDevice = audioManager.communicationDevice
+        }
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+    }
+
+    /**
+     * Apply a communication device.
+     *
+     * Returns early when [target] is already the active communication device.
+     * With the playback stream now born in MODE_IN_COMMUNICATION (see
+     * enterCommunicationMode), it is already routed there, so re-setting is a
+     * no-op — and clearing-then-setting to "force" a transition would briefly
+     * bounce the route through the platform default (earpiece), an audible pop.
+     * Compare by device id so a specific Bluetooth endpoint is not mistaken for
+     * another of the same type.
+     */
+    private fun applyCommunicationDevice(target: AudioDeviceInfo): Boolean {
+        if (audioManager.communicationDevice?.id == target.id) {
+            return true
+        }
+        return audioManager.setCommunicationDevice(target)
+    }
+
+    /**
      * Start auto-detection of audio device changes.
      * When a Bluetooth headset connects, automatically routes audio to it.
      * When it disconnects, calls the onChange callback to let the UI decide fallback.
@@ -115,6 +147,13 @@ class AudioRoutingManager(private val ctx: Context) {
      */
     fun startAutoDetect(onChange: (String) -> Unit) {
         onChangeListener = onChange
+
+        // Enter communication mode now — startAutoDetect runs just before
+        // startAudioEngine opens the Oboe playback stream, so the stream is born
+        // in MODE_IN_COMMUNICATION and binds to the comm-device route correctly.
+        // (See enterCommunicationMode for why doing this after the stream opens
+        // leaves playout silent until a manual output toggle.)
+        enterCommunicationMode()
 
         deviceCallback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
@@ -180,7 +219,13 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Stop auto-detection of audio device changes.
+     * Stop auto-detection of audio device changes and restore the audio state
+     * captured by enterCommunicationMode.
+     *
+     * Symmetric with startAutoDetect (which enters communication mode), so every
+     * teardown path — normal stopVoice, failed-engine rollback, Activity destroy
+     * — leaves the global audio mode and comm device as we found them instead of
+     * leaving the phone stuck in MODE_IN_COMMUNICATION on a forced route.
      */
     fun stopAutoDetect() {
         deviceCallback?.let {
@@ -189,6 +234,31 @@ class AudioRoutingManager(private val ctx: Context) {
             onChangeListener = null
             Log.i(TAG, "Auto-detect stopped")
         }
+        restoreAudioState()
+    }
+
+    /**
+     * Restore the audio mode and communication device saved by
+     * enterCommunicationMode, then drop the saved state so a later session
+     * re-captures fresh. savedMode is non-null only after we captured state; a
+     * null savedDevice then means the device started *unset*, so clear our
+     * forced route rather than leaking it system-wide after teardown.
+     */
+    private fun restoreAudioState() {
+        savedMode?.let { mode ->
+            audioManager.mode = mode
+            Log.i(TAG, "Restored audio mode to $mode")
+            val device = savedDevice
+            if (device != null) {
+                audioManager.setCommunicationDevice(device)
+                Log.i(TAG, "Restored communication device")
+            } else {
+                audioManager.clearCommunicationDevice()
+                Log.i(TAG, "Cleared communication device (none set originally)")
+            }
+        }
+        savedMode = null
+        savedDevice = null
     }
 
     /**
@@ -213,21 +283,10 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Clean up resources and restore previous audio mode/device.
+     * Clean up resources. Delegates to stopAutoDetect, which unregisters the
+     * device callback and restores the saved audio mode / comm device.
      */
     fun cleanup() {
         stopAutoDetect()
-
-        // Restore original audio mode and device if we changed them
-        savedMode?.let { mode ->
-            audioManager.mode = mode
-            Log.i(TAG, "Restored audio mode to $mode")
-        }
-        savedDevice?.let { device ->
-            audioManager.setCommunicationDevice(device)
-            Log.i(TAG, "Restored communication device")
-        }
-        savedMode = null
-        savedDevice = null
     }
 }
