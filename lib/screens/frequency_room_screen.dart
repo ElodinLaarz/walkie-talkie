@@ -77,6 +77,11 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
   bool _meMuted = false;
   bool _holdingPtt = false;
 
+  /// Guards [_showSettings] against a rapid double-tap pushing two
+  /// [FrequencySettingsScreen] routes onto the navigator (the user would
+  /// otherwise have to pop twice to get back to the room).
+  bool _navigatingToSettings = false;
+
   /// Per-peer playback volume, keyed by peerId. Populated lazily —
   /// only entries the user has explicitly adjusted exist; everything
   /// else reads through [_volumeFor] which falls back to
@@ -1103,11 +1108,15 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          Text(
-                            widget.freq,
-                            style: kMonoStyle.copyWith(
-                              fontSize: 11,
-                              color: pillText,
+                          Flexible(
+                            child: Text(
+                              widget.freq,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: kMonoStyle.copyWith(
+                                fontSize: 11,
+                                color: pillText,
+                              ),
                             ),
                           ),
                         ],
@@ -1429,12 +1438,18 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     // it here so the Diagnostics → Voice debug telemetry dashboard is
     // accessible without leaving the room. SettingsStore is the same provider
     // singleton the discovery screen's _openSettings reads.
-    final store = context.read<SettingsStore>();
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => FrequencySettingsScreen(settingsStore: store),
-      ),
-    );
+    if (_navigatingToSettings) return;
+    _navigatingToSettings = true;
+    try {
+      final store = context.read<SettingsStore>();
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => FrequencySettingsScreen(settingsStore: store),
+        ),
+      );
+    } finally {
+      if (mounted) _navigatingToSettings = false;
+    }
   }
 
   Future<void> _showInviteSheet() async {
