@@ -879,7 +879,18 @@ void main() {
       test('getLinkTelemetry returns null on wrong type element', () async {
         // 10 elements so the length check passes and the element-type check
         // is what rejects it.
-        handler = (_) async => [1, 2, 3, 4, 5, 6, 7, 8, 9, '4242']; // last is string
+        handler = (_) async => [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          '4242',
+        ]; // last is string
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 

@@ -174,26 +174,23 @@ void main() {
       },
     );
 
-    test(
-      'upstep is NOT blocked by underruns when loss is clean (regression: '
-      'jitter must not strand the encoder low)',
-      () {
-        // Regression guard for the "degraded and stayed there" bug: a
-        // lossless but jittery link (high underruns, zero true loss) MUST
-        // still recover. Underruns are a clock-drift signal, not a capacity
-        // signal — PR #477 removed them from the down-path; this asserts the
-        // up-path is symmetric, so a once-downstepped encoder can climb back.
-        final a = BitrateAdapter();
-        a.seed('g1', BitrateLevel.low);
-        _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0, underrunsPerSec: 5.0));
-        final out = _feed(
-          a,
-          _lq(peerId: 'g1', atMs: 30000, lossPct: 0.0, underrunsPerSec: 5.0),
-        );
-        expect(out, BitrateLevel.mid);
-        expect(a.levelFor('g1'), BitrateLevel.mid);
-      },
-    );
+    test('upstep is NOT blocked by underruns when loss is clean (regression: '
+        'jitter must not strand the encoder low)', () {
+      // Regression guard for the "degraded and stayed there" bug: a
+      // lossless but jittery link (high underruns, zero true loss) MUST
+      // still recover. Underruns are a clock-drift signal, not a capacity
+      // signal — PR #477 removed them from the down-path; this asserts the
+      // up-path is symmetric, so a once-downstepped encoder can climb back.
+      final a = BitrateAdapter();
+      a.seed('g1', BitrateLevel.low);
+      _feed(a, _lq(peerId: 'g1', atMs: 0, lossPct: 0.0, underrunsPerSec: 5.0));
+      final out = _feed(
+        a,
+        _lq(peerId: 'g1', atMs: 30000, lossPct: 0.0, underrunsPerSec: 5.0),
+      );
+      expect(out, BitrateLevel.mid);
+      expect(a.levelFor('g1'), BitrateLevel.mid);
+    });
 
     test('upstep still blocked by genuine packet loss (lossPct ≥ 1 %)', () {
       // The loss gate is the *only* thing that should hold recovery back.

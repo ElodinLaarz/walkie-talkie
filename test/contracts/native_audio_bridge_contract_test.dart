@@ -15,10 +15,7 @@ void main() {
       // `return true` expression to a callback-style guard when startVoice was
       // made async to retry past the foreground-service startup race; the
       // idempotency contract is unchanged.)
-      expect(
-        mainActivity,
-        contains('if (peerAudioManager != null) {'),
-      );
+      expect(mainActivity, contains('if (peerAudioManager != null) {'));
       expect(
         mainActivity,
         contains('startVoiceCapture(loopbackTestMode = false)'),

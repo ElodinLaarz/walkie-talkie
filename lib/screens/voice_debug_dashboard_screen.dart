@@ -138,9 +138,7 @@ class _VoiceDebugDashboardScreenState extends State<VoiceDebugDashboardScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Export failed: $e')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
   }
 
@@ -307,7 +305,11 @@ class _PeerCard extends StatelessWidget {
                 label: 'bitrate',
                 value: p == null ? '—' : '${(p.bitrateBps / 1000).round()}k',
               ),
-              _Stat(c: c, label: 'seq', value: p == null ? '—' : '${p.lastSeq}'),
+              _Stat(
+                c: c,
+                label: 'seq',
+                value: p == null ? '—' : '${p.lastSeq}',
+              ),
             ],
           ),
           const SizedBox(height: 12),

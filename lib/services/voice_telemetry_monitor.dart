@@ -79,7 +79,11 @@ class VoiceTelemetryMonitor {
   /// Difference [snap] against the previous snapshot for [peerId] and append a
   /// derived point. Returns the new point, or `null` on the first sample for a
   /// peer (nothing to delta against yet) or a non-positive elapsed interval.
-  VoiceTelemetryPoint? add(String peerId, LinkTelemetrySnapshot snap, int nowMs) {
+  VoiceTelemetryPoint? add(
+    String peerId,
+    LinkTelemetrySnapshot snap,
+    int nowMs,
+  ) {
     final prev = _prev[peerId];
     final prevAt = _prevAtMs[peerId];
     _prev[peerId] = snap;
@@ -94,8 +98,10 @@ class VoiceTelemetryMonitor {
     // re-register zeroes recvCount/staleDropCount) reads as "no traffic this
     // interval" rather than a negative spike.
     final recvDelta = (snap.recvCount - prev.recvCount).clamp(0, 1 << 31);
-    final staleDelta =
-        (snap.staleDropCount - prev.staleDropCount).clamp(0, 1 << 31);
+    final staleDelta = (snap.staleDropCount - prev.staleDropCount).clamp(
+      0,
+      1 << 31,
+    );
 
     final point = VoiceTelemetryPoint(
       tMs: nowMs,
