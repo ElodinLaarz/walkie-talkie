@@ -121,18 +121,19 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Apply a communication device, forcing a real route transition.
+     * Apply a communication device.
      *
-     * If [target] is already the active communication device, a plain
-     * setCommunicationDevice() returns true but is a no-op — it won't re-route
-     * an already-running playback stream. That is the second half of the
-     * startup-silence bug: the default "speaker" selection at tune-in matched
-     * the device the platform already picked, so nothing actually routed.
-     * Clearing first makes the set a genuine transition AudioFlinger acts on.
+     * Returns early when [target] is already the active communication device.
+     * With the playback stream now born in MODE_IN_COMMUNICATION (see
+     * enterCommunicationMode), it is already routed there, so re-setting is a
+     * no-op — and clearing-then-setting to "force" a transition would briefly
+     * bounce the route through the platform default (earpiece), an audible pop.
+     * Compare by device id so a specific Bluetooth endpoint is not mistaken for
+     * another of the same type.
      */
     private fun applyCommunicationDevice(target: AudioDeviceInfo): Boolean {
-        if (audioManager.communicationDevice?.type == target.type) {
-            audioManager.clearCommunicationDevice()
+        if (audioManager.communicationDevice?.id == target.id) {
+            return true
         }
         return audioManager.setCommunicationDevice(target)
     }
@@ -218,7 +219,13 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Stop auto-detection of audio device changes.
+     * Stop auto-detection of audio device changes and restore the audio state
+     * captured by enterCommunicationMode.
+     *
+     * Symmetric with startAutoDetect (which enters communication mode), so every
+     * teardown path — normal stopVoice, failed-engine rollback, Activity destroy
+     * — leaves the global audio mode and comm device as we found them instead of
+     * leaving the phone stuck in MODE_IN_COMMUNICATION on a forced route.
      */
     fun stopAutoDetect() {
         deviceCallback?.let {
@@ -227,6 +234,31 @@ class AudioRoutingManager(private val ctx: Context) {
             onChangeListener = null
             Log.i(TAG, "Auto-detect stopped")
         }
+        restoreAudioState()
+    }
+
+    /**
+     * Restore the audio mode and communication device saved by
+     * enterCommunicationMode, then drop the saved state so a later session
+     * re-captures fresh. savedMode is non-null only after we captured state; a
+     * null savedDevice then means the device started *unset*, so clear our
+     * forced route rather than leaking it system-wide after teardown.
+     */
+    private fun restoreAudioState() {
+        savedMode?.let { mode ->
+            audioManager.mode = mode
+            Log.i(TAG, "Restored audio mode to $mode")
+            val device = savedDevice
+            if (device != null) {
+                audioManager.setCommunicationDevice(device)
+                Log.i(TAG, "Restored communication device")
+            } else {
+                audioManager.clearCommunicationDevice()
+                Log.i(TAG, "Cleared communication device (none set originally)")
+            }
+        }
+        savedMode = null
+        savedDevice = null
     }
 
     /**
@@ -251,21 +283,10 @@ class AudioRoutingManager(private val ctx: Context) {
     }
 
     /**
-     * Clean up resources and restore previous audio mode/device.
+     * Clean up resources. Delegates to stopAutoDetect, which unregisters the
+     * device callback and restores the saved audio mode / comm device.
      */
     fun cleanup() {
         stopAutoDetect()
-
-        // Restore original audio mode and device if we changed them
-        savedMode?.let { mode ->
-            audioManager.mode = mode
-            Log.i(TAG, "Restored audio mode to $mode")
-        }
-        savedDevice?.let { device ->
-            audioManager.setCommunicationDevice(device)
-            Log.i(TAG, "Restored communication device")
-        }
-        savedMode = null
-        savedDevice = null
     }
 }
