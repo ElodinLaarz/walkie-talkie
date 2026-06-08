@@ -95,7 +95,7 @@ dev_dependencies:
   # In-memory sqflite for unit tests via FFI. Production uses the real
   # `sqflite` plugin on Android; tests inject `databaseFactoryFfi` so
   # they don't depend on the platform channel.
-  sqflite_common_ffi: ^2.4.0+3
+  sqflite_common_ffi: ^2.4.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
