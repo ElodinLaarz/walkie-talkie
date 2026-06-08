@@ -25,6 +25,11 @@ class DiscoveryService {
   /// no BLE advertisements arrive (e.g. every host went silent simultaneously).
   Timer? _pruneTimer;
 
+  /// Signature of the last set pushed to [results]. Used to coalesce the
+  /// high-frequency scan callbacks (see [_emit]) so we don't rebuild the UI on
+  /// every advertisement when the visible set hasn't actually changed.
+  String? _lastEmittedSig;
+
   // Timeout for Bluetooth pre-flight checks. Long enough for a healthy stack,
   // short enough to unblock discovery on flaky OEM stacks (#432).
   static const Duration _kBtCheckTimeout = Duration(seconds: 3);
@@ -63,6 +68,7 @@ class DiscoveryService {
     }
 
     _discovered.clear();
+    _lastEmittedSig = null;
     _emit();
 
     // 2. Listen for scan results.
@@ -98,37 +104,69 @@ class DiscoveryService {
           );
         }
       }
-      // Emit unconditionally so the freshness window prunes stale entries
-      // even when this tick has no new sessions (e.g. every host went out
-      // of range — the listener still needs to see the empty list).
+      // Coalesced emit: pushes only when the visible set changed (see [_emit]).
+      // continuousUpdates:true forwards a host's advertisement several times a
+      // second, but the NEARBY list rarely changes that fast — gating here
+      // avoids rebuilding the UI on every packet. Time-based pruning and RSSI
+      // refresh are handled by the prune timer's forced emit below.
       _emit();
     });
     // Auto-cancel the subscription if the OS stops the scan unexpectedly
     // (e.g. adapter turned off, or platform scan timeout).
     FlutterBluePlus.cancelWhenScanComplete(_scanSubscription!);
 
-    // 3. Start scanning without a hardware service-UUID filter.
+    // 3. Start scanning with a manufacturer-data ScanFilter (NOT a UUID one).
     //
-    // Some OEM BLE stacks (notably MediaTek-based Motorola devices) advertise
-    // 128-bit UUIDs in non-standard byte order or do not honour hardware UUID
-    // scan filters from other vendors' chipsets. A withServices filter here
-    // silently drops those advertisements before parseResult ever sees them.
+    // Two constraints have to be satisfied at once:
     //
-    // parseResult already performs software filtering — it only accepts payloads
-    // whose first byte is protocol version 0x01 and second byte is role 0x01
-    // (see DiscoveredSession.fromManufacturerData). Content-based filtering is
-    // more reliable than UUID-based filtering because it checks the actual
-    // payload regardless of how the advertising metadata is encoded by the
-    // host's BLE stack.
+    //  a) The scan MUST be filtered. Android demotes an *unfiltered* scan to
+    //     opportunistic mode after a timeout (logcat: BtScan.ScanManager
+    //     "Moving unfiltered scan to opportunistic scan"). Once demoted, the
+    //     host's advertisements stop arriving and the session is pruned from
+    //     NEARBY — discovery silently dies a minute or two into a session, so
+    //     tune-in and rejoin become impossible. A ScanFilter keeps the scan in
+    //     regular (non-opportunistic) mode and additionally permits screen-off
+    //     scanning.
+    //
+    //  b) The filter must NOT be a 128-bit service-UUID filter. Some OEM BLE
+    //     stacks (MediaTek-based Motorola devices) advertise the UUID in
+    //     non-standard byte order, so a withServices filter silently drops
+    //     their advertisements before parseResult ever sees them (#361).
+    //
+    // Filtering on the manufacturer-data payload satisfies both: it keeps the
+    // scan filtered while matching the actual bytes the host controls, which is
+    // encoding-order agnostic. We match the manufacturer id plus the fixed
+    // [version=0x01, role=0x01] prefix; parseResult still does the full
+    // software validation (see DiscoveredSession.fromManufacturerData).
     await FlutterBluePlus.startScan(
       // No timeout — user controls start/stop; avoids silent timeout failures.
+      withMsd: [
+        MsdFilter(
+          0xFFFF, // HostAdvertiser.MANUFACTURER_ID
+          data: [0x01, 0x01], // protocol v1 + host role
+          mask: [0xFF, 0xFF],
+        ),
+      ],
+      // Process EVERY matching advertisement, not just the first.
+      //
+      // The host's manufacturer payload is static, and FlutterBluePlus's default
+      // (continuousUpdates: false) forwards a given device to onScanResults only
+      // once — on first discovery. With a static payload behind a hardware
+      // ScanFilter the controller stops re-reporting, so lastSeen is never
+      // refreshed and the freshnessWindow prunes a host that is still in range.
+      // continuousUpdates keeps lastSeen ticking on every received advertisement,
+      // which is what keeps a present host on the NEARBY list.
+      continuousUpdates: true,
     );
 
     // Start prune timer only after scan starts successfully. This prevents a
     // resource leak where a failed startScan leaves the timer firing into a
     // scan-less void.
     _pruneTimer?.cancel();
-    _pruneTimer = Timer.periodic(freshnessWindow ~/ 2, (_) => _emit());
+    _pruneTimer = Timer.periodic(
+      freshnessWindow ~/ 2,
+      (_) => _emit(force: true),
+    );
   }
 
   /// Stops the active scan.
@@ -140,10 +178,34 @@ class DiscoveryService {
     _scanSubscription = null;
   }
 
-  void _emit() {
+  /// Prunes stale entries and pushes the current set to [results].
+  ///
+  /// Scan callbacks call this unforced: it pushes only when the visible set's
+  /// identity changed since the last emit (membership, host name, role or
+  /// flags), coalescing the per-advertisement churn that `continuousUpdates`
+  /// produces. RSSI is deliberately excluded from the signature — it fluctuates
+  /// on every packet and would defeat the coalescing.
+  ///
+  /// The prune timer calls this with [force] `true` on a fixed cadence so stale
+  /// entries are still removed (and RSSI refreshed) even while membership is
+  /// steady or every host has gone silent.
+  void _emit({bool force = false}) {
     final cutoff = DateTime.now().subtract(freshnessWindow);
     _discovered.removeWhere((_, entry) => entry.lastSeen.isBefore(cutoff));
-    _resultsController.add(_discovered.values.map((e) => e.session).toList());
+    final sessions = _discovered.values.map((e) => e.session).toList();
+    final sig =
+        (_discovered.values
+              .map(
+                (e) =>
+                    '${e.session.sessionUuidLow8}|${e.session.isHost}'
+                    '|${e.session.flags}|${e.session.hostName}',
+              )
+              .toList()
+            ..sort())
+            .join(',');
+    if (!force && sig == _lastEmittedSig) return;
+    _lastEmittedSig = sig;
+    _resultsController.add(sessions);
   }
 
   @visibleForTesting
