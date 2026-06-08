@@ -163,7 +163,14 @@ class DiscoveryService {
   }
 
   Future<void> dispose() async {
-    await stopScan();
-    await _resultsController.close();
+    // stopScan() touches the platform adapter and the scan subscription, both
+    // of which can throw (e.g. FlutterBluePlus.stopScan() rejecting on a
+    // disposed adapter). Close the controller in a finally so a throwing
+    // stopScan never leaks the broadcast controller.
+    try {
+      await stopScan();
+    } finally {
+      await _resultsController.close();
+    }
   }
 }

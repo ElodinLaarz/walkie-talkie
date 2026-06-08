@@ -316,4 +316,31 @@ void main() {
       expect(halfWindow, const Duration(seconds: 5));
     });
   });
+
+  group('DiscoveryService dispose', () {
+    test('closes the results controller even when stopScan throws', () async {
+      final service = _ThrowingStopScanDiscoveryService();
+      // Subscribe so we can observe the stream closing (done callback).
+      var done = false;
+      service.results.listen(null, onDone: () => done = true);
+
+      // dispose() must propagate the stopScan failure but still close the
+      // controller in its finally block (regression for the leak where a
+      // throwing stopScan skipped close()).
+      await expectLater(service.dispose(), throwsStateError);
+
+      // Give the broadcast controller's done event a microtask to deliver.
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isTrue, reason: 'results controller should be closed');
+    });
+  });
+}
+
+/// Test double whose stopScan() always throws, exercising dispose()'s
+/// finally-block close of the broadcast controller.
+class _ThrowingStopScanDiscoveryService extends DiscoveryService {
+  @override
+  Future<void> stopScan() async {
+    throw StateError('stopScan failed');
+  }
 }

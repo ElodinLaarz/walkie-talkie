@@ -90,5 +90,30 @@ void main() {
       expect(f.accept(peerId: 'a', seq: 7), isFalse);
       expect(f.accept(peerId: 'a', seq: 8), isTrue);
     });
+
+    test('uint32 wrap from max back to 1 is accepted', () {
+      final f = SequenceFilter();
+      const uint32Max = 0xFFFFFFFF;
+      expect(f.accept(peerId: 'a', seq: uint32Max), isTrue);
+      // Without wrap handling this would read as seq <= last and be dropped,
+      // muting the peer forever. The far-backwards jump is a wrap.
+      expect(f.accept(peerId: 'a', seq: 1), isTrue);
+      expect(f.watermarks, {'a': 1});
+      // Post-wrap counter resumes normal monotonic behaviour.
+      expect(f.accept(peerId: 'a', seq: 1), isFalse);
+      expect(f.accept(peerId: 'a', seq: 2), isTrue);
+    });
+
+    test(
+      'ordinary backwards jump (duplicate/out-of-order) is still dropped',
+      () {
+        final f = SequenceFilter();
+        f.accept(peerId: 'a', seq: 1000);
+        // Just below watermark — a stale retransmit, not a wrap.
+        expect(f.accept(peerId: 'a', seq: 999), isFalse);
+        expect(f.accept(peerId: 'a', seq: 1), isFalse);
+        expect(f.watermarks, {'a': 1000});
+      },
+    );
   });
 }

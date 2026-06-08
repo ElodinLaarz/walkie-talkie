@@ -40,13 +40,28 @@ class SequenceFilter {
   /// without breaking the receiver's view of "later than what we've
   /// seen"). The protocol's stricter "no gaps" guarantee is enforced by
   /// senders, not receivers.
+  ///
+  /// `seq` is a uint32 on the wire. A long-lived peer's counter eventually
+  /// wraps from 0xFFFFFFFF back to 1; without special handling every
+  /// post-wrap frame would read as `seq <= last` and the peer would go
+  /// permanently silent until [forget] is called. A large backwards jump
+  /// (more than half the uint32 space) is therefore treated as a wrap and
+  /// accepted, advancing the watermark — consistent with the
+  /// receiver-permissive posture documented above.
   bool accept({required String peerId, required int seq}) {
     if (seq < 1) return false;
     final last = _lastSeq[peerId];
-    if (last != null && seq <= last) return false;
+    if (last != null && seq <= last && !_isWrap(last, seq)) return false;
     _lastSeq[peerId] = seq;
     return true;
   }
+
+  /// True when going from [last] to [seq] looks like a uint32 counter wrap
+  /// rather than a stale/duplicate frame: the backwards gap exceeds half the
+  /// uint32 range (2^31). A duplicate or mildly out-of-order frame sits just
+  /// below the watermark and is correctly rejected; a genuine wrap lands far
+  /// below it (e.g. 0xFFFFFFFF -> 1).
+  static bool _isWrap(int last, int seq) => last - seq > 0x80000000;
 
   /// Drop the watermark for [peerId]. Callers MUST invoke this on clean
   /// disconnect (the `Leave`/`RemovePeer` flow in `docs/protocol.md` §
