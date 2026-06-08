@@ -42,6 +42,20 @@ class HeartbeatScheduler {
   Timer? _timer;
   final Map<String, DateTime> _lastSeen = {};
 
+  /// When voice was last seen *arriving* on the link, or null if never. While
+  /// this is within [pingInterval] of now, [_tick] suppresses the outbound GATT
+  /// ping — see [noteVoiceActivity]. Used for the receive direction, which has
+  /// no clean "stopped" edge: the caller refreshes it each inbound tick and it
+  /// lapses naturally when frames stop.
+  DateTime? _lastVoiceActivityAt;
+
+  /// Whether we are *currently transmitting* voice. Unlike
+  /// [_lastVoiceActivityAt] this is edge-driven and never goes stale, so it
+  /// keeps the ping suppressed for the whole of a long utterance even on the
+  /// host, which has no periodic tick to refresh a timestamp. See
+  /// [setTransmitting].
+  bool _transmittingVoice = false;
+
   void Function()? _onTick;
   void Function(String peerId)? _onPeerLost;
 
@@ -100,6 +114,31 @@ class HeartbeatScheduler {
     _lastSeen[peerId] = _now();
   }
 
+  /// Records that voice traffic is actively flowing on the link *right now*
+  /// (a frame was just sent or received). While voice has been seen within
+  /// [pingInterval], [_tick] skips the dedicated GATT heartbeat: the voice
+  /// stream itself — plus, on the guest, the 2 s link-quality plane — already
+  /// proves liveness to the peer, so the extra control-plane write is pure
+  /// radio contention that periodically stalls the L2CAP voice CoC.
+  ///
+  /// **Suppression is one-directional and safe.** Only the *outbound* ping is
+  /// skipped; inbound peer-loss detection ([missThreshold] scan) still runs
+  /// every tick. The caller is responsible for also feeding inbound voice into
+  /// [notePingFrom] so a peer that goes voice-silent-but-alive (and stops
+  /// pinging because *it* sees our voice) isn't wrongly declared lost.
+  void noteVoiceActivity() {
+    _lastVoiceActivityAt = _now();
+  }
+
+  /// Sets whether local voice is *currently transmitting*. While true, [_tick]
+  /// suppresses the outbound ping with no risk of the watermark going stale
+  /// mid-utterance — important on the host, which (unlike the guest's 2 s
+  /// link-quality tick) has no periodic refresh path. Drive it from the local
+  /// talking edges: `setTransmitting(true)` on talk-start, `false` on talk-end.
+  void setTransmitting(bool transmitting) {
+    _transmittingVoice = transmitting;
+  }
+
   /// Drops the watermark for [peerId] without firing [onPeerLost]. Call
   /// on clean disconnects (`Leave` / `RemovePeer` flow) so the peer's
   /// next session starts fresh — and so a stale watermark from before
@@ -115,6 +154,8 @@ class HeartbeatScheduler {
     _timer?.cancel();
     _timer = null;
     _lastSeen.clear();
+    _lastVoiceActivityAt = null;
+    _transmittingVoice = false;
     _onTick = null;
     _onPeerLost = null;
   }
@@ -129,8 +170,19 @@ class HeartbeatScheduler {
   void debugTick() => _tick();
 
   void _tick() {
-    _onTick?.call();
     final now = _now();
+    // Suppress the outbound GATT ping while voice is actively flowing: the
+    // voice stream (and, guest-side, the 2 s link-quality plane) already prove
+    // liveness, so the redundant control-plane write only adds radio
+    // contention that stalls the L2CAP voice CoC. The miss-threshold scan
+    // below is unaffected — we still detect a peer that goes truly silent.
+    final lastVoice = _lastVoiceActivityAt;
+    final voiceRecentlyReceived =
+        lastVoice != null && now.difference(lastVoice) < pingInterval;
+    final suppressPing = _transmittingVoice || voiceRecentlyReceived;
+    if (!suppressPing) {
+      _onTick?.call();
+    }
     // Snapshot keys before iterating so the onPeerLost callback can
     // mutate the map (forgetPeer / notePingFrom) without breaking the loop.
     //

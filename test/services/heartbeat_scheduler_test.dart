@@ -295,4 +295,124 @@ void main() {
       scheduler.stop();
     });
   });
+
+  group('HeartbeatScheduler voice-activity suppression', () {
+    test('skips the outbound ping when voice is fresh (< pingInterval)', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      var ticks = 0;
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        clock: () => fakeNow,
+      );
+      scheduler.start(onTick: () => ticks++, onPeerLost: (_) {});
+
+      scheduler.noteVoiceActivity();
+      fakeNow = fakeNow.add(const Duration(seconds: 2)); // still < 5 s
+      scheduler.debugTick();
+
+      expect(ticks, 0, reason: 'ping suppressed while voice is active');
+      scheduler.stop();
+    });
+
+    test('resumes pinging once voice goes stale (>= pingInterval)', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      var ticks = 0;
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        clock: () => fakeNow,
+      );
+      scheduler.start(onTick: () => ticks++, onPeerLost: (_) {});
+
+      scheduler.noteVoiceActivity();
+      fakeNow = fakeNow.add(const Duration(seconds: 5)); // exactly pingInterval
+      scheduler.debugTick();
+
+      expect(ticks, 1, reason: 'voice no longer fresh — ping resumes');
+      scheduler.stop();
+    });
+
+    test('suppression does NOT block peer-loss detection', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final lost = <String>[];
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        missThreshold: const Duration(seconds: 15),
+        clock: () => fakeNow,
+      );
+      var ticks = 0;
+      scheduler.start(onTick: () => ticks++, onPeerLost: lost.add);
+
+      scheduler.notePingFrom('peer-a');
+      // Keep voice fresh on every tick so the ping stays suppressed, but let
+      // peer-a fall silent past the miss threshold.
+      for (var i = 0; i < 4; i++) {
+        fakeNow = fakeNow.add(const Duration(seconds: 4));
+        scheduler.noteVoiceActivity();
+        scheduler.debugTick();
+      }
+
+      expect(ticks, 0, reason: 'ping stayed suppressed throughout');
+      expect(lost, ['peer-a'], reason: 'silent peer still detected as lost');
+      scheduler.stop();
+    });
+
+    test('setTransmitting(true) suppresses the ping and never goes stale', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      var ticks = 0;
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        clock: () => fakeNow,
+      );
+      scheduler.start(onTick: () => ticks++, onPeerLost: (_) {});
+
+      scheduler.setTransmitting(true);
+      // Many intervals of sustained talk with no refresh — a timestamp would
+      // have gone stale, but the transmitting flag holds.
+      for (var i = 0; i < 5; i++) {
+        fakeNow = fakeNow.add(const Duration(seconds: 5));
+        scheduler.debugTick();
+      }
+
+      expect(ticks, 0, reason: 'ping stays suppressed for the whole utterance');
+      scheduler.stop();
+    });
+
+    test('setTransmitting(false) lets the ping resume', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      var ticks = 0;
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        clock: () => fakeNow,
+      );
+      scheduler.start(onTick: () => ticks++, onPeerLost: (_) {});
+
+      scheduler.setTransmitting(true);
+      fakeNow = fakeNow.add(const Duration(seconds: 5));
+      scheduler.debugTick();
+      expect(ticks, 0);
+
+      scheduler.setTransmitting(false);
+      fakeNow = fakeNow.add(const Duration(seconds: 5));
+      scheduler.debugTick();
+      expect(ticks, 1, reason: 'talk ended — keepalive ping resumes');
+      scheduler.stop();
+    });
+
+    test('start() clears a stale voice-activity watermark', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      var ticks = 0;
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(seconds: 5),
+        clock: () => fakeNow,
+      );
+      scheduler.noteVoiceActivity();
+      // A fresh room entry (re-start) must not inherit the old watermark.
+      scheduler.start(onTick: () => ticks++, onPeerLost: (_) {});
+      fakeNow = fakeNow.add(const Duration(seconds: 1));
+      scheduler.debugTick();
+
+      expect(ticks, 1, reason: 'start() reset voice activity — ping fires');
+      scheduler.stop();
+    });
+  });
 }

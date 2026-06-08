@@ -788,6 +788,23 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // First sample — nothing to delta against. Seed and exit.
         return;
       }
+      // Inbound voice is a sign-of-life for the host: if we're accepting the
+      // host's frames, the host is up regardless of whether its (possibly
+      // voice-suppressed) GATT heartbeat arrived. Refresh the host's watermark
+      // so a host that stops pinging while still talking isn't declared lost.
+      if (snapshot.recvCount > prev.recvCount) {
+        final hostPeerId = current.hostPeerId;
+        if (hostPeerId != null) _heartbeats.notePingFrom(hostPeerId);
+        // Receiving voice also lets us suppress our *own* redundant heartbeat —
+        // even as a pure listener that never transmits. This very tick sends a
+        // LinkQuality to the host, whose dispatch calls notePingFrom on the
+        // host side, so the host already knows we're alive every ~2 s; the
+        // dedicated 5 s GATT ping is pure radio contention against the L2CAP
+        // voice we're trying to receive. Guest-only: _sendLinkQuality returns
+        // early for the host, which must not suppress on RX (it has no
+        // link-quality plane advertising its liveness to guests).
+        _heartbeats.noteVoiceActivity();
+      }
       final elapsed = now.difference(prevAt);
       // Negative or zero elapsed (clock skew) — skip computation rather
       // than throwing inside computeLinkQuality.
@@ -1248,6 +1265,14 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   void _onLocalTalking(bool talking) {
     final current = state;
     if (isClosed || current is! SessionRoom) return;
+
+    // Transmitting voice proves our liveness to the peer (our frames land on
+    // their L2CAP socket), so the dedicated GATT heartbeat is redundant while
+    // we talk — suppress it to spare the radio. Edge-driven boolean (not a
+    // timestamp) so it covers a whole sustained utterance even on the host,
+    // which has no periodic tick to refresh a watermark. See
+    // [HeartbeatScheduler.setTransmitting].
+    _heartbeats.setTransmitting(talking);
 
     final t = _transport;
     final peerId = _localPeerId;
