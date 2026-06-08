@@ -299,6 +299,19 @@ void main() {
       expect(find.text('HOST'), findsOneWidget);
     });
 
+    testWidgets(
+      'chrome exposes a settings cog so telemetry is reachable in-room',
+      // Settings (and from there Diagnostics → Voice debug) was previously
+      // only reachable from the discovery screen, so telemetry was invisible
+      // once inside a room. The cog lives in the chrome alongside the existing
+      // output / invite / leave actions.
+      (tester) async {
+        await tester.pumpWidget(_wrap(_room(isHost: true)));
+        await tester.pump();
+        expect(find.byIcon(Icons.settings), findsOneWidget);
+      },
+    );
+
     testWidgets('host chip is absent for guests', (tester) async {
       await tester.pumpWidget(_wrap(_room(isHost: false)));
       await tester.pump();
