@@ -13,6 +13,30 @@ between phones in the same room.
 > will never ship elsewhere. See
 > [docs/protocol.md § Out of scope](docs/protocol.md#out-of-scope).
 
+## Install
+
+**[Obtainium](https://github.com/ImranR98/Obtainium)** is the recommended way to
+install the app and stay up to date outside the Play Store. It watches this
+repo's GitHub Releases and prompts you whenever a new version is published — no
+account, no store. Tap the badge (opens Obtainium with the source pre-filled):
+
+[<img src="https://github.com/ImranR98/Obtainium/blob/main/assets/graphics/badge_obtainium.png?raw=true" alt="Get it on Obtainium" height="54">](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.elodin.walkie_talkie%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FElodinLaarz%2Fwalkie-talkie%22%2C%22author%22%3A%22ElodinLaarz%22%2C%22name%22%3A%22walkie_talkie%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%7D%22%7D)
+
+Or add it manually: Obtainium → **Add App** →
+`https://github.com/ElodinLaarz/walkie-talkie`. Each release ships a single
+universal APK covering all supported ABIs, so no architecture filter is needed.
+
+> **One distribution channel per device.** Releases here are signed with the
+> project's upload key. If the app is also published through Google Play, Play
+> re-signs it with a *different* key, so a Play-installed copy and an
+> Obtainium-installed copy have incompatible signatures and cannot update over
+> each other — Android refuses the install until the other copy is uninstalled.
+> Pick one source per device and stay on it.
+
+> Requires at least one published release. Releases are cut automatically when a
+> `v*` tag is pushed — see
+> [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
 ## Transport
 
 Voice and control both ride on **Bluetooth LE**, in a star topology with one
