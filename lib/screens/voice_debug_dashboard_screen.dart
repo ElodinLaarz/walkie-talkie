@@ -77,20 +77,35 @@ class _VoiceDebugDashboardScreenState extends State<VoiceDebugDashboardScreen> {
     _polling = true;
     try {
       final state = widget.cubit.state;
+      final active = <String>{};
       if (state is SessionRoom) {
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
         for (final peer in state.roster) {
           // Resolve each roster peer to a MAC. Our own entry (and peers we
           // have no L2CAP link to) resolve to null and are skipped, so the
           // dashboard naturally shows only the streams we actually receive.
           final mac = widget.cubit.macForPeerId(peer.peerId);
           if (mac == null) continue;
+          active.add(peer.peerId);
           final snap = await widget.audioService.getLinkTelemetry(mac);
           if (!mounted) return;
           if (snap != null) {
-            _monitor.add(peer.peerId, snap, nowMs);
+            // Stamp per-snapshot, not once before the loop: getLinkTelemetry is
+            // awaited serially, so a shared pre-loop timestamp would record
+            // later peers with too-early a time and skew their derived rates.
+            final sampleMs = DateTime.now().millisecondsSinceEpoch;
+            _monitor.add(peer.peerId, snap, sampleMs);
             _labels[peer.peerId] = peer.displayName;
           }
+        }
+      }
+      // Drop peers that have left the room (or whose link dropped) so the
+      // dashboard doesn't keep rendering their last, now-frozen sample — the
+      // monitor only ages points out on add(), which never fires for a peer
+      // we've stopped polling.
+      for (final id in _monitor.peers.toList()) {
+        if (!active.contains(id)) {
+          _monitor.forgetPeer(id);
+          _labels.remove(id);
         }
       }
       if (mounted) setState(() {});
@@ -104,10 +119,13 @@ class _VoiceDebugDashboardScreenState extends State<VoiceDebugDashboardScreen> {
     try {
       final json = _monitor.exportJson();
       // App-specific external dir on Android is user-reachable (file manager /
-      // `adb pull`) without storage permissions; fall back to the documents dir.
-      final dir =
-          await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
+      // `adb pull`) without storage permissions; fall back to the documents
+      // dir. getExternalStorageDirectory() is Android-only and *throws* (not
+      // returns null) elsewhere, so guard the platform before calling it.
+      final dir = Platform.isAndroid
+          ? (await getExternalStorageDirectory() ??
+                await getApplicationDocumentsDirectory())
+          : await getApplicationDocumentsDirectory();
       final ts = DateTime.now().toIso8601String().replaceAll(':', '-');
       final file = File('${dir.path}/voice-telemetry-$ts.json');
       await file.writeAsString(json);
@@ -173,6 +191,7 @@ class _VoiceDebugDashboardScreenState extends State<VoiceDebugDashboardScreen> {
                     avgLagMs: _monitor.avgLagMs(peerId),
                     points: _monitor.points(peerId),
                     staleBudgetMs: _staleBudgetMs,
+                    windowSeconds: _monitor.window.inSeconds,
                   ),
               ],
             ),
@@ -207,6 +226,7 @@ class _PeerCard extends StatelessWidget {
   final double? avgLagMs;
   final List<VoiceTelemetryPoint> points;
   final double staleBudgetMs;
+  final int windowSeconds;
 
   const _PeerCard({
     required this.c,
@@ -215,6 +235,7 @@ class _PeerCard extends StatelessWidget {
     required this.avgLagMs,
     required this.points,
     required this.staleBudgetMs,
+    required this.windowSeconds,
   });
 
   @override
@@ -276,18 +297,22 @@ class _PeerCard extends StatelessWidget {
                     ? '—'
                     : '${p.staleDropsPerSec.toStringAsFixed(1)}/s',
               ),
-              _Stat(c: c, label: 'depth', value: '${p?.depthFrames ?? 0} fr'),
+              _Stat(
+                c: c,
+                label: 'depth',
+                value: p == null ? '—' : '${p.depthFrames} fr',
+              ),
               _Stat(
                 c: c,
                 label: 'bitrate',
                 value: p == null ? '—' : '${(p.bitrateBps / 1000).round()}k',
               ),
-              _Stat(c: c, label: 'seq', value: '${p?.lastSeq ?? 0}'),
+              _Stat(c: c, label: 'seq', value: p == null ? '—' : '${p.lastSeq}'),
             ],
           ),
           const SizedBox(height: 12),
           Text(
-            'staleness (ms), last ${points.isEmpty ? 0 : 60}s · '
+            'staleness (ms), last ${windowSeconds}s · '
             'dashed = ${staleBudgetMs.round()}ms drop budget',
             style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
           ),
