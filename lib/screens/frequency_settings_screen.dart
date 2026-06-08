@@ -7,6 +7,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../bloc/frequency_session_cubit.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../services/audio_service.dart';
 import '../services/blocked_peers_store.dart';
 import '../services/identity_store.dart';
 import '../services/recent_frequencies_store.dart';
@@ -16,6 +17,7 @@ import '../theme/app_theme.dart';
 import '../widgets/frequency_atoms.dart';
 import 'frequency_privacy_policy_screen.dart';
 import 'security_faq_screen.dart';
+import 'voice_debug_dashboard_screen.dart';
 
 /// App settings screen — voice mode, display, privacy, and about.
 ///
@@ -241,6 +243,25 @@ class _FrequencySettingsScreenState extends State<FrequencySettingsScreen> {
           subtitle: l10n.settingsResetAllDataDescription,
           c: c,
           onTap: () => unawaited(_onResetAllData(context)),
+        ),
+        // Diagnostics — voice debug dashboard (live throughput / lag /
+        // staleness + telemetry export). Plain-string label: debug surface.
+        _SectionHeader(label: 'Diagnostics', c: c),
+        _SettingsLink(
+          title: 'Voice debug',
+          c: c,
+          onTap: () {
+            final audio = context.read<AudioService>();
+            final cubit = context.read<FrequencySessionCubit>();
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => VoiceDebugDashboardScreen(
+                  audioService: audio,
+                  cubit: cubit,
+                ),
+              ),
+            );
+          },
         ),
         // About
         _SectionHeader(label: l10n.settingsAboutSection, c: c),

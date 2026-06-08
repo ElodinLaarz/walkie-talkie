@@ -345,6 +345,12 @@ void main() {
         find.byType(ListView),
         const Offset(0, -200),
       );
+      // Ensure the row is fully on-screen (not just at the viewport edge) so
+      // the tap is hit-testable — mirrors the Privacy-policy navigation test.
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Open source licenses')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Open source licenses'));
       await tester.pumpAndSettle();
 
