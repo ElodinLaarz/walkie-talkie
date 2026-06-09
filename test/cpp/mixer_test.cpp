@@ -327,6 +327,69 @@ void testRecoveryAcceptsAnyWithinThresholdFrame() {
     std::cout << "Test Recovery Accepts Any Within-Threshold Frame: PASSED" << std::endl;
 }
 
+// Issue #63: pin the exact uint32 rollover boundary (lastSeq = 0xFFFFFFFF).
+// The four sub-cases below are the acceptance criteria from the issue.
+void testSeqWrapBoundaryAtMaxU32() {
+    const int kFrames = 4;
+    int16_t audio[kFrames] = {100, 100, 100, 100};
+
+    // Sub-case 1: seq = 0 immediately after lastSeq = 0xFFFFFFFF.
+    // diff = cast<int32>(0 - 0xFFFFFFFF) = cast<int32>(1) = 1. In-order. MUST NOT poison.
+    // lastSeq must advance to 0 so the next forward delta is rooted there.
+    {
+        AudioMixer m;
+        m.addDevice(1);
+        m.onVoiceFrame(1, 0xFFFFFFFEu, audio, kFrames);
+        m.onVoiceFrame(1, 0xFFFFFFFFu, audio, kFrames);
+        m.onVoiceFrame(1, 0u, audio, kFrames);
+        assert(!m.isPoisoned(1));
+        // Confirm lastSeq = 0: seq = 1 has diff 1 and must pass.
+        m.onVoiceFrame(1, 1u, audio, kFrames);
+        assert(!m.isPoisoned(1));
+    }
+
+    // Sub-case 2: seq = 0x0F (15 past the wrap).
+    // diff = cast<int32>(0x0F - 0xFFFFFFFF) = cast<int32>(0x10) = 16 = kPoisonThreshold.
+    // Check is strictly `>`, so 16 is within the window. MUST NOT poison.
+    {
+        AudioMixer m;
+        m.addDevice(1);
+        m.onVoiceFrame(1, 0xFFFFFFFEu, audio, kFrames);
+        m.onVoiceFrame(1, 0xFFFFFFFFu, audio, kFrames);
+        m.onVoiceFrame(1, 0x0Fu, audio, kFrames);
+        assert(!m.isPoisoned(1));
+    }
+
+    // Sub-case 3: seq = 0x20 (one past the threshold beyond the wrap).
+    // diff = cast<int32>(0x20 - 0xFFFFFFFF) = cast<int32>(0x21) = 33 > 16. MUST poison.
+    {
+        AudioMixer m;
+        m.addDevice(1);
+        m.onVoiceFrame(1, 0xFFFFFFFEu, audio, kFrames);
+        m.onVoiceFrame(1, 0xFFFFFFFFu, audio, kFrames);
+        m.onVoiceFrame(1, 0x20u, audio, kFrames);
+        assert(m.isPoisoned(1));
+    }
+
+    // Sub-case 4: pre-wrap straggler (lastSeq = 0, late seq = 0xFFFFFFFE).
+    // diff = cast<int32>(0xFFFFFFFE - 0) = cast<int32>(0xFFFFFFFE) = -2. Out-of-order.
+    // MUST NOT poison and MUST NOT advance lastSeq past 0.
+    {
+        AudioMixer m;
+        m.addDevice(1);
+        m.onVoiceFrame(1, 0xFFFFFFFEu, audio, kFrames);  // lastSeq = 0xFFFFFFFE
+        m.onVoiceFrame(1, 0xFFFFFFFFu, audio, kFrames);  // lastSeq = 0xFFFFFFFF
+        m.onVoiceFrame(1, 0u, audio, kFrames);            // wrap, lastSeq = 0
+        m.onVoiceFrame(1, 0xFFFFFFFEu, audio, kFrames);  // straggler — diff < 0
+        assert(!m.isPoisoned(1));
+        // Watermark must still be 0: seq = 1 (diff 1 from 0) must pass.
+        m.onVoiceFrame(1, 1u, audio, kFrames);
+        assert(!m.isPoisoned(1));
+    }
+
+    std::cout << "Test Seq Wrap Boundary At Max U32: PASSED" << std::endl;
+}
+
 // uint32 wraparound. Comparison MUST be wrap-safe: a small forward jump
 // across the rollover is normal flow, not a 4-billion-frame gap. Mirrors
 // the same fix in production audio_mixer.cpp.
@@ -583,6 +646,7 @@ int main() {
         testFirstFrameAlwaysPasses();
         testOutOfOrderDoesNotPoisonOrAdvance();
         testRecoveryAcceptsAnyWithinThresholdFrame();
+        testSeqWrapBoundaryAtMaxU32();
         testSeqWraparoundIsWrapSafe();
         testGlobalSharedPtrLifetime();
         testConcurrentSwapAndLoadIsRaceFree();
