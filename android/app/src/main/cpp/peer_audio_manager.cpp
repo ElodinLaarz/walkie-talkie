@@ -533,12 +533,19 @@ void PeerAudioManager::mixerTickLoop() {
                                 next->opusData.data(),
                                 static_cast<int>(next->opusData.size()),
                                 decodedBuffer.data(), kFrameSize);
+                            if (decoded >= 0) {
+                                // FEC recovered the frame: loss was concealed
+                                // cleanly. Don't escalate the underrun counter
+                                // — escalation should only fire when loss is
+                                // genuinely unconcealable.
+                                state->consecutiveUnderruns = 0;
+                            }
                         }
                         if (decoded < 0) {
                             decoded = state->decoder->decodeMissing(
                                 decodedBuffer.data(), kFrameSize);
+                            ++state->consecutiveUnderruns;
                         }
-                        ++state->consecutiveUnderruns;
                     }
                 }
 
