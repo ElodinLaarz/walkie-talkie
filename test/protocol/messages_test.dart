@@ -69,6 +69,89 @@ void main() {
       expect(() => FrequencyMessage.decode(notList), throwsFormatException);
       expect(() => FrequencyMessage.decode(badElement), throwsFormatException);
     });
+
+    // Regression: the envelope fields (peerId/seq/atMs) and kind-specific
+    // fields used to be parsed with bare `as` casts, which throw `TypeError`
+    // — a subclass of `Error`, NOT `Exception` and NOT `FormatException`. The
+    // control-plane receiver (`BleControlTransport`) catches only
+    // `FormatException`, so a wrong-typed-but-valid-JSON field would escape
+    // the catch and crash the receive handler — a remote peer could drop the
+    // control plane with one malformed message. The decode contract is
+    // FormatException; assert it for present-but-mistyped fields.
+    test('decode rejects non-string peerId as FormatException', () {
+      final wire = '{"kind":"ping","peerId":42,"seq":1,"atMs":0,"v":1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-int seq as FormatException', () {
+      final stringSeq = '{"kind":"ping","peerId":"p","seq":"1","atMs":0,"v":1}';
+      final floatSeq = '{"kind":"ping","peerId":"p","seq":1.5,"atMs":0,"v":1}';
+      expect(() => FrequencyMessage.decode(stringSeq), throwsFormatException);
+      expect(() => FrequencyMessage.decode(floatSeq), throwsFormatException);
+    });
+
+    test('decode rejects non-int atMs as FormatException', () {
+      final wire = '{"kind":"ping","peerId":"p","seq":1,"atMs":"0","v":1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-string displayName as FormatException', () {
+      final wire =
+          '{"kind":"join_request","peerId":"p","seq":1,"atMs":0,"v":1,"displayName":42}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-bool talking as FormatException', () {
+      final wire =
+          '{"kind":"talking","peerId":"p","seq":1,"atMs":0,"v":1,"talking":"yes"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-bool muted as FormatException', () {
+      final wire =
+          '{"kind":"mute","peerId":"p","seq":1,"atMs":0,"v":1,"muted":1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-string remove_peer target as FormatException', () {
+      final wire =
+          '{"kind":"remove_peer","peerId":"p","seq":1,"atMs":0,"v":1,"target":99}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects mistyped media fields as FormatException', () {
+      final stringTrackIdx =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"queue_play","source":"lib","trackIdx":"2"}';
+      final nonStringSource =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"play","source":7}';
+      expect(
+        () => FrequencyMessage.decode(stringTrackIdx),
+        throwsFormatException,
+      );
+      expect(
+        () => FrequencyMessage.decode(nonStringSource),
+        throwsFormatException,
+      );
+    });
+
+    test('decode rejects non-object mediaState in join_accepted', () {
+      final wire =
+          '{"kind":"join_accepted","peerId":"p","seq":1,"atMs":0,"v":1,"hostPeerId":"h","roster":[],"mediaState":"oops"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects mistyped roster-element fields as FormatException', () {
+      // peerId mistyped inside a roster entry — the TypeError would previously
+      // bubble out of ProtocolPeer.fromJson, past _parseRoster, past decode.
+      final wire =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"roster":[{"peerId":1,"displayName":"A"}]}';
+      final badMuted =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"roster":[{"peerId":"x","displayName":"A","muted":"no"}]}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+      expect(() => FrequencyMessage.decode(badMuted), throwsFormatException);
+    });
   });
 
   group('lifecycle messages round-trip', () {

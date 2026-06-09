@@ -71,10 +71,10 @@ class MediaState {
   };
 
   factory MediaState.fromJson(Map<String, dynamic> json) => MediaState(
-    source: json['source'] as String,
-    trackIdx: json['trackIdx'] as int,
-    playing: json['playing'] as bool,
-    positionMs: json['positionMs'] as int,
+    source: _reqString(json, 'source'),
+    trackIdx: _reqInt(json, 'trackIdx'),
+    playing: _reqBool(json, 'playing'),
+    positionMs: _reqInt(json, 'positionMs'),
   );
 
   @override
@@ -174,6 +174,54 @@ sealed class FrequencyMessage {
   };
 }
 
+/// Reads a required String field, throwing [FormatException] — not the
+/// `TypeError` a bare `as` cast would — when the field is missing or
+/// mistyped. The whole point: the receiver in `BleControlTransport` catches
+/// `FormatException` and drops the message (connection stays up), but a
+/// `TypeError` escapes that catch and tears down the receive handler. So a
+/// peer could otherwise kill the control plane with one wrong-typed-but-valid
+/// JSON field.
+String _reqString(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw is! String) {
+    throw FormatException('`$key` must be a string, got ${raw.runtimeType}');
+  }
+  return raw;
+}
+
+/// Required int field with the same `FormatException`-not-`TypeError`
+/// discipline as [_reqString]. Note JSON `1.0` decodes to a `double` and is
+/// rejected here — the protocol sends integer `seq`/`atMs`.
+int _reqInt(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw is! int) {
+    throw FormatException('`$key` must be an int, got ${raw.runtimeType}');
+  }
+  return raw;
+}
+
+/// Required bool field. Same discipline as [_reqString].
+bool _reqBool(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw is! bool) {
+    throw FormatException('`$key` must be a bool, got ${raw.runtimeType}');
+  }
+  return raw;
+}
+
+/// Optional int field: null when absent, but [FormatException] when present
+/// and mistyped (rather than the `TypeError` of `j[key] as int?`).
+int? _optInt(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw == null) return null;
+  if (raw is! int) {
+    throw FormatException(
+      '`$key` must be an int when present, got ${raw.runtimeType}',
+    );
+  }
+  return raw;
+}
+
 /// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
 /// `FormatException` (not `TypeError`) when the wire shape is wrong.
 /// Parses an optional String field from a JSON map, throwing [FormatException]
@@ -242,11 +290,11 @@ final class JoinRequest extends FrequencyMessage {
   };
 
   factory JoinRequest._fromJson(Map<String, dynamic> j) => JoinRequest(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    displayName: j['displayName'] as String,
-    btDevice: j['btDevice'] as String?,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    displayName: _reqString(j, 'displayName'),
+    btDevice: _parseOptionalString(j, 'btDevice'),
   );
 }
 
@@ -312,17 +360,19 @@ final class JoinAccepted extends FrequencyMessage {
       }
     }
 
+    final rawMediaState = j['mediaState'];
+    if (rawMediaState != null && rawMediaState is! Map) {
+      throw const FormatException('`mediaState` must be a JSON object');
+    }
     return JoinAccepted(
-      peerId: j['peerId'] as String,
-      seq: j['seq'] as int,
-      atMs: j['atMs'] as int,
-      hostPeerId: j['hostPeerId'] as String,
+      peerId: _reqString(j, 'peerId'),
+      seq: _reqInt(j, 'seq'),
+      atMs: _reqInt(j, 'atMs'),
+      hostPeerId: _reqString(j, 'hostPeerId'),
       roster: _parseRoster(j['roster']),
-      mediaState: j['mediaState'] == null
+      mediaState: rawMediaState == null
           ? null
-          : MediaState.fromJson(
-              Map<String, dynamic>.from(j['mediaState'] as Map),
-            ),
+          : MediaState.fromJson(Map<String, dynamic>.from(rawMediaState)),
       voicePsm: voicePsm,
       recipientPeerId: _parseOptionalString(j, 'recipientPeerId'),
     );
@@ -346,10 +396,10 @@ final class JoinDenied extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'reason': reason.wire};
 
   factory JoinDenied._fromJson(Map<String, dynamic> j) => JoinDenied(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    reason: JoinDenyReasonWire.fromWire(j['reason'] as String),
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    reason: JoinDenyReasonWire.fromWire(_reqString(j, 'reason')),
   );
 }
 
@@ -363,9 +413,9 @@ final class Leave extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Leave._fromJson(Map<String, dynamic> j) => Leave(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
   );
 }
 
@@ -386,10 +436,10 @@ final class RemovePeer extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'target': target};
 
   factory RemovePeer._fromJson(Map<String, dynamic> j) => RemovePeer(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    target: j['target'] as String,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    target: _reqString(j, 'target'),
   );
 }
 
@@ -413,9 +463,9 @@ final class RosterUpdate extends FrequencyMessage {
   };
 
   factory RosterUpdate._fromJson(Map<String, dynamic> j) => RosterUpdate(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
     roster: _parseRoster(j['roster']),
   );
 }
@@ -439,10 +489,10 @@ final class TalkingState extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'talking': talking};
 
   factory TalkingState._fromJson(Map<String, dynamic> j) => TalkingState(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    talking: j['talking'] as bool,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    talking: _reqBool(j, 'talking'),
   );
 }
 
@@ -463,10 +513,10 @@ final class MuteState extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'muted': muted};
 
   factory MuteState._fromJson(Map<String, dynamic> j) => MuteState(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    muted: j['muted'] as bool,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    muted: _reqBool(j, 'muted'),
   );
 }
 
@@ -508,9 +558,9 @@ final class MediaCommand extends FrequencyMessage {
   };
 
   factory MediaCommand._fromJson(Map<String, dynamic> j) {
-    final op = MediaOpWire.fromWire(j['op'] as String);
-    final trackIdx = j['trackIdx'] as int?;
-    final positionMs = j['positionMs'] as int?;
+    final op = MediaOpWire.fromWire(_reqString(j, 'op'));
+    final trackIdx = _optInt(j, 'trackIdx');
+    final positionMs = _optInt(j, 'positionMs');
     if (op == MediaOp.queuePlay && trackIdx == null) {
       throw const FormatException('MediaCommand(queue_play) requires trackIdx');
     }
@@ -518,11 +568,11 @@ final class MediaCommand extends FrequencyMessage {
       throw const FormatException('MediaCommand(seek) requires positionMs');
     }
     return MediaCommand(
-      peerId: j['peerId'] as String,
-      seq: j['seq'] as int,
-      atMs: j['atMs'] as int,
+      peerId: _reqString(j, 'peerId'),
+      seq: _reqInt(j, 'seq'),
+      atMs: _reqInt(j, 'atMs'),
       op: op,
-      source: j['source'] as String,
+      source: _reqString(j, 'source'),
       trackIdx: trackIdx,
       positionMs: positionMs,
     );
@@ -538,7 +588,7 @@ class NeighborSignal {
 
   Map<String, dynamic> toJson() => {'peerId': peerId, 'rssi': rssi};
   factory NeighborSignal.fromJson(Map<String, dynamic> j) =>
-      NeighborSignal(peerId: j['peerId'] as String, rssi: j['rssi'] as int);
+      NeighborSignal(peerId: _reqString(j, 'peerId'), rssi: _reqInt(j, 'rssi'));
 
   @override
   bool operator ==(Object other) =>
@@ -569,9 +619,9 @@ final class SignalReport extends FrequencyMessage {
   };
 
   factory SignalReport._fromJson(Map<String, dynamic> j) => SignalReport(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
     neighbors: _parseNeighbors(j['neighbors']),
   );
 }
@@ -590,9 +640,9 @@ final class Heartbeat extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Heartbeat._fromJson(Map<String, dynamic> j) => Heartbeat(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
   );
 }
 
@@ -670,9 +720,9 @@ final class LinkQuality extends FrequencyMessage {
       throw FormatException('underrunsPerSec out of range: $underruns');
     }
     return LinkQuality(
-      peerId: j['peerId'] as String,
-      seq: j['seq'] as int,
-      atMs: j['atMs'] as int,
+      peerId: _reqString(j, 'peerId'),
+      seq: _reqInt(j, 'seq'),
+      atMs: _reqInt(j, 'atMs'),
       lossPct: lossPct,
       jitterMs: jitterMsRaw,
       underrunsPerSec: underruns,
@@ -732,9 +782,9 @@ final class BitrateHint extends FrequencyMessage {
       throw FormatException('bps out of range: $bpsRaw');
     }
     return BitrateHint(
-      peerId: j['peerId'] as String,
-      seq: j['seq'] as int,
-      atMs: j['atMs'] as int,
+      peerId: _reqString(j, 'peerId'),
+      seq: _reqInt(j, 'seq'),
+      atMs: _reqInt(j, 'atMs'),
       target: targetRaw,
       bps: bpsRaw,
     );
@@ -774,10 +824,10 @@ final class HostTransfer extends FrequencyMessage {
   };
 
   factory HostTransfer._fromJson(Map<String, dynamic> j) => HostTransfer(
-    peerId: j['peerId'] as String,
-    seq: j['seq'] as int,
-    atMs: j['atMs'] as int,
-    newHostPeerId: j['newHostPeerId'] as String,
-    sessionUuid: j['sessionUuid'] as String,
+    peerId: _reqString(j, 'peerId'),
+    seq: _reqInt(j, 'seq'),
+    atMs: _reqInt(j, 'atMs'),
+    newHostPeerId: _reqString(j, 'newHostPeerId'),
+    sessionUuid: _reqString(j, 'sessionUuid'),
   );
 }

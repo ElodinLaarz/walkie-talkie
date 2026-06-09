@@ -89,5 +89,44 @@ void main() {
       final restored = ProtocolPeer.fromJson(json);
       expect(restored.btDevice, isNull);
     });
+
+    // Regression: fromJson used bare `as` casts that throw TypeError (not
+    // FormatException) on mistyped wire fields. A ProtocolPeer is decoded
+    // nested inside a roster on the control plane, where only FormatException
+    // is caught — a TypeError would crash the receiver.
+    test('mistyped fields throw FormatException, not TypeError', () {
+      expect(
+        () => ProtocolPeer.fromJson({'peerId': 1, 'displayName': 'A'}),
+        throwsFormatException,
+      );
+      expect(
+        () => ProtocolPeer.fromJson({'peerId': 'p', 'displayName': 2}),
+        throwsFormatException,
+      );
+      expect(
+        () => ProtocolPeer.fromJson({
+          'peerId': 'p',
+          'displayName': 'A',
+          'btDevice': 5,
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => ProtocolPeer.fromJson({
+          'peerId': 'p',
+          'displayName': 'A',
+          'muted': 'no',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => ProtocolPeer.fromJson({
+          'peerId': 'p',
+          'displayName': 'A',
+          'talking': 1,
+        }),
+        throwsFormatException,
+      );
+    });
   });
 }
