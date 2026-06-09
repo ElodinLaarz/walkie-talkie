@@ -187,6 +187,36 @@ void testPeerVadInitiallyNotTalking() {
     std::cout << "Test Peer VAD Initially Not Talking: PASSED" << std::endl;
 }
 
+// Re-registering a known MAC (fast GATT reconnect / role swap) must return the
+// same deviceId and must reset the jitter buffer to a cold-start state. After
+// the reset, seqs that overlap the pre-reset window must be accepted rather
+// than rejected as duplicates — proving the playhead and frame queue were
+// cleared, not just the rolling adapt counters.
+void testReRegisterSameDeviceIdAndResetsJitter() {
+    PeerAudioManager mgr;
+    int id1 = mgr.registerPeer(kMacA);
+
+    // Seed the jitter buffer: seqs 1–3 are now queued.
+    CHECK(mgr.onVoiceFramePushed(kMacA, 1, freshSenderTs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 2, freshSenderTs(), kFakeOpus, kFakeOpusLen));
+    CHECK(mgr.onVoiceFramePushed(kMacA, 3, freshSenderTs(), kFakeOpus, kFakeOpusLen));
+
+    // Re-register the same MAC — simulates a fast GATT reconnect or role swap.
+    int id2 = mgr.registerPeer(kMacA);
+
+    // deviceId must be stable across re-registration.
+    CHECK(id1 == id2);
+
+    // The jitter buffer was reset: seq 1 is no longer in the queue, so it must
+    // be accepted as a fresh arrival rather than rejected as a duplicate.
+    CHECK(mgr.onVoiceFramePushed(kMacA, 1, freshSenderTs(), kFakeOpus, kFakeOpusLen));
+    // In-order continuation must also be accepted.
+    CHECK(mgr.onVoiceFramePushed(kMacA, 2, freshSenderTs(), kFakeOpus, kFakeOpusLen));
+
+    mgr.clear();
+    std::cout << "Test Re-Register Same DeviceId And Resets Jitter: PASSED" << std::endl;
+}
+
 // Two peers are independent: frames from peer A must not affect peer B's
 // jitter buffer, and vice versa.
 void testMultiplePeersAreIndependent() {
@@ -214,6 +244,7 @@ int main() {
         testUint32RolloverAccepted();
         testSeqGapAcceptedByJitterBuffer();
         testDuplicateRejected();
+        testReRegisterSameDeviceIdAndResetsJitter();
         testMultiplePeersAreIndependent();
         testPeerVadInitiallyNotTalking();
         std::cout << "All PeerAudioManager tests passed!" << std::endl;
