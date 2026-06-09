@@ -1,0 +1,215 @@
+name: Release
+on:
+  # A semver tag push is the release trigger. Pushing v1.2.3 builds and
+  # publishes the signed APK that Obtainium installs from this Forgejo
+  # instance — no GitHub, no Play Store in the loop.
+  push:
+    tags:
+      - 'v*'
+  # Manual re-run / smoke-test entry point. Run it against a v* tag ref from
+  # the Actions UI (or the dispatch API) to rebuild and re-publish a release
+  # without moving the tag.
+  workflow_dispatch:
+
+jobs:
+  release-apk:
+    runs-on: flutter   # ghcr.io/cirruslabs/flutter:stable (no node -> manual checkout)
+    # NOTE: this job needs a runner image with Flutter + a JDK 17 + the Android
+    # SDK (cirruslabs/flutter:stable bundles all three). ci.yml's `flutter`
+    # label has only ever exercised analyze/test, so if that label is mapped to
+    # a slimmer image the first tag build will fail in Gradle for want of a
+    # JDK/SDK — point `runs-on` at a full image (or provision one) if so. This
+    # restores the "Profile APK build" item deferred in ci.yml / Forgejo #1.
+    steps:
+      # --- Checkout the tagged commit -------------------------------------
+      # actions/checkout is a JS action and this image has no node, so clone
+      # manually over the internal network with the auto-injected run token,
+      # exactly like ci.yml. GITHUB_REF_NAME is the tag (e.g. v1.2.3) on a tag
+      # push, so cloning --branch <tag> checks out precisely the tagged tree.
+      # The opus submodule is required for the Android/CMake native build
+      # (Oboe + libopus compiled from source via the NDK); without it Gradle's
+      # externalNativeBuild fails with a missing CMakeLists.txt.
+      - name: Checkout tag
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+            "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+          git submodule update --init --depth 1
+          echo "Building tag ${GITHUB_REF_NAME} at $(git rev-parse --short HEAD)"
+
+      # --- Derive version from the tag ------------------------------------
+      # versionName comes straight from the tag (v1.2.3 -> 1.2.3) so the in-app
+      # "About" string matches the release a user installed via Obtainium.
+      #
+      # versionCode is computed from the SAME semver as MAJOR*1_000_000 +
+      # MINOR*1_000 + PATCH and exported as VERSION_CODE, which build.gradle.kts
+      # honours above every other source. This is deliberate:
+      #   * Monotonic in semver order and identical on every machine, so a
+      #     rebuild of the same tag yields the same code (reproducible).
+      #   * Does NOT depend on GITHUB_RUN_NUMBER. Forgejo's run counter is
+      #     independent of GitHub's and may be unset here; were that the case
+      #     build.gradle.kts would fall through to the static pubspec `+1` and
+      #     every Forgejo build would ship versionCode 1 — Obtainium would then
+      #     never detect an update after the first install. Pinning the code to
+      #     the tag removes that trap.
+      # MINOR/PATCH are capped at 999 (far beyond this app's cadence) and the
+      # result stays well under Android's 2.1e9 versionCode ceiling.
+      - name: Derive version from tag
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH; cannot derive a versionCode. Tag the release as e.g. v1.2.3."
+            exit 1
+          fi
+          VNAME="${TAG#v}"
+          MAJOR="${VNAME%%.*}"; REST="${VNAME#*.}"; MINOR="${REST%%.*}"; PATCH="${REST#*.}"
+          if [ "$MINOR" -gt 999 ] || [ "$PATCH" -gt 999 ]; then
+            echo "::error::MINOR/PATCH exceed 999; widen the versionCode scheme before releasing $TAG."
+            exit 1
+          fi
+          VCODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
+          echo "VERSION_NAME=$VNAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VCODE" >> "$GITHUB_ENV"
+          echo "Resolved versionName=$VNAME versionCode=$VCODE"
+
+      # --- Android toolchain bits not guaranteed in the base image --------
+      # cirruslabs/flutter:stable ships Flutter, a JDK and the Android SDK, but
+      # the exact NDK (28.2.13676358) and CMake (3.22.1) this project pins are
+      # not necessarily pre-pulled. Install them up front so the first release
+      # build does not stall on an interactive license prompt or an on-the-fly
+      # NDK download mid-Gradle. Best-effort: a no-op when already present, and
+      # a clear warning (not a hard failure) on a bare image so the real error,
+      # if any, surfaces from the build step.
+      - name: Ensure NDK + CMake
+        run: |
+          set -uo pipefail
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "::warning::sdkmanager not on PATH; relying on Gradle to resolve NDK 28.2.13676358 / CMake 3.22.1. If the build fails on a missing NDK, provision a runner image with the Android command-line tools."
+            exit 0
+          fi
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "platform-tools" \
+            || echo "::warning::sdkmanager could not install NDK/CMake; Gradle will attempt to download them during the build."
+
+      # --- Decode the signing keystore ------------------------------------
+      # Signature parity across every release is what lets Obtainium install
+      # each update in place over the previous version; if the signing key ever
+      # changed, Android would reject the update and force an uninstall (losing
+      # app data each test cycle). Use the SAME keystore as the GitHub release
+      # so a device can even cross over between channels without a reinstall.
+      # These secrets must be configured as Forgejo Actions secrets on this repo
+      # (or its org). Until they are, this job fails fast here — and because the
+      # workflow only runs on a v* tag, that never blocks the CI / ci PR gate.
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is not set. Add KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD as Forgejo Actions secrets (same keystore as the GitHub release so updates install in place)."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/release-keystore.jks"
+          echo "Keystore decoded."
+
+      # --- Build the signed universal APK ---------------------------------
+      # ONE universal APK (all three ABIs in a single file, no --split-per-abi)
+      # so Obtainium tracks a single asset with zero arch-filter config. Signed
+      # via the env-var path build.gradle.kts reads (KEYSTORE_PATH/PASSWORD,
+      # KEY_ALIAS, KEY_PASSWORD). --build-name sets versionName from the tag;
+      # VERSION_CODE (exported above) sets the code. SENTRY_DSN is wired exactly
+      # as the GitHub release: baked in via --dart-define when present, else the
+      # in-app crash-reporting toggle renders disabled (compile-time gate).
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::One or more signing secrets are unset. Required: KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD."
+            exit 1
+          fi
+          SENTRY_DEFINE=""
+          if [ -n "${SENTRY_DSN:-}" ]; then
+            echo "SENTRY_DSN present -> crash reporting available in this build."
+            SENTRY_DEFINE="--dart-define=SENTRY_DSN=$SENTRY_DSN"
+          else
+            echo "SENTRY_DSN not set -> crash-reporting toggle disabled in this build."
+          fi
+          flutter pub get
+          flutter build apk --release \
+            --build-name="$VERSION_NAME" \
+            --target-platform=android-arm64,android-arm,android-x64 \
+            $SENTRY_DEFINE
+          APK_OUT="walkie-talkie-${GITHUB_REF_NAME}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$APK_OUT"
+          echo "APK_OUT=$APK_OUT" >> "$GITHUB_ENV"
+          echo "Built $APK_OUT ($(du -h "$APK_OUT" | cut -f1))"
+
+      # --- Drop the decoded key before publishing -------------------------
+      # Mirrors the GitHub release's always-cleanup. The build is done; nothing
+      # downstream needs the key.
+      - name: Clean up keystore
+        if: always()
+        run: rm -f "$GITHUB_WORKSPACE/release-keystore.jks" 2>/dev/null || true
+
+      # --- Publish the APK as a Forgejo release ---------------------------
+      # No node in this image, so the Gitea/Forgejo release JS actions are out;
+      # publish via the REST API with curl instead. The auto-injected run token
+      # is repo-scoped; a release upload needs write access, so prefer an
+      # explicit FORGEJO_RELEASE_TOKEN secret when set (the job logs which token
+      # it used) and fall back to the run token otherwise. Inside a CI container
+      # the API is reachable as forgejo:3000 — the same host ci.yml clones from;
+      # localhost:3000 only works from the host harness, never from here.
+      #
+      # Flow: drop any pre-existing release for this tag (so a workflow_dispatch
+      # re-run starts from a clean slate — the git tag itself is untouched),
+      # create the release, then upload the APK as walkie-talkie-<tag>.apk. That
+      # release page is exactly what Obtainium polls (Forgejo source) to detect
+      # and install a new version on a test device.
+      - name: Publish APK to Forgejo release
+        env:
+          RUN_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ secrets.FORGEJO_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          TOKEN="${RELEASE_TOKEN:-$RUN_TOKEN}"
+          if [ -n "${RELEASE_TOKEN:-}" ]; then echo "Using FORGEJO_RELEASE_TOKEN."; else echo "Using auto-injected run token."; fi
+          API="http://forgejo:3000/api/v1/repos/${GITHUB_REPOSITORY}"
+          TAG="${GITHUB_REF_NAME}"
+          AUTH="Authorization: token $TOKEN"
+
+          # Clean slate: delete an existing release for this tag if present.
+          OLD_ID=$(curl -s -H "$AUTH" "$API/releases/tags/$TAG" | grep -oE '"id":[0-9]+' | head -1 | cut -d: -f2 || true)
+          if [ -n "$OLD_ID" ]; then
+            echo "Removing existing release id $OLD_ID for $TAG."
+            curl -s -H "$AUTH" -X DELETE "$API/releases/$OLD_ID" >/dev/null || true
+          fi
+
+          # Create the release.
+          BODY=$(printf '{"tag_name":"%s","name":"%s","body":"Automated build of %s. Universal signed APK for sideload / Obtainium.","draft":false,"prerelease":false}' "$TAG" "$TAG" "$TAG")
+          HTTP=$(curl -s -o /tmp/rel.json -w '%{http_code}' -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/releases" -d "$BODY")
+          if [ "$HTTP" != "201" ]; then
+            echo "::error::Release create failed (HTTP $HTTP):"; cat /tmp/rel.json; exit 1
+          fi
+          REL_ID=$(grep -oE '"id":[0-9]+' /tmp/rel.json | head -1 | cut -d: -f2)
+          if [ -z "$REL_ID" ]; then
+            echo "::error::Could not parse release id. API response:"; cat /tmp/rel.json; exit 1
+          fi
+          echo "Created release $TAG (id $REL_ID)."
+
+          # Upload the APK asset.
+          ASSET_NAME="$(basename "$APK_OUT")"
+          HTTP=$(curl -s -o /tmp/asset.json -w '%{http_code}' -H "$AUTH" -X POST \
+            "$API/releases/$REL_ID/assets?name=$ASSET_NAME" \
+            -F "attachment=@$APK_OUT;type=application/vnd.android.package-archive")
+          if [ "$HTTP" != "201" ]; then
+            echo "::error::Asset upload failed (HTTP $HTTP):"; cat /tmp/asset.json; exit 1
+          fi
+          echo "Uploaded $ASSET_NAME."
+          echo "Obtainium target: http://localhost:3000/${GITHUB_REPOSITORY}/releases"
