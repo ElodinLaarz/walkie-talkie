@@ -484,6 +484,93 @@ void testConcurrentSwapAndLoadIsRaceFree() {
               << std::endl;
 }
 
+// Under-read counter increments once per starved mix tick and never when fed.
+void testRingUnderReadCountedWhenStarved() {
+    AudioMixer mixer;
+    mixer.addDevice(1);  // peer A (starved)
+    mixer.addDevice(2);  // listener B
+
+    const int kFrames = 64;
+    int16_t out[kFrames];
+
+    // A's ring is empty — read returns 0 < kFrames, counter increments.
+    mixer.getMixedAudioForDevice(2, out, kFrames);
+    assert(mixer.getRingUnderReadCount(1) == 1);
+
+    // Second tick still starved — counter increments again.
+    mixer.getMixedAudioForDevice(2, out, kFrames);
+    assert(mixer.getRingUnderReadCount(1) == 2);
+
+    std::cout << "Test Ring Under-Read Counted When Starved: PASSED" << std::endl;
+}
+
+// A fully-fed ring must never trigger the under-read counter.
+void testRingUnderReadNotCountedWhenFed() {
+    AudioMixer mixer;
+    mixer.addDevice(1);  // peer A (well-fed)
+    mixer.addDevice(2);  // listener B
+
+    const int kFrames = 64;
+    int16_t audio[kFrames];
+    for (int i = 0; i < kFrames; i++) audio[i] = 1000;
+
+    // Write exactly kFrames samples — read will return kFrames, no under-read.
+    mixer.updateDeviceAudio(1, audio, kFrames);
+    int16_t out[kFrames];
+    mixer.getMixedAudioForDevice(2, out, kFrames);
+    assert(mixer.getRingUnderReadCount(1) == 0);
+
+    std::cout << "Test Ring Under-Read Not Counted When Fed: PASSED" << std::endl;
+}
+
+// A muted, starved peer skips the under-read check (reads-to-discard + continue).
+void testMutedStarvedPeerDoesNotCountUnderRead() {
+    AudioMixer mixer;
+    mixer.addDevice(1);  // peer A (muted, starved)
+    mixer.addDevice(2);  // listener B
+
+    mixer.setDeviceMuted(1, true);
+
+    const int kFrames = 64;
+    int16_t out[kFrames];
+
+    // Muted path: read-to-discard then continue before under-read check.
+    mixer.getMixedAudioForDevice(2, out, kFrames);
+    assert(mixer.getRingUnderReadCount(1) == 0);
+
+    std::cout << "Test Muted Starved Peer Does Not Count Under-Read: PASSED" << std::endl;
+}
+
+// A ring overfilled past kPlayoutMaxRingFillSamples drains to the cap first;
+// the subsequent read gets a full readCount and does not trigger under-read.
+void testDropOldestToFillCapsBacklog() {
+    AudioMixer mixer;
+    mixer.addDevice(1);  // peer A (overfilled)
+    mixer.addDevice(2);  // listener B
+
+    // Overfill A beyond the latency cap (1440 samples). Write in two chunks to
+    // stay within a single updateDeviceAudio call's stack budget.
+    constexpr int kChunk = 1024;
+    constexpr int kExtra = 560;  // total 1584 > kPlayoutMaxRingFillSamples (1440)
+    int16_t audio[kChunk];
+    for (int i = 0; i < kChunk; i++) audio[i] = 500;
+    mixer.updateDeviceAudio(1, audio, kChunk);
+
+    int16_t extra[kExtra];
+    for (int i = 0; i < kExtra; i++) extra[i] = 500;
+    mixer.updateDeviceAudio(1, extra, kExtra);
+
+    // getMixedAudioForDevice calls dropOldestToFill(max(1440, readCount)) first,
+    // trimming the backlog to 1440. The subsequent read(64) sees 1440 >= 64 and
+    // returns a full count — no under-read.
+    const int kFrames = 64;
+    int16_t out[kFrames];
+    mixer.getMixedAudioForDevice(2, out, kFrames);
+    assert(mixer.getRingUnderReadCount(1) == 0);
+
+    std::cout << "Test Drop-Oldest-To-Fill Caps Backlog: PASSED" << std::endl;
+}
+
 int main() {
     try {
         testMixMinus();
@@ -499,6 +586,10 @@ int main() {
         testSeqWraparoundIsWrapSafe();
         testGlobalSharedPtrLifetime();
         testConcurrentSwapAndLoadIsRaceFree();
+        testRingUnderReadCountedWhenStarved();
+        testRingUnderReadNotCountedWhenFed();
+        testMutedStarvedPeerDoesNotCountUnderRead();
+        testDropOldestToFillCapsBacklog();
         std::cout << "All C++ Mixer tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed with exception: " << e.what() << std::endl;
