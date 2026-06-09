@@ -58,6 +58,12 @@ void main() {
         'FF:EE:DD:CC:BB:AA',
       );
     });
+
+    test('passing non-String btDevice throws ArgumentError', () {
+      expect(() => base.copyWith(btDevice: 42), throwsArgumentError);
+      expect(() => base.copyWith(btDevice: true), throwsArgumentError);
+      expect(() => base.copyWith(btDevice: <String>[]), throwsArgumentError);
+    });
   });
 
   group('ProtocolPeer equality', () {

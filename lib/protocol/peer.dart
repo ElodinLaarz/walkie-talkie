@@ -82,13 +82,18 @@ class ProtocolPeer {
     Object? btDevice = _noChange,
     bool? muted,
     bool? talking,
-  }) => ProtocolPeer(
-    peerId: peerId,
-    displayName: displayName ?? this.displayName,
-    btDevice: btDevice == _noChange ? this.btDevice : btDevice as String?,
-    muted: muted ?? this.muted,
-    talking: talking ?? this.talking,
-  );
+  }) {
+    if (btDevice != _noChange && btDevice != null && btDevice is! String) {
+      throw ArgumentError.value(btDevice, 'btDevice', 'must be a String or null');
+    }
+    return ProtocolPeer(
+      peerId: peerId,
+      displayName: displayName ?? this.displayName,
+      btDevice: btDevice == _noChange ? this.btDevice : btDevice as String?,
+      muted: muted ?? this.muted,
+      talking: talking ?? this.talking,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
