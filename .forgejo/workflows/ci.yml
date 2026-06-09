@@ -11,9 +11,38 @@ jobs:
     steps:
       # actions/checkout is a JS action; this image has no node. Clone manually
       # over the internal network using the auto-injected run token.
+      # Also init the opus submodule (needed for the Android/CMake build path;
+      # the C++ unit tests use the system libopus-dev instead).
       - name: Checkout
-        run: git clone --depth 1 "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+        run: |
+          git clone --depth 1 "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+          git submodule update --init --depth 1
+
+      # Install libopus-dev + pkg-config so run_native_cpp_tests.sh can build
+      # opus_codec_test and peer_audio_manager_test. g++ is installed defensively
+      # in case the base image ever drops it.
+      - name: Install native dependencies
+        run: sudo apt-get update -y -q && sudo apt-get install -y -q libopus-dev pkg-config g++
+
+      # Runs before flutter pub get so a metadata violation fails fast.
+      - name: Validate Play Store metadata character limits
+        run: bash scripts/validate_store_metadata.sh
+
       - run: flutter --version
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
+      # --coverage produces coverage/lcov.info; artifact upload needs a richer
+      # image/action so it is deferred, but generating the data costs nothing.
+      - run: flutter test --coverage
+
+      - name: Build & run native C++ tests
+        run: bash scripts/run_native_cpp_tests.sh
+
+      # -----------------------------------------------------------------------
+      # Checks below need a richer runner image (JDK 17 + Android build-tools)
+      # and are NOT yet restored. Tracked in issue #1.
+      #
+      #   - Kotlin unit tests:  ./gradlew :app:testDebugUnitTest
+      #   - Debug AAB size regression alarm
+      #   - Profile APK build + artifact upload
+      # -----------------------------------------------------------------------
