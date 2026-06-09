@@ -180,6 +180,9 @@ void AudioMixer::getMixedAudioForDevice(int deviceId, int16_t* outputBuffer, int
 
         // Use read() to consume the data from the ring buffer
         size_t samplesRead = device->ringBuffer.read(tempMix, readCount);
+        if (samplesRead < readCount) {
+            device->ringUnderReadCount.fetch_add(1, std::memory_order_relaxed);
+        }
         if (samplesRead > 0) {
             float vol = device->volume.load(std::memory_order_relaxed);
 
@@ -228,6 +231,18 @@ std::vector<int> AudioMixer::getActiveDevices() {
         activeDevices.push_back(id);
     }
     return activeDevices;
+}
+
+uint64_t AudioMixer::getRingUnderReadCount(int deviceId) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    return device ? device->ringUnderReadCount.load(std::memory_order_relaxed) : 0;
 }
 
 // Global mixer instance. See header comment for why this is a shared_ptr

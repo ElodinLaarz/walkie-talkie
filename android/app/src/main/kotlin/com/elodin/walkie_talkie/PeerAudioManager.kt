@@ -119,6 +119,9 @@ class PeerAudioManager {
         val staleDropCount: Int,
         val recvCount: Int,
         val lastSeq: Int,
+        // Lifetime count of mix ticks where the per-peer ring returned fewer
+        // samples than requested (producer slower than consumer).
+        val ringUnderReadCount: Int,
     )
 
     /**
@@ -150,7 +153,7 @@ class PeerAudioManager {
     /** Returns null if the peer isn't registered. */
     fun getTelemetry(macAddress: String): LinkTelemetry? {
         val raw = nativeGetTelemetry(macAddress) ?: return null
-        if (raw.size != 10) {
+        if (raw.size != 11) {
             Log.w(TAG, "getTelemetry returned unexpected array size ${raw.size}")
             return null
         }
@@ -165,6 +168,7 @@ class PeerAudioManager {
             staleDropCount = raw[7],
             recvCount = raw[8],
             lastSeq = raw[9],
+            ringUnderReadCount = raw[10],
         )
     }
 

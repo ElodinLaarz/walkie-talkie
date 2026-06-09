@@ -61,6 +61,10 @@ public:
         uint32_t staleDropCount{0};
         uint32_t recvCount{0};
         uint32_t lastSeq{0};
+        // Lifetime count of mix ticks where the per-peer ring returned fewer
+        // samples than requested (producer slower than consumer). Rising value
+        // means the peer's network path is starving the playout ring.
+        uint32_t ringUnderReadCount{0};
         bool valid{false};
     };
 

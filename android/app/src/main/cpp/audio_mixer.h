@@ -29,6 +29,10 @@ struct DeviceAudioBuffer {
     uint32_t lastSeq{0};                 // last accepted (or poison-advanced) seq
     std::atomic<float> volume{1.0f};     // peer volume scale (0.0 to 1.0)
     std::atomic<bool> muted{false};      // true if peer is locally muted
+    // Incremented each mix tick when the ring read returns fewer samples than
+    // requested (producer slower than the playout consumer). Atomic so it can
+    // be read from the telemetry path without holding any lock.
+    std::atomic<uint64_t> ringUnderReadCount{0};
 };
 
 class AudioMixer {
@@ -100,6 +104,9 @@ public:
 
     // Get list of active device IDs (for mixer tick thread)
     std::vector<int> getActiveDevices();
+
+    // Return lifetime ring-under-read count for a device, or 0 if unknown.
+    uint64_t getRingUnderReadCount(int deviceId);
 };
 
 // The mixer singleton is a `shared_ptr` (not a raw pointer) so the audio

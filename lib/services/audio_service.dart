@@ -50,6 +50,11 @@ class LinkTelemetrySnapshot {
   /// dashboard shows as "current packet".
   final int lastSeq;
 
+  /// Lifetime count of mix ticks where the per-peer ring returned fewer
+  /// samples than requested. A rising value means the peer's network path
+  /// is starving the playout ring (producer slower than consumer).
+  final int ringUnderReadCount;
+
   const LinkTelemetrySnapshot({
     required this.underrunCount,
     required this.lateFrameCount,
@@ -61,6 +66,7 @@ class LinkTelemetrySnapshot {
     required this.staleDropCount,
     required this.recvCount,
     required this.lastSeq,
+    this.ringUnderReadCount = 0,
   });
 
   @override
@@ -76,7 +82,8 @@ class LinkTelemetrySnapshot {
           currentLagMs == other.currentLagMs &&
           staleDropCount == other.staleDropCount &&
           recvCount == other.recvCount &&
-          lastSeq == other.lastSeq;
+          lastSeq == other.lastSeq &&
+          ringUnderReadCount == other.ringUnderReadCount;
 
   @override
   int get hashCode => Object.hash(
@@ -90,6 +97,7 @@ class LinkTelemetrySnapshot {
     staleDropCount,
     recvCount,
     lastSeq,
+    ringUnderReadCount,
   );
 }
 
@@ -647,12 +655,12 @@ class AudioService {
         'getLinkTelemetry',
         <String, dynamic>{'macAddress': macAddress},
       );
-      if (raw is! List || raw.length != 10) return null;
-      // Native returns a 10-element int array: [underruns, late, target,
-      // current, bitrate, lost, lagMs, staleDrops, recv, lastSeq]. The newer
-      // fields (indices 6-9, the staleness/dashboard telemetry) are appended so
-      // the historical 0-5 layout is undisturbed. Element-wise check guards
-      // against a truncated or padded response from a stale platform handler.
+      if (raw is! List || raw.length != 11) return null;
+      // Native returns an 11-element int array: [underruns, late, target,
+      // current, bitrate, lost, lagMs, staleDrops, recv, lastSeq,
+      // ringUnderReadCount]. New fields are appended so the historical 0-9
+      // layout is undisturbed. Element-wise check guards against a truncated
+      // or padded response from a stale platform handler.
       final values = raw.map((e) => e is int ? e : null).toList();
       if (values.any((v) => v == null)) return null;
       return LinkTelemetrySnapshot(
@@ -666,6 +674,7 @@ class AudioService {
         staleDropCount: values[7]!,
         recvCount: values[8]!,
         lastSeq: values[9]!,
+        ringUnderReadCount: values[10]!,
       );
     } catch (e) {
       if (kDebugMode) {

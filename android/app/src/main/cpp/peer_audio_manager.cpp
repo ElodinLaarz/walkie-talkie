@@ -306,6 +306,11 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
         t.lastSeq = state->lastAcceptedSeq;
     }
     t.currentBitrate = state->bitrate.load(std::memory_order_relaxed);
+    if (auto mixer = std::atomic_load(&g_audioMixer)) {
+        uint64_t raw = mixer->getRingUnderReadCount(state->deviceId);
+        t.ringUnderReadCount = static_cast<uint32_t>(
+            std::min<uint64_t>(raw, UINT32_MAX));
+    }
     t.valid = true;
     return t;
 }
@@ -902,12 +907,13 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     return applied;
 }
 
-// Returns a 10-element int array with telemetry, or null if peer not found.
+// Returns an 11-element int array with telemetry, or null if peer not found.
 // Layout: [underrunCount, lateFrameCount, jitterTargetDepth,
 //          jitterCurrentDepth, currentBitrate, lostFrameCount, currentLagMs,
-//          staleDropCount, recvCount, lastSeq]. New fields are appended so the
-// existing index layout (0..5) is undisturbed. Kotlin unpacks this into a data
-// class — keeping the marshaling cheap (no JNI object allocations) is the point.
+//          staleDropCount, recvCount, lastSeq, ringUnderReadCount].
+// New fields are appended so the existing index layout (0..9) is undisturbed.
+// Kotlin unpacks this into a data class — keeping the marshaling cheap
+// (no JNI object allocations) is the point.
 JNIEXPORT jintArray JNICALL
 Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     JNIEnv* env, jobject thiz, jstring macAddress) {
@@ -919,9 +925,9 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
 
     if (!t.valid) return nullptr;
 
-    jintArray arr = env->NewIntArray(10);
+    jintArray arr = env->NewIntArray(11);
     if (!arr) return nullptr;
-    jint values[10] = {
+    jint values[11] = {
         static_cast<jint>(t.underrunCount),
         static_cast<jint>(t.lateFrameCount),
         static_cast<jint>(t.jitterTargetDepth),
@@ -932,8 +938,9 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
         static_cast<jint>(t.staleDropCount),
         static_cast<jint>(t.recvCount),
         static_cast<jint>(t.lastSeq),
+        static_cast<jint>(t.ringUnderReadCount),
     };
-    env->SetIntArrayRegion(arr, 0, 10, values);
+    env->SetIntArrayRegion(arr, 0, 11, values);
     return arr;
 }
 

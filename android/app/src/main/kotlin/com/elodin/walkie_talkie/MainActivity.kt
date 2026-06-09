@@ -552,6 +552,7 @@ class MainActivity : FlutterActivity() {
                                 t.staleDropCount,
                                 t.recvCount,
                                 t.lastSeq,
+                                t.ringUnderReadCount,
                             ))
                         }
                     }
