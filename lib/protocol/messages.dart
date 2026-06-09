@@ -222,8 +222,6 @@ int? _optInt(Map<String, dynamic> j, String key) {
   return raw;
 }
 
-/// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
-/// `FormatException` (not `TypeError`) when the wire shape is wrong.
 /// Parses an optional String field from a JSON map, throwing [FormatException]
 /// if the value is present but not a String. Returns null when absent.
 String? _parseOptionalString(Map<String, dynamic> j, String key) {
@@ -235,6 +233,8 @@ String? _parseOptionalString(Map<String, dynamic> j, String key) {
   return raw;
 }
 
+/// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
+/// `FormatException` (not `TypeError`) when the wire shape is wrong.
 List<ProtocolPeer> _parseRoster(Object? raw) {
   if (raw is! List) {
     throw const FormatException('`roster` must be a JSON array');
