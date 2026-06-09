@@ -15,8 +15,19 @@ class FrequencySession {
   /// 0.1-MHz precision (200 evenly-distributed buckets). Cosmetic —
   /// collisions happen and are disambiguated in the UI by host name and
   /// signal strength.
-  String get mhzDisplay {
-    final tenths = 880 + (_low12Bits(sessionUuid) % 200);
+  String get mhzDisplay => mhzDisplayFromLow12(_low12Bits(sessionUuid));
+
+  static const _mhzBaseTenths = 880;
+  static const _mhzBuckets = 200;
+
+  /// The single source of truth for the low-12-bits → display-frequency
+  /// mapping: `tenths = 880 + (low12 % 200); mhz = tenths / 10`. The host
+  /// self-view ([mhzDisplay]), the guest advertisement decode
+  /// (`DiscoveredSession`), and the random preview ([randomMhzDisplay]) all
+  /// route through here so the frequency a host shows agrees byte-for-byte
+  /// with how guests derive it from the wire.
+  static String mhzDisplayFromLow12(int low12) {
+    final tenths = _mhzBaseTenths + (low12 % _mhzBuckets);
     return (tenths / 10.0).toStringAsFixed(1);
   }
 
@@ -36,11 +47,8 @@ class FrequencySession {
   /// Returns a random display frequency in [88.0, 107.9] MHz using the same
   /// 200-bucket arithmetic as [mhzDisplay], so preview UIs stay in sync with
   /// the real range without duplicating the formula.
-  static String randomMhzDisplay(math.Random rnd) {
-    const baseTenths = 880;
-    const buckets = 200;
-    return ((baseTenths + rnd.nextInt(buckets)) / 10.0).toStringAsFixed(1);
-  }
+  static String randomMhzDisplay(math.Random rnd) =>
+      mhzDisplayFromLow12(rnd.nextInt(_mhzBuckets));
 
   static const _codeAlphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 

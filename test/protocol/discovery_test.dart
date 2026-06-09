@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:walkie_talkie/protocol/discovery.dart';
+import 'package:walkie_talkie/protocol/frequency_session.dart';
 
 void main() {
   group('DiscoveredSession parsing', () {
@@ -199,6 +200,45 @@ void main() {
         macAddress: 'AA:BB:CC:DD:EE:FF',
       );
       expect(s.mhzDisplay, '88.0');
+    });
+
+    test('guest-decode and host-self-view derive the same mhzDisplay for equal '
+        'low-12 bits', () {
+      // Both sites now route through FrequencySession.mhzDisplayFromLow12.
+      // This pins that they agree byte-for-byte: a DiscoveredSession built
+      // from advertisement bytes encoding `low12` must show the same
+      // frequency as a FrequencySession whose UUID has those same low 12
+      // bits. Includes a value above the 200-bucket count to cover the
+      // modulo wrap.
+      for (final low12 in [0, 163, 250, 511, 4095]) {
+        final hi = (low12 >> 8) & 0x0F; // only the low 12 bits matter
+        final lo = low12 & 0xFF;
+        final low8Hex =
+            '000000000000'
+            '${hi.toRadixString(16).padLeft(2, '0')}'
+            '${lo.toRadixString(16).padLeft(2, '0')}';
+        final guest = DiscoveredSession(
+          protocolVersion: 1,
+          isHost: true,
+          sessionUuidLow8: low8Hex,
+          flags: 0,
+          hostName: 'H',
+          rssi: -50,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        );
+        // A full UUID whose last 3 nibbles are the same low 12 bits.
+        final host = FrequencySession(
+          sessionUuid:
+              '00000000-0000-0000-0000-000000000'
+              '${low12.toRadixString(16).padLeft(3, '0')}',
+          hostPeerId: 'h',
+        );
+        expect(
+          guest.mhzDisplay,
+          host.mhzDisplay,
+          reason: 'derivations diverged for low12=$low12',
+        );
+      }
     });
   });
 }

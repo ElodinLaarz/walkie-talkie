@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'frequency_session.dart';
+
 /// The 128-bit service UUID used by Frequency for discovery and control.
 const String kWalkieTalkieServiceUuid = '8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e8e';
 
@@ -44,8 +46,7 @@ class DiscoveredSession {
     // the low 12 bits of the UUID are the low 12 bits of B15 + B14.
     final low12 =
         ((bytes[bytes.length - 2] & 0x0F) << 8) | bytes[bytes.length - 1];
-    final tenths = 880 + (low12 % 200);
-    return (tenths / 10.0).toStringAsFixed(1);
+    return FrequencySession.mhzDisplayFromLow12(low12);
   }
 
   /// Parses a hex string into bytes. Returns an empty list on any malformed
