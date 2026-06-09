@@ -907,8 +907,13 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeOnVoiceFrameReceived(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return;
     jsize size = env->GetArrayLength(opusData);
     jbyte* buf = env->GetByteArrayElements(opusData, nullptr);
+    if (!buf) {
+        env->ReleaseStringUTFChars(macAddress, mac);
+        return;
+    }
 
     g_peerAudioManager->onVoiceFramePushed(
         std::string(mac), static_cast<uint32_t>(seq),
