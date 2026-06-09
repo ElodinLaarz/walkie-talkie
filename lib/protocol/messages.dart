@@ -279,18 +279,11 @@ final class JoinAccepted extends FrequencyMessage {
   };
 
   factory JoinAccepted._fromJson(Map<String, dynamic> j) {
-    final rawVoicePsm = j['voicePsm'];
-    int? voicePsm;
-    if (rawVoicePsm != null) {
-      if (rawVoicePsm is! int) {
-        throw const FormatException('`voicePsm` must be an int when present');
-      }
-      voicePsm = rawVoicePsm;
-      if (voicePsm < 0x80 || voicePsm > 0xFF) {
-        throw FormatException(
-          'Invalid voicePsm: $voicePsm (must be in dynamic-PSM range 0x0080-0x00FF)',
-        );
-      }
+    final voicePsm = optInt(j, 'voicePsm');
+    if (voicePsm != null && (voicePsm < 0x80 || voicePsm > 0xFF)) {
+      throw FormatException(
+        'Invalid voicePsm: $voicePsm (must be in dynamic-PSM range 0x0080-0x00FF)',
+      );
     }
 
     final rawMediaState = j['mediaState'];
