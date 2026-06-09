@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart' show Transaction;
 
 import 'walkie_talkie_database.dart';
@@ -148,6 +149,15 @@ abstract class RecentFrequenciesStore {
 /// bumps its ordering timestamp instead of inserting a duplicate, and
 /// preserves any `nickname` / `pinned` state already on the row.
 class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
+  /// Default wall-clock source. Injectable via the constructor so tests can
+  /// freeze or step the clock and exercise the [_nextOrderingTimestamp] skew
+  /// / overflow branches deterministically (a real clock can't be frozen for
+  /// 65k+ records inside one millisecond).
+  SqfliteRecentFrequenciesStore({@visibleForTesting int Function()? clockMs})
+    : _clockMs = clockMs ?? (() => DateTime.now().millisecondsSinceEpoch);
+
+  final int Function() _clockMs;
+
   static const String _table = 'recent_frequencies';
 
   /// Serializes [record] / [setNickname] / [setPinned] / [clear] against
@@ -386,8 +396,14 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     await db.delete(_table);
   }
 
+  /// Test-only seam onto [_nextOrderingTimestamp] — it's otherwise reachable
+  /// only through a full sqlite [record] write, which makes the 16-bit
+  /// sub-sequence overflow path impractical to drive directly.
+  @visibleForTesting
+  int nextOrderingTimestampForTesting() => _nextOrderingTimestamp();
+
   int _nextOrderingTimestamp() {
-    var now = DateTime.now().millisecondsSinceEpoch;
+    var now = _clockMs();
     // Clock skew (NTP step, daylight-saving rollback, manual clock change)
     // can make `now < _lastEpochMs`. Without the `<=` branch a record taken
     // a few ms after a backward jump would land *before* prior records and
@@ -396,6 +412,16 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     if (now <= _lastEpochMs) {
       now = _lastEpochMs;
       _seqWithinMs += 1;
+      // The sub-sequence occupies the low 16 bits of the packed value. If it
+      // overflows 0xFFFF it would carry into the epoch-ms bits, fabricating a
+      // future timestamp and corrupting the very ordering this guards. Instead
+      // advance the pinned epoch by 1 ms and restart the sub-sequence, keeping
+      // the packed value strictly monotonic and within its field.
+      if (_seqWithinMs > 0xFFFF) {
+        now += 1;
+        _lastEpochMs = now;
+        _seqWithinMs = 0;
+      }
     } else {
       _lastEpochMs = now;
       _seqWithinMs = 0;
