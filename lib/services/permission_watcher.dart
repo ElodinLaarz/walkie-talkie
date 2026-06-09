@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 
@@ -216,7 +217,7 @@ class DefaultPermissionWatcher
     // return our own reading to the caller (it's what we read), but we
     // don't update shared state.
     if (myGeneration != _sampleGeneration) return snapshot;
-    if (!_hasEmitted || !_listEqual(_last, snapshot)) {
+    if (!_hasEmitted || !listEquals(_last, snapshot)) {
       _hasEmitted = true;
       _last = snapshot;
       if (!_controller.isClosed) {
@@ -264,14 +265,5 @@ class DefaultPermissionWatcher
     if (!_controller.isClosed) {
       await _controller.close();
     }
-  }
-
-  static bool _listEqual(List<AppPermission> a, List<AppPermission> b) {
-    if (identical(a, b)) return true;
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 }
