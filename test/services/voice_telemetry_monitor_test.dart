@@ -103,6 +103,28 @@ void main() {
       expect((g1.single)['throughputPerSec'], 50.0);
     });
 
+    test('pruneStale evicts once-seen peer baselines after window expires', () {
+      final m = VoiceTelemetryMonitor(window: const Duration(seconds: 10));
+      // 'ghost' gets exactly one sample — seeds _prev/_prevAtMs, no point yet.
+      m.add('ghost', _snap(recv: 100), 0);
+      expect(m.peers, isEmpty);
+      // Advance past the window and add another peer to trigger auto-pruning.
+      m.add('active', _snap(recv: 0), 11000);
+      // ghost's stale baseline must be gone.
+      expect(m.peers, isNot(contains('ghost')));
+      // Feeding ghost again returns null — baseline was cleared, not retained.
+      expect(m.add('ghost', _snap(recv: 200), 11000), isNull);
+    });
+
+    test('pruneStale does not evict a quiet-but-present peer within window', () {
+      final m = VoiceTelemetryMonitor(window: const Duration(seconds: 10));
+      m.add('p', _snap(recv: 0), 0);
+      m.add('p', _snap(recv: 50), 1000); // establishes a point + baseline
+      // Stay within window — baseline must survive so the next delta is correct.
+      m.add('p', _snap(recv: 100), 5000);
+      expect(m.points('p'), isNotEmpty);
+    });
+
     test('forgetPeer and clear drop history', () {
       final m = VoiceTelemetryMonitor();
       m.add('g1', _snap(recv: 0), 0);

@@ -88,6 +88,7 @@ class VoiceTelemetryMonitor {
     final prevAt = _prevAtMs[peerId];
     _prev[peerId] = snap;
     _prevAtMs[peerId] = nowMs;
+    pruneStale(nowMs);
     if (prev == null || prevAt == null) return null;
 
     final elapsedMs = nowMs - prevAt;
@@ -163,6 +164,15 @@ class VoiceTelemetryMonitor {
       'windowMs': window.inMilliseconds,
       'peers': peersJson,
     });
+  }
+
+  /// Evict `_prev`/`_prevAtMs` for peers whose last snapshot is older than
+  /// [window]. Called automatically by [add]; callers may also invoke it on a
+  /// periodic timer to bound baseline growth between polls.
+  void pruneStale(int nowMs) {
+    final cutoffMs = nowMs - window.inMilliseconds;
+    _prevAtMs.removeWhere((id, t) => t < cutoffMs);
+    _prev.removeWhere((id, _) => !_prevAtMs.containsKey(id));
   }
 
   /// Forget a peer's history (e.g. on leave / re-register).
