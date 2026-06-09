@@ -164,6 +164,57 @@ void main() {
       );
     });
 
+    test('constructor throws ArgumentError for empty payload', () {
+      expect(
+        () => VoiceFrame(
+          seq: 1,
+          senderTsMs: 0,
+          payload: Uint8List(0),
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('constructor throws RangeError for payload over the max', () {
+      expect(
+        () => VoiceFrame(
+          seq: 1,
+          senderTsMs: 0,
+          payload: Uint8List(kMaxVoicePayloadBytes + 1),
+        ),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
+    test('constructor accepts payload exactly at the max', () {
+      final frame = VoiceFrame(
+        seq: 1,
+        senderTsMs: 0,
+        payload: Uint8List(kMaxVoicePayloadBytes),
+      );
+      expect(frame.payload.length, kMaxVoicePayloadBytes);
+    });
+
+    test('decode throws FormatException for payload over the max', () {
+      final tooBig = Uint8List(kVoiceHeaderSize + kMaxVoicePayloadBytes + 1);
+      expect(
+        () => VoiceFrame.decode(tooBig),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('decode accepts payload exactly at the max', () {
+      final atMax = Uint8List(kVoiceHeaderSize + kMaxVoicePayloadBytes);
+      // Non-zero first payload byte keeps it a valid frame.
+      atMax[kVoiceHeaderSize] = 0x01;
+      final frame = VoiceFrame.decode(atMax);
+      expect(frame.payload.length, kMaxVoicePayloadBytes);
+    });
+
+    test('kMaxVoicePayloadBytes matches native kMaxOpusPacketSize (4000)', () {
+      expect(kMaxVoicePayloadBytes, 4000);
+    });
+
     test('decode returns a copy independent of the source buffer', () {
       final buf = Uint8List(kVoiceHeaderSize + 2);
       final view = ByteData.sublistView(buf);
