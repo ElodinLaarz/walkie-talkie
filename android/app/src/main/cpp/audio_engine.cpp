@@ -327,7 +327,7 @@ private:
     std::shared_ptr<AudioEngineErrorCallback> errorCallback;
 
     // Audio configuration — Oboe runs at 48 kHz; the codec/mixer rate is
-    // 16 kHz; the resamplers below bridge the two.
+    // 24 kHz; the resamplers below bridge the two.
     static constexpr int32_t kSampleRate = audio_config::kPlayoutSampleRate;
     static constexpr int32_t kChannelCount = audio_config::kPlayoutChannels;
     static constexpr oboe::AudioFormat kFormat = oboe::AudioFormat::I16;
@@ -337,7 +337,7 @@ private:
     // the codec's downsampled count. State is owned by VadDetector.
     VadDetector vad_{kSampleRate};
 
-    // Resampler bridge between 48 kHz Oboe and the 16 kHz codec/mixer plane.
+    // Resampler bridge between 48 kHz Oboe and the 24 kHz codec/mixer plane.
     // These are owned by the engine because their FIR history must persist
     // across callbacks — a per-callback construction would discard the
     // history and produce a click at every Oboe burst boundary.
@@ -614,13 +614,13 @@ public:
             mixer->getMixedAudioForDevice(
                 kLocalMicDeviceId, mixedCodec, codecFrames);
 
-            // Codec 16 kHz → playout 48 kHz. Always 3:1, so output count is
+            // Codec 24 kHz → playout 48 kHz. Always 2:1, so output count is
             // exactly `codecFrames * kResampleRatio`.
             const int playoutFrames = playbackResampler_.process(
                 mixedCodec, codecFrames, playoutScratch_);
 
             // Apply ducking on the playout-rate buffer so the multiplier
-            // hits every output sample (not every third).
+            // hits every output sample (not every other).
             const float duckVol =
                 g_duckingVolume.load(std::memory_order_relaxed);
             if (duckVol < 1.0f) {

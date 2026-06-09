@@ -28,7 +28,7 @@ const int kVoiceHeaderSize = 8;
 ///   frames whose playback window has already passed (see
 ///   `PlayoutLagEstimator`).
 /// - `payload` — Opus-compressed audio; see `docs/protocol.md § Voice plane`
-///   for the recommended codec parameters (16 kHz, mono, 20 ms, 24 kbps).
+///   for the recommended codec parameters (24 kHz, mono, 20 ms, 32 kbps).
 class VoiceFrame {
   final int seq;
   final int senderTsMs;

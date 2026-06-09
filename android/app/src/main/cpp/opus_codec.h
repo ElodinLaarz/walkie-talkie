@@ -11,7 +11,7 @@
 // Opus voice codec — encoder/decoder pair for one peer link.
 //
 // Sample rate, channel count, and frame size live in audio_config.h. They
-// match the wire protocol (16 kHz mono / 20 ms frames) and the mixer's
+// match the wire protocol (24 kHz mono / 20 ms frames) and the mixer's
 // internal rate. The codec does NOT see the 48 kHz Oboe rate; the resampler
 // in audio_engine.cpp bridges the two.
 //

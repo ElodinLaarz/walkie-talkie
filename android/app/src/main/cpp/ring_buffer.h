@@ -156,7 +156,7 @@ private:
 };
 
 // Common ring buffer types for audio
-// 1 second at 16 kHz = 16000 samples
-using AudioRingBuffer = RingBuffer<int16_t, 16384>;  // ~1 sec at 16 kHz (power of 2)
+// 16384 samples at 24 kHz codec rate = ~0.68 s (power of 2)
+using AudioRingBuffer = RingBuffer<int16_t, 16384>;  // ~0.68 sec at 24 kHz (power of 2)
 
 #endif // RING_BUFFER_H

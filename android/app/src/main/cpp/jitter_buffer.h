@@ -59,7 +59,7 @@
 // **Wraparound.** `seq` is uint32 and wraps. All ordering uses signed-int32
 // modular arithmetic — `seqLess(a, b) := static_cast<int32_t>(a - b) < 0` —
 // which is correct for any pair of seqs within ±2^31 of each other. With
-// 20 ms frames at 16 kHz, 2^31 frames is ~497 days of monotonic transmit;
+// 20 ms frames at 24 kHz, 2^31 frames is ~497 days of monotonic transmit;
 // well past any realistic session.
 class JitterBuffer {
 public:
