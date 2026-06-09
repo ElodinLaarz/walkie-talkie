@@ -10,6 +10,17 @@ import '../services/recent_frequencies_store.dart';
 /// the argument, which the `??` pattern can't model.
 const Object _unset = Object();
 
+/// Checked coercion for sentinel-guarded `copyWith` fields.
+///
+/// Throws [ArgumentError] with the field name when [value] is non-null and
+/// not a [T], so callers get a clear error instead of a cryptic [TypeError].
+T? _checkedCast<T>(Object? value, String fieldName) {
+  if (value != null && value is! T) {
+    throw ArgumentError.value(value, fieldName, 'must be a $T or null');
+  }
+  return value as T?;
+}
+
 /// Sealed hierarchy describing the session-level Frequency state. Each
 /// stage carries exactly the fields it needs — the UI exhaustively
 /// switches on the runtime type and the analyzer flags missing branches.
@@ -195,19 +206,19 @@ final class SessionRoom extends FrequencySessionState {
     roomIsHost: roomIsHost ?? this.roomIsHost,
     hostPeerId: identical(hostPeerId, _unset)
         ? this.hostPeerId
-        : hostPeerId as String?,
+        : _checkedCast<String>(hostPeerId, 'hostPeerId'),
     roster: roster == null
         ? this.roster
         : List<ProtocolPeer>.unmodifiable(roster),
     mediaState: identical(mediaState, _unset)
         ? this.mediaState
-        : mediaState as MediaState?,
+        : _checkedCast<MediaState>(mediaState, 'mediaState'),
     macAddress: identical(macAddress, _unset)
         ? this.macAddress
-        : macAddress as String?,
+        : _checkedCast<String>(macAddress, 'macAddress'),
     sessionUuidLow8: identical(sessionUuidLow8, _unset)
         ? this.sessionUuidLow8
-        : sessionUuidLow8 as String?,
+        : _checkedCast<String>(sessionUuidLow8, 'sessionUuidLow8'),
     connectionPhase: connectionPhase ?? this.connectionPhase,
   );
 
