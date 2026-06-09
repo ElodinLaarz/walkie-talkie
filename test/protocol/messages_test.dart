@@ -95,6 +95,34 @@ void main() {
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
+    // A negative or near-int64-max `seq` is valid JSON and passes a bare int
+    // check, but `seq` is the control-plane dedup/ordering key feeding
+    // SequenceFilter's per-peer watermark. An out-of-uint32-range value would
+    // poison that watermark (a remote DoS on the control plane). The wire
+    // counter is a uint32 starting at 1, so the decoder pins it to
+    // [1, 0xFFFFFFFF] and rejects the rest as FormatException.
+    test('decode rejects out-of-range seq as FormatException', () {
+      final negative = '{"kind":"ping","peerId":"p","seq":-1,"atMs":0,"v":1}';
+      final zero = '{"kind":"ping","peerId":"p","seq":0,"atMs":0,"v":1}';
+      final tooBig =
+          '{"kind":"ping","peerId":"p","seq":4294967296,"atMs":0,"v":1}';
+      expect(() => FrequencyMessage.decode(negative), throwsFormatException);
+      expect(() => FrequencyMessage.decode(zero), throwsFormatException);
+      expect(() => FrequencyMessage.decode(tooBig), throwsFormatException);
+    });
+
+    test('decode accepts seq at the uint32 boundary', () {
+      final maxSeq =
+          '{"kind":"ping","peerId":"p","seq":4294967295,"atMs":0,"v":1}';
+      final decoded = FrequencyMessage.decode(maxSeq);
+      expect(decoded.seq, 0xFFFFFFFF);
+    });
+
+    test('decode rejects negative atMs as FormatException', () {
+      final wire = '{"kind":"ping","peerId":"p","seq":1,"atMs":-1,"v":1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
     test('decode rejects non-string displayName as FormatException', () {
       final wire =
           '{"kind":"join_request","peerId":"p","seq":1,"atMs":0,"v":1,"displayName":42}';

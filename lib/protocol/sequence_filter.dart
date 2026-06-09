@@ -30,7 +30,8 @@ class SequenceFilter {
   /// Returns true and advances the watermark when [seq] from [peerId] is
   /// strictly greater than every prior seq from that peer. Returns false
   /// (without mutating state) for duplicates, out-of-order arrivals, or
-  /// non-positive seqs. Receivers route an `accept == true` to message
+  /// non-positive or out-of-uint32-range seqs. Receivers route an
+  /// `accept == true` to message
   /// dispatch and silently drop the rest.
   ///
   /// The protocol requires `seq >= 1` and strictly monotonic increments —
@@ -49,7 +50,7 @@ class SequenceFilter {
   /// accepted, advancing the watermark — consistent with the
   /// receiver-permissive posture documented above.
   bool accept({required String peerId, required int seq}) {
-    if (seq < 1) return false;
+    if (seq < 1 || seq > 0xFFFFFFFF) return false;
     final last = _lastSeq[peerId];
     if (last != null && seq <= last && !_isWrap(last, seq)) return false;
     _lastSeq[peerId] = seq;

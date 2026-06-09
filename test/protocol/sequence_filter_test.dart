@@ -39,6 +39,16 @@ void main() {
       expect(f.watermarks.containsKey('a'), isFalse);
     });
 
+    test('rejects seqs above the uint32 range', () {
+      // `seq` is a uint32 on the wire; a value past 0xFFFFFFFF is out of
+      // contract and must not establish or advance a watermark.
+      final f = SequenceFilter();
+      expect(f.accept(peerId: 'a', seq: 0x100000000), isFalse);
+      expect(f.watermarks.containsKey('a'), isFalse);
+      // The boundary value itself is still accepted.
+      expect(f.accept(peerId: 'a', seq: 0xFFFFFFFF), isTrue);
+    });
+
     test('tolerates gaps from senders that skip seqs', () {
       // The protocol requires monotonic +1 increments at the sender, but the
       // receiver-side filter accepts any strictly-increasing seq so a

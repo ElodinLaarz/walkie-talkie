@@ -224,8 +224,8 @@ final class JoinRequest extends FrequencyMessage {
 
   factory JoinRequest._fromJson(Map<String, dynamic> j) => JoinRequest(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     displayName: reqString(j, 'displayName'),
     btDevice: optString(j, 'btDevice'),
   );
@@ -299,8 +299,8 @@ final class JoinAccepted extends FrequencyMessage {
     }
     return JoinAccepted(
       peerId: reqString(j, 'peerId'),
-      seq: reqInt(j, 'seq'),
-      atMs: reqInt(j, 'atMs'),
+      seq: reqSeq(j, 'seq'),
+      atMs: reqAtMs(j, 'atMs'),
       hostPeerId: reqString(j, 'hostPeerId'),
       roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
       mediaState: rawMediaState == null
@@ -330,8 +330,8 @@ final class JoinDenied extends FrequencyMessage {
 
   factory JoinDenied._fromJson(Map<String, dynamic> j) => JoinDenied(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     reason: JoinDenyReasonWire.fromWire(reqString(j, 'reason')),
   );
 }
@@ -347,8 +347,8 @@ final class Leave extends FrequencyMessage {
 
   factory Leave._fromJson(Map<String, dynamic> j) => Leave(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
   );
 }
 
@@ -370,8 +370,8 @@ final class RemovePeer extends FrequencyMessage {
 
   factory RemovePeer._fromJson(Map<String, dynamic> j) => RemovePeer(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     target: reqString(j, 'target'),
   );
 }
@@ -397,8 +397,8 @@ final class RosterUpdate extends FrequencyMessage {
 
   factory RosterUpdate._fromJson(Map<String, dynamic> j) => RosterUpdate(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
   );
 }
@@ -423,8 +423,8 @@ final class TalkingState extends FrequencyMessage {
 
   factory TalkingState._fromJson(Map<String, dynamic> j) => TalkingState(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     talking: reqBool(j, 'talking'),
   );
 }
@@ -447,8 +447,8 @@ final class MuteState extends FrequencyMessage {
 
   factory MuteState._fromJson(Map<String, dynamic> j) => MuteState(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     muted: reqBool(j, 'muted'),
   );
 }
@@ -502,8 +502,8 @@ final class MediaCommand extends FrequencyMessage {
     }
     return MediaCommand(
       peerId: reqString(j, 'peerId'),
-      seq: reqInt(j, 'seq'),
-      atMs: reqInt(j, 'atMs'),
+      seq: reqSeq(j, 'seq'),
+      atMs: reqAtMs(j, 'atMs'),
       op: op,
       source: reqString(j, 'source'),
       trackIdx: trackIdx,
@@ -553,8 +553,8 @@ final class SignalReport extends FrequencyMessage {
 
   factory SignalReport._fromJson(Map<String, dynamic> j) => SignalReport(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     neighbors: _parseObjectList(j['neighbors'], 'neighbors', NeighborSignal.fromJson),
   );
 }
@@ -574,8 +574,8 @@ final class Heartbeat extends FrequencyMessage {
 
   factory Heartbeat._fromJson(Map<String, dynamic> j) => Heartbeat(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
   );
 }
 
@@ -654,8 +654,8 @@ final class LinkQuality extends FrequencyMessage {
     }
     return LinkQuality(
       peerId: reqString(j, 'peerId'),
-      seq: reqInt(j, 'seq'),
-      atMs: reqInt(j, 'atMs'),
+      seq: reqSeq(j, 'seq'),
+      atMs: reqAtMs(j, 'atMs'),
       lossPct: lossPct,
       jitterMs: jitterMsRaw,
       underrunsPerSec: underruns,
@@ -709,8 +709,8 @@ final class BitrateHint extends FrequencyMessage {
     }
     return BitrateHint(
       peerId: reqString(j, 'peerId'),
-      seq: reqInt(j, 'seq'),
-      atMs: reqInt(j, 'atMs'),
+      seq: reqSeq(j, 'seq'),
+      atMs: reqAtMs(j, 'atMs'),
       target: reqString(j, 'target'),
       bps: bps,
     );
@@ -751,8 +751,8 @@ final class HostTransfer extends FrequencyMessage {
 
   factory HostTransfer._fromJson(Map<String, dynamic> j) => HostTransfer(
     peerId: reqString(j, 'peerId'),
-    seq: reqInt(j, 'seq'),
-    atMs: reqInt(j, 'atMs'),
+    seq: reqSeq(j, 'seq'),
+    atMs: reqAtMs(j, 'atMs'),
     newHostPeerId: reqString(j, 'newHostPeerId'),
     sessionUuid: reqString(j, 'sessionUuid'),
   );

@@ -31,6 +31,36 @@ int reqInt(Map<String, dynamic> j, String key) {
   return raw;
 }
 
+/// Required control-plane sequence field.
+///
+/// `seq` is the dedup/ordering key feeding [SequenceFilter]'s per-peer
+/// watermark. The wire counter is a uint32 and the protocol starts it at 1,
+/// so a valid `seq` lives in `[1, 0xFFFFFFFF]`. A bare [reqInt] would accept a
+/// negative or near-int64-max value — valid JSON that, fed into the watermark
+/// comparison, corrupts dedup state (a remote can poison the control plane).
+/// Bounding it here rejects those as [FormatException] before they reach the
+/// filter.
+int reqSeq(Map<String, dynamic> j, String key) {
+  final raw = reqInt(j, key);
+  if (raw < 1 || raw > 0xFFFFFFFF) {
+    throw FormatException('`$key` must be in [1, 0xFFFFFFFF], got $raw');
+  }
+  return raw;
+}
+
+/// Required millisecond-timestamp field, rejecting negatives.
+///
+/// `atMs` is a wall-clock millisecond stamp and is never negative on the wire;
+/// a bare [reqInt] would accept `atMs: -1`. Bounding it to `>= 0` keeps a
+/// malformed peer from feeding a nonsense timestamp into ordering/telemetry.
+int reqAtMs(Map<String, dynamic> j, String key) {
+  final raw = reqInt(j, key);
+  if (raw < 0) {
+    throw FormatException('`$key` must be >= 0, got $raw');
+  }
+  return raw;
+}
+
 /// Required bool field.
 bool reqBool(Map<String, dynamic> j, String key) {
   final raw = j[key];
