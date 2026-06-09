@@ -685,7 +685,7 @@ class AudioService {
   }
 
   /// Adjust the per-peer outbound encoder bitrate. The native
-  /// `PeerAudioManager` clamps to {Low=8, Mid=16, High=24} kbps from
+  /// `PeerAudioManager` clamps to {Low=16, Mid=32, High=48} kbps from
   /// `audio_config.h`; out-of-band values get snapped to the nearest.
   ///
   /// Returns the bitrate actually applied (after clamping), or `null` if

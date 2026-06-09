@@ -15,7 +15,13 @@ jobs:
       # the C++ unit tests use the system libopus-dev instead).
       - name: Checkout
         run: |
-          git clone --depth 1 "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+          git clone "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+          # A bare clone lands on the default branch (main). Check out the ref
+          # that triggered this run so pull requests are tested against their own
+          # head (refs/pull/N/merge) instead of main -- otherwise PR CI silently
+          # validates main and ignores the proposed changes entirely.
+          git fetch --depth 1 origin "${{ github.ref }}"
+          git checkout --force --detach FETCH_HEAD
           git submodule update --init --depth 1
 
       # Install libopus-dev + pkg-config so run_native_cpp_tests.sh can build

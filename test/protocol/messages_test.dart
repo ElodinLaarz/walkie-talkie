@@ -641,22 +641,22 @@ void main() {
         '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,"hostPeerId":"h","roster":[],"mediaState":';
 
     test('rejects non-string source as FormatException', () {
-      final wire = '${base}{"source":42,"trackIdx":1,"playing":true,"positionMs":0}}';
+      final wire = '$base{"source":42,"trackIdx":1,"playing":true,"positionMs":0}}';
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
     test('rejects non-int trackIdx as FormatException', () {
-      final wire = '${base}{"source":"s","trackIdx":"2","playing":true,"positionMs":0}}';
+      final wire = '$base{"source":"s","trackIdx":"2","playing":true,"positionMs":0}}';
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
     test('rejects non-bool playing as FormatException', () {
-      final wire = '${base}{"source":"s","trackIdx":1,"playing":"true","positionMs":0}}';
+      final wire = '$base{"source":"s","trackIdx":1,"playing":"true","positionMs":0}}';
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
     test('rejects non-int positionMs as FormatException', () {
-      final wire = '${base}{"source":"s","trackIdx":1,"playing":true,"positionMs":37.5}}';
+      final wire = '$base{"source":"s","trackIdx":1,"playing":true,"positionMs":37.5}}';
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
   });
