@@ -94,6 +94,59 @@ void main() {
       expect(session, isNull);
     });
 
+    test('rejects non-host role byte', () {
+      final data = Uint8List.fromList([
+        0x01, // Version 1
+        0x02, // Role: unknown (not host)
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, // sessionUuidLow8
+        0x00, 0x00, // flags
+        0x00, 0x00, 0x00, 0x00, // reserved
+      ]);
+      final session = DiscoveredSession.fromManufacturerData(
+        data,
+        hostName: 'X',
+        rssi: 0,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
+      expect(session, isNull);
+    });
+
+    test('parses non-zero flags and preserves byte order', () {
+      // Low byte set: flags = 0x0001
+      final dataLowByte = Uint8List.fromList([
+        0x01, // version
+        0x01, // role: host
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, // sessionUuidLow8
+        0x00, 0x01, // flags: big-endian 0x0001
+        0x00, 0x00, 0x00, 0x00, // reserved
+      ]);
+      final s1 = DiscoveredSession.fromManufacturerData(
+        dataLowByte,
+        hostName: 'X',
+        rssi: 0,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
+      expect(s1, isNotNull);
+      expect(s1!.flags, 0x0001);
+
+      // High byte set: flags = 0x0100
+      final dataHighByte = Uint8List.fromList([
+        0x01, // version
+        0x01, // role: host
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, // sessionUuidLow8
+        0x01, 0x00, // flags: big-endian 0x0100
+        0x00, 0x00, 0x00, 0x00, // reserved
+      ]);
+      final s2 = DiscoveredSession.fromManufacturerData(
+        dataHighByte,
+        hostName: 'X',
+        rssi: 0,
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+      );
+      expect(s2, isNotNull);
+      expect(s2!.flags, 0x0100);
+    });
+
     test('rejects truncated advertisement', () {
       final data = Uint8List.fromList([
         0x01,
