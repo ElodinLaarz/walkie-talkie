@@ -490,6 +490,83 @@ void main() {
     });
   });
 
+  group('_nextOrderingTimestamp ordering invariants (#69)', () {
+    // These drive the private packer directly via the test seam so the
+    // 16-bit sub-sequence overflow path is reachable without 65k+ sqlite
+    // writes. No database is touched.
+
+    test('strictly increases under a frozen clock', () {
+      var frozen = 1000;
+      final store = SqfliteRecentFrequenciesStore(clockMs: () => frozen);
+      var prev = store.nextOrderingTimestampForTesting();
+      for (var i = 0; i < 100; i++) {
+        final next = store.nextOrderingTimestampForTesting();
+        expect(next, greaterThan(prev), reason: 'tick $i regressed');
+        prev = next;
+      }
+    });
+
+    test('strictly increases under a backward clock jump', () {
+      var clock = 5000;
+      final store = SqfliteRecentFrequenciesStore(clockMs: () => clock);
+      final before = store.nextOrderingTimestampForTesting();
+      clock = 1; // NTP step / DST rollback / manual clock change
+      final after = store.nextOrderingTimestampForTesting();
+      expect(
+        after,
+        greaterThan(before),
+        reason: 'a backward wall-clock jump must not regress the ordering key',
+      );
+    });
+
+    test(
+      'sub-sequence overflow does not regress when the wall clock catches up '
+      'to the fabricated epoch',
+      () {
+        // Hold the clock frozen and request more than 0xFFFF stamps in the
+        // same millisecond so the sub-sequence overflows 0xFFFF and carries
+        // into the epoch-ms bits — emitting packed values whose epoch is
+        // *ahead* of the frozen wall clock.
+        //
+        // Pre-fix the carry left `_lastEpochMs` pinned at the stale wall
+        // clock (it was never advanced), so as soon as the real clock ticked
+        // forward to a value <= the already-emitted fabricated epoch, the
+        // `now > _lastEpochMs` branch fired and reset the sub-sequence to 0 —
+        // producing a packed value LOWER than ones already handed out. That
+        // is the ordering regression this guard exists to prevent.
+        //
+        // Post-fix the overflow advances `_lastEpochMs` in lockstep with the
+        // fabricated epoch, so the catch-up stays on the skew branch and the
+        // sequence is strictly monotonic.
+        var clock = 2000;
+        final store = SqfliteRecentFrequenciesStore(clockMs: () => clock);
+        var prev = store.nextOrderingTimestampForTesting();
+        // 0x10001 iterations guarantees at least one carry (0xFFFF + 1).
+        for (var i = 0; i < 0x10001; i++) {
+          final next = store.nextOrderingTimestampForTesting();
+          expect(next, greaterThan(prev), reason: 'frozen burst regressed at $i');
+          expect(next & 0xFFFF, lessThanOrEqualTo(0xFFFF));
+          prev = next;
+        }
+        // The overflow must have rolled into the epoch bits.
+        final fabricatedEpoch = prev >> 16;
+        expect(fabricatedEpoch, greaterThan(2000));
+        // Now let the real clock catch up to (and step through) the epoch
+        // values already consumed by the burst. Each must still be strictly
+        // greater than the last — the pre-fix regression bites right here.
+        for (clock = 2000; clock <= fabricatedEpoch + 1; clock++) {
+          final next = store.nextOrderingTimestampForTesting();
+          expect(
+            next,
+            greaterThan(prev),
+            reason: 'regressed when wall clock reached $clock',
+          );
+          prev = next;
+        }
+      },
+    );
+  });
+
   group('schema migration v3 → v4 (#219)', () {
     // These tests open a real on-disk file (not :memory:, which would lose
     // its contents between opens) so we can simulate "user upgrading from
