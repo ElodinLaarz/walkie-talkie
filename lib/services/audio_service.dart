@@ -856,8 +856,13 @@ class AudioService {
   /// via RESPONSE notifications from the host. The [BleControlTransport]
   /// reassembles fragments and decodes complete [FrequencyMessage]s.
   ///
-  /// Malformed events (missing `endpointId` or `bytes` fields) are silently
-  /// dropped before reaching the transport layer.
+  /// Malformed events (missing `endpointId` or a `bytes` field that is not a
+  /// `Uint8List`/`List`) are silently dropped before reaching the transport
+  /// layer. The `where` guard checks the `bytes` *type*, not just presence: a
+  /// non-null but wrong-typed `bytes` (e.g. a `String`) would otherwise reach
+  /// the `as List` coercion in the `map` and throw a `TypeError` *after* the
+  /// only `handleError` in the chain, surfacing an uncaught async stream error
+  /// on the control-plane receive path.
   Stream<({String endpointId, Uint8List bytes})> get controlBytes {
     _controlBytesStream ??= _controlBytesEventChannel
         .receiveBroadcastStream()
@@ -872,7 +877,11 @@ class AudioService {
           return <String, dynamic>{};
         });
     return _controlBytesStream!
-        .where((e) => e['endpointId'] is String && e['bytes'] != null)
+        .where(
+          (e) =>
+              e['endpointId'] is String &&
+              (e['bytes'] is Uint8List || e['bytes'] is List),
+        )
         .map((e) {
           final raw = e['bytes'];
           final bytes = raw is Uint8List

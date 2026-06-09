@@ -1083,6 +1083,51 @@ void main() {
         expect(received, isEmpty);
       });
 
+      test('drops events with a wrong-typed bytes field', () async {
+        // A non-null but wrong-typed `bytes` (here a String) must be dropped
+        // by the `where` guard, not reach the `as List` coercion in the `map`
+        // — that would throw a TypeError after the handleError in the chain and
+        // surface an uncaught async stream error, violating the "malformed
+        // events are silently dropped" contract.
+        const eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
+        final codec = const StandardMethodCodec();
+
+        final received = <({String endpointId, Uint8List bytes})>[];
+        Object? streamError;
+        final sub = audioService.controlBytes.listen(
+          received.add,
+          onError: (Object e) => streamError = e,
+        );
+        addTearDown(sub.cancel);
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'endpointId': 'AA:BB',
+                'bytes': 'not-a-list',
+              }),
+              (_) {},
+            );
+        // A well-formed event after the bad one must still arrive — i.e. the
+        // bad event was dropped, not tearing the stream down.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'endpointId': 'CC:DD',
+                'bytes': Uint8List.fromList([1, 2, 3]),
+              }),
+              (_) {},
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(streamError, isNull);
+        expect(received, hasLength(1));
+        expect(received[0].endpointId, 'CC:DD');
+        expect(received[0].bytes, Uint8List.fromList([1, 2, 3]));
+      });
+
       test('caches the broadcast source across reads', () async {
         // The exposed stream is the where/map wrapper, so identity does not
         // hold; instead, verify a single emission fan-outs to two listeners
