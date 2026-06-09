@@ -703,23 +703,16 @@ final class BitrateHint extends FrequencyMessage {
   };
 
   factory BitrateHint._fromJson(Map<String, dynamic> j) {
-    final bpsRaw = j['bps'];
-    final targetRaw = j['target'];
-    if (targetRaw is! String) {
-      throw const FormatException('`target` must be a string');
-    }
-    if (bpsRaw is! int) {
-      throw const FormatException('`bps` must be an int');
-    }
-    if (bpsRaw <= 0) {
-      throw FormatException('bps out of range: $bpsRaw');
+    final bps = reqInt(j, 'bps');
+    if (bps <= 0) {
+      throw FormatException('bps out of range: $bps');
     }
     return BitrateHint(
       peerId: reqString(j, 'peerId'),
       seq: reqInt(j, 'seq'),
       atMs: reqInt(j, 'atMs'),
-      target: targetRaw,
-      bps: bpsRaw,
+      target: reqString(j, 'target'),
+      bps: bps,
     );
   }
 }
