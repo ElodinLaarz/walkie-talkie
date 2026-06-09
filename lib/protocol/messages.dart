@@ -233,34 +233,25 @@ String? _parseOptionalString(Map<String, dynamic> j, String key) {
   return raw;
 }
 
-/// Parses a `roster` JSON list into typed `ProtocolPeer`s, raising
-/// `FormatException` (not `TypeError`) when the wire shape is wrong.
-List<ProtocolPeer> _parseRoster(Object? raw) {
+/// Parses a JSON list of objects into typed values, raising `FormatException`
+/// (not the `TypeError` a bare cast would) when the wire shape is wrong.
+/// [field] names the list in the error messages; [fromJson] decodes each
+/// element. Shared by the `roster` and `neighbors` parsers, which differ only
+/// in their element type.
+List<T> _parseObjectList<T>(
+  Object? raw,
+  String field,
+  T Function(Map<String, dynamic>) fromJson,
+) {
   if (raw is! List) {
-    throw const FormatException('`roster` must be a JSON array');
+    throw FormatException('`$field` must be a JSON array');
   }
-  final out = <ProtocolPeer>[];
+  final out = <T>[];
   for (final element in raw) {
     if (element is! Map) {
-      throw const FormatException('roster element must be a JSON object');
+      throw FormatException('$field element must be a JSON object');
     }
-    out.add(ProtocolPeer.fromJson(Map<String, dynamic>.from(element)));
-  }
-  return out;
-}
-
-/// Parses a `neighbors` JSON list into typed `NeighborSignal`s, with the same
-/// `FormatException` discipline as `_parseRoster`.
-List<NeighborSignal> _parseNeighbors(Object? raw) {
-  if (raw is! List) {
-    throw const FormatException('`neighbors` must be a JSON array');
-  }
-  final out = <NeighborSignal>[];
-  for (final element in raw) {
-    if (element is! Map) {
-      throw const FormatException('neighbors element must be a JSON object');
-    }
-    out.add(NeighborSignal.fromJson(Map<String, dynamic>.from(element)));
+    out.add(fromJson(Map<String, dynamic>.from(element)));
   }
   return out;
 }
@@ -369,7 +360,7 @@ final class JoinAccepted extends FrequencyMessage {
       seq: _reqInt(j, 'seq'),
       atMs: _reqInt(j, 'atMs'),
       hostPeerId: _reqString(j, 'hostPeerId'),
-      roster: _parseRoster(j['roster']),
+      roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
       mediaState: rawMediaState == null
           ? null
           : MediaState.fromJson(Map<String, dynamic>.from(rawMediaState)),
@@ -466,7 +457,7 @@ final class RosterUpdate extends FrequencyMessage {
     peerId: _reqString(j, 'peerId'),
     seq: _reqInt(j, 'seq'),
     atMs: _reqInt(j, 'atMs'),
-    roster: _parseRoster(j['roster']),
+    roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
   );
 }
 
@@ -622,7 +613,7 @@ final class SignalReport extends FrequencyMessage {
     peerId: _reqString(j, 'peerId'),
     seq: _reqInt(j, 'seq'),
     atMs: _reqInt(j, 'atMs'),
-    neighbors: _parseNeighbors(j['neighbors']),
+    neighbors: _parseObjectList(j['neighbors'], 'neighbors', NeighborSignal.fromJson),
   );
 }
 
