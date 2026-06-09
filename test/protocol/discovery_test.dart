@@ -225,8 +225,8 @@ void main() {
     test(
       'mhzDisplay falls back to 88.0 on a sessionUuidLow8 with non-hex chars',
       () {
-        // Hits the int.tryParse-null branch in _hexToBytes; the parse fails,
-        // _hexToBytes returns an empty Uint8List, and _deriveMhz returns the
+        // Hits the int.tryParse-null branch in hexDecode; the parse fails,
+        // hexDecode returns an empty Uint8List, and _deriveMhz returns the
         // 88.0 default when bytes.length < 2.
         final s = DiscoveredSession(
           protocolVersion: 1,
@@ -242,7 +242,7 @@ void main() {
     );
 
     test('mhzDisplay falls back to 88.0 on an odd-length sessionUuidLow8', () {
-      // hex.length.isOdd → _hexToBytes returns an empty Uint8List.
+      // hex.length.isOdd → hexDecode returns an empty Uint8List.
       final s = DiscoveredSession(
         protocolVersion: 1,
         isHost: true,

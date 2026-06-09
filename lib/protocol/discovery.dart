@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'frequency_session.dart';
+import 'hex.dart';
 
 /// The 128-bit service UUID used by Frequency for discovery and control.
 const String kWalkieTalkieServiceUuid = '8e5e8e8e-8e8e-4e8e-8e8e-8e8e8e8e8e8e';
@@ -38,7 +39,7 @@ class DiscoveredSession {
     // advertisement. The protocol says low 12 bits of the full UUID are used.
     // The advertisement layout says offset 2 contains "low 8 bytes of sessionUuid".
     // So we can extract the low 12 bits from these 8 bytes.
-    final bytes = _hexToBytes(sessionUuidLow8);
+    final bytes = hexDecode(sessionUuidLow8);
     if (bytes.length < 2) return '88.0';
 
     // Big-endian: low 12 bits of the full UUID.
@@ -47,20 +48,6 @@ class DiscoveredSession {
     final low12 =
         ((bytes[bytes.length - 2] & 0x0F) << 8) | bytes[bytes.length - 1];
     return FrequencySession.mhzDisplayFromLow12(low12);
-  }
-
-  /// Parses a hex string into bytes. Returns an empty list on any malformed
-  /// input (odd length, non-hex characters) — callers fall back to the
-  /// default value rather than crashing on a bad UUID payload from the wire.
-  static Uint8List _hexToBytes(String hex) {
-    if (hex.length.isOdd) return Uint8List(0);
-    final result = Uint8List(hex.length ~/ 2);
-    for (var i = 0; i < hex.length; i += 2) {
-      final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
-      if (byte == null) return Uint8List(0);
-      result[i ~/ 2] = byte;
-    }
-    return result;
   }
 
   /// Parses manufacturer data according to the v1 protocol spec.
@@ -88,10 +75,7 @@ class DiscoveredSession {
     // will get their own value.
     const isHost = true;
 
-    final sessionUuidLow8 = data
-        .sublist(2, 10)
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    final sessionUuidLow8 = hexEncode(data.sublist(2, 10));
 
     final flags = (data[10] << 8) | data[11];
 
