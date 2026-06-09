@@ -222,13 +222,16 @@ int? _optInt(Map<String, dynamic> j, String key) {
   return raw;
 }
 
-/// Parses an optional String field from a JSON map, throwing [FormatException]
-/// if the value is present but not a String. Returns null when absent.
-String? _parseOptionalString(Map<String, dynamic> j, String key) {
+/// Optional String field: null when absent, but [FormatException] when present
+/// and mistyped (rather than the `TypeError` of `j[key] as String?`).
+/// Same discipline as [_reqString].
+String? _optString(Map<String, dynamic> j, String key) {
   final raw = j[key];
   if (raw == null) return null;
   if (raw is! String) {
-    throw FormatException('`$key` must be a string when present, got ${raw.runtimeType}');
+    throw FormatException(
+      '`$key` must be a string when present, got ${raw.runtimeType}',
+    );
   }
   return raw;
 }
@@ -285,7 +288,7 @@ final class JoinRequest extends FrequencyMessage {
     seq: _reqInt(j, 'seq'),
     atMs: _reqInt(j, 'atMs'),
     displayName: _reqString(j, 'displayName'),
-    btDevice: _parseOptionalString(j, 'btDevice'),
+    btDevice: _optString(j, 'btDevice'),
   );
 }
 
@@ -365,7 +368,7 @@ final class JoinAccepted extends FrequencyMessage {
           ? null
           : MediaState.fromJson(Map<String, dynamic>.from(rawMediaState)),
       voicePsm: voicePsm,
-      recipientPeerId: _parseOptionalString(j, 'recipientPeerId'),
+      recipientPeerId: _optString(j, 'recipientPeerId'),
     );
   }
 }
