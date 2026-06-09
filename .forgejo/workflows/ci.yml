@@ -7,9 +7,12 @@ on:
 
 jobs:
   ci:
-    runs-on: flutter   # ghcr.io/cirruslabs/flutter:stable
+    runs-on: flutter   # ghcr.io/cirruslabs/flutter:stable (no node -> manual checkout)
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout is a JS action; this image has no node. Clone manually
+      # over the internal network using the auto-injected run token.
+      - name: Checkout
+        run: git clone --depth 1 "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
       - run: flutter --version
       - run: flutter pub get
       - run: flutter analyze
