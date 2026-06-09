@@ -121,6 +121,15 @@ public:
     bool playheadInitialized() const { return playheadInit_; }
     uint32_t playhead() const { return playhead_; }
 
+    // Peek at the front frame without consuming it. Returns nullptr when empty.
+    // The pointer is valid only until the next push/pop/reset call; the caller
+    // must not store it across any mutation. Used by the decode path to attempt
+    // Opus inband FEC (decodeFec) before falling back to PLC: the next in-order
+    // packet's LBRR side-channel can reconstruct a lost frame without popping.
+    const Frame* peekFront() const {
+        return frames_.empty() ? nullptr : &frames_.front();
+    }
+
     // Resync the playhead to `seq` when (and only when) the buffer is empty.
     //
     // Used by the caller after it has *intentionally* shed frames before they

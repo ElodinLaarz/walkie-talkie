@@ -520,8 +520,24 @@ void PeerAudioManager::mixerTickLoop() {
                         }
                     }
                     if (decoded < 0) {
-                        decoded = state->decoder->decodeMissing(
-                            decodedBuffer.data(), kFrameSize);
+                        // Attempt inband FEC before falling back to PLC. If
+                        // the next in-order packet is already queued, its LBRR
+                        // side-channel can reconstruct the missing frame. FEC
+                        // returns negative when the packet doesn't carry it
+                        // (underrun case, or low loss-rate encoder setting), so
+                        // we always have PLC as a fallback.
+                        const JitterBuffer::Frame* next =
+                            state->jitterBuffer->peekFront();
+                        if (next != nullptr) {
+                            decoded = state->decoder->decodeFec(
+                                next->opusData.data(),
+                                static_cast<int>(next->opusData.size()),
+                                decodedBuffer.data(), kFrameSize);
+                        }
+                        if (decoded < 0) {
+                            decoded = state->decoder->decodeMissing(
+                                decodedBuffer.data(), kFrameSize);
+                        }
                         ++state->consecutiveUnderruns;
                     }
                 }

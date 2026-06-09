@@ -571,6 +571,35 @@ void testResyncPlayheadIfEmpty() {
     std::cout << "Test Resync Playhead If Empty: PASSED" << std::endl;
 }
 
+// peekFront() returns nullptr when empty, and the oldest queued frame when
+// not empty — without consuming it (pop() still returns the same frame).
+void testPeekFront() {
+    JitterBuffer jb;
+    assert(jb.peekFront() == nullptr);
+
+    const uint8_t data[3] = {0x0a, 0x0b, 0x0c};
+    assert(jb.push(10, data, 3));
+    assert(jb.push(11, data, 3));
+
+    const JitterBuffer::Frame* p = jb.peekFront();
+    assert(p != nullptr);
+    assert(p->seq == 10);
+    assert(p->opusData.size() == 3);
+
+    // Peek is non-destructive — popAny still returns the same front frame.
+    auto f = jb.popAny();
+    assert(f.has_value() && f->seq == 10);
+
+    // After pop, peek advances to the next frame.
+    p = jb.peekFront();
+    assert(p != nullptr && p->seq == 11);
+
+    jb.popAny();
+    assert(jb.peekFront() == nullptr);
+
+    std::cout << "Test Peek Front: PASSED" << std::endl;
+}
+
 }  // namespace
 
 int main() {
@@ -593,6 +622,7 @@ int main() {
         testResetClearsQueueAndState();
         testLostFrameCountOnHole();
         testTargetDepthCapsAtMaxTarget();
+        testPeekFront();
         std::cout << "All JitterBuffer tests passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;
