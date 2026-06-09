@@ -140,6 +140,18 @@ void main() {
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
+    test('decode rejects non-string btDevice as FormatException', () {
+      final wire =
+          '{"kind":"join_request","peerId":"p","seq":1,"atMs":0,"v":1,"displayName":"X","btDevice":42}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects non-string recipientPeerId as FormatException', () {
+      final wire =
+          '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,"hostPeerId":"h","roster":[],"recipientPeerId":42}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
     test('decode rejects mistyped roster-element fields as FormatException', () {
       // peerId mistyped inside a roster entry — the TypeError would previously
       // bubble out of ProtocolPeer.fromJson, past _parseRoster, past decode.

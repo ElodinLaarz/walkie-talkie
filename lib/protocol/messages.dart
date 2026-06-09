@@ -228,7 +228,7 @@ String? _parseOptionalString(Map<String, dynamic> j, String key) {
   final raw = j[key];
   if (raw == null) return null;
   if (raw is! String) {
-    throw FormatException('`$key` must be a string when present, got $raw');
+    throw FormatException('`$key` must be a string when present, got ${raw.runtimeType}');
   }
   return raw;
 }
