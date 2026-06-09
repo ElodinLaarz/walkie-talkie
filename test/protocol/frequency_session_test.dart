@@ -78,6 +78,39 @@ void main() {
       expect(round, original);
     });
 
+    test('fromJson throws FormatException for missing sessionUuid', () {
+      expect(
+        () => FrequencySession.fromJson({'hostPeerId': 'h'}),
+        throwsFormatException,
+      );
+    });
+
+    test('fromJson throws FormatException for non-string sessionUuid', () {
+      expect(
+        () => FrequencySession.fromJson({'sessionUuid': 42, 'hostPeerId': 'h'}),
+        throwsFormatException,
+      );
+    });
+
+    test('fromJson throws FormatException for missing hostPeerId', () {
+      expect(
+        () => FrequencySession.fromJson(
+          {'sessionUuid': '550e8400-e29b-41d4-a716-446655440000'},
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('fromJson throws FormatException for non-string hostPeerId', () {
+      expect(
+        () => FrequencySession.fromJson({
+          'sessionUuid': '550e8400-e29b-41d4-a716-446655440000',
+          'hostPeerId': null,
+        }),
+        throwsFormatException,
+      );
+    });
+
     test('throws on a UUID too short to map', () {
       expect(
         () => FrequencySession(sessionUuid: 'ab', hostPeerId: 'h').mhzDisplay,

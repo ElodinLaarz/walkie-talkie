@@ -64,8 +64,8 @@ class FrequencySession {
 
   factory FrequencySession.fromJson(Map<String, dynamic> json) =>
       FrequencySession(
-        sessionUuid: json['sessionUuid'] as String,
-        hostPeerId: json['hostPeerId'] as String,
+        sessionUuid: _reqString(json, 'sessionUuid'),
+        hostPeerId: _reqString(json, 'hostPeerId'),
       );
 
   @override
@@ -80,4 +80,12 @@ class FrequencySession {
 
   @override
   String toString() => 'FrequencySession($sessionUuid host=$hostPeerId)';
+}
+
+String _reqString(Map<String, dynamic> j, String key) {
+  final raw = j[key];
+  if (raw is! String) {
+    throw FormatException('`$key` must be a string, got ${raw.runtimeType}');
+  }
+  return raw;
 }
