@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'wire_fields.dart';
+
 /// Identity of a single frequency room.
 ///
 /// `sessionUuid` is canonical and used for all routing decisions. The
@@ -72,8 +74,8 @@ class FrequencySession {
 
   factory FrequencySession.fromJson(Map<String, dynamic> json) =>
       FrequencySession(
-        sessionUuid: _reqString(json, 'sessionUuid'),
-        hostPeerId: _reqString(json, 'hostPeerId'),
+        sessionUuid: reqString(json, 'sessionUuid'),
+        hostPeerId: reqString(json, 'hostPeerId'),
       );
 
   @override
@@ -88,12 +90,4 @@ class FrequencySession {
 
   @override
   String toString() => 'FrequencySession($sessionUuid host=$hostPeerId)';
-}
-
-String _reqString(Map<String, dynamic> j, String key) {
-  final raw = j[key];
-  if (raw is! String) {
-    throw FormatException('`$key` must be a string, got ${raw.runtimeType}');
-  }
-  return raw;
 }

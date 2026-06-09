@@ -1,41 +1,8 @@
+import 'wire_fields.dart';
+
 // Sentinel used by [ProtocolPeer.copyWith] to distinguish "omitted" from
 // explicit null so callers can clear nullable fields (e.g. btDevice: null).
 const Object _noChange = Object();
-
-// Wire-field parsers that throw [FormatException] (not the `TypeError` a bare
-// `as` cast raises) when a field is missing or mistyped, so the control-plane
-// receiver drops the message instead of crashing. Mirrors the helpers in
-// messages.dart; kept private to this file since they can't be shared across
-// the library boundary.
-String _reqString(Map<String, dynamic> j, String key) {
-  final raw = j[key];
-  if (raw is! String) {
-    throw FormatException('`$key` must be a string, got ${raw.runtimeType}');
-  }
-  return raw;
-}
-
-String? _optString(Map<String, dynamic> j, String key) {
-  final raw = j[key];
-  if (raw == null) return null;
-  if (raw is! String) {
-    throw FormatException(
-      '`$key` must be a string when present, got ${raw.runtimeType}',
-    );
-  }
-  return raw;
-}
-
-bool _optBool(Map<String, dynamic> j, String key, {required bool orElse}) {
-  final raw = j[key];
-  if (raw == null) return orElse;
-  if (raw is! bool) {
-    throw FormatException(
-      '`$key` must be a bool when present, got ${raw.runtimeType}',
-    );
-  }
-  return raw;
-}
 
 /// Protocol-layer view of a peer in a frequency.
 ///
@@ -70,11 +37,11 @@ class ProtocolPeer {
   /// `TypeError` here would escape the control-plane receiver's
   /// `FormatException`-only catch and crash it on one malformed roster entry.
   factory ProtocolPeer.fromJson(Map<String, dynamic> json) => ProtocolPeer(
-    peerId: _reqString(json, 'peerId'),
-    displayName: _reqString(json, 'displayName'),
-    btDevice: _optString(json, 'btDevice'),
-    muted: _optBool(json, 'muted', orElse: false),
-    talking: _optBool(json, 'talking', orElse: false),
+    peerId: reqString(json, 'peerId'),
+    displayName: reqString(json, 'displayName'),
+    btDevice: optString(json, 'btDevice'),
+    muted: optBool(json, 'muted', orElse: false),
+    talking: optBool(json, 'talking', orElse: false),
   );
 
   ProtocolPeer copyWith({
