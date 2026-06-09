@@ -623,6 +623,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       if (neighborId == current.hostPeerId) continue;
       final displayName = namesByPeerId[neighborId];
       if (displayName == null) continue;
+      _weakSignalDetector.confirmFired(neighborId);
       _weakSignalEventsController.add((
         peerId: neighborId,
         displayName: displayName,

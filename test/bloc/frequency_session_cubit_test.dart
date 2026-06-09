@@ -3614,6 +3614,158 @@ void main() {
     });
 
     test(
+      'phantom cooldown: host-self suppression does not block later real toast',
+      () async {
+        // Regression for #35: onReport used to record _lastToastAt for every
+        // candidate, including ones the cubit filters (host-self, off-roster).
+        // Feeding two weak reports for hostPeerId burned the cooldown silently;
+        // a subsequent real peer's first toast was then blocked for 60 s.
+        //
+        // This test uses two distinct peerIds so the per-peerId isolation is
+        // also verified: p-host burns its own entry (which never toasts), while
+        // p-target must fire on its first genuine trip.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(
+          transport: t.transport,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-target', displayName: 'Maya'),
+            ],
+          ),
+        );
+
+        final fired = <({String peerId, String displayName})>[];
+        final sub = cubit.weakSignalEvents.listen(fired.add);
+        addTearDown(sub.cancel);
+
+        Future<void> feedReport(int seq, String neighborId, int rssi) async {
+          final json = SignalReport(
+            peerId: 'p-guest',
+            seq: seq,
+            atMs: seq * 1000,
+            neighbors: [NeighborSignal(peerId: neighborId, rssi: rssi)],
+          ).encode();
+          for (final frag in encodeFragments(json)) {
+            t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // Two weak reports for the host itself — suppressed (host-self), must
+        // NOT burn the cooldown for p-host's entry.
+        await feedReport(1, 'p-host', -95);
+        await feedReport(2, 'p-host', -95);
+        expect(fired, isEmpty);
+
+        // First genuine trip for p-target — must fire immediately, not be
+        // blocked by any phantom cooldown from the p-host reports above.
+        await feedReport(3, 'p-target', -95);
+        await feedReport(4, 'p-target', -95);
+        expect(fired, hasLength(1));
+        expect(fired.first.peerId, 'p-target');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
+      'phantom cooldown: off-roster suppression does not block toast after peer joins',
+      () async {
+        // Regression for #35: a guest whose report names p-ghost (off-roster)
+        // as weak used to arm _lastToastAt for p-ghost even though no toast
+        // was shown. When p-ghost later joined the roster, its first real weak
+        // toast was silently swallowed for up to 60 s.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(
+          transport: t.transport,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+        // Initial roster: host only — p-ghost is not yet a member.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 1,
+            atMs: 0,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ],
+          ),
+        );
+
+        final fired = <({String peerId, String displayName})>[];
+        final sub = cubit.weakSignalEvents.listen(fired.add);
+        addTearDown(sub.cancel);
+
+        Future<void> feedReport(int seq, String neighborId, int rssi) async {
+          final json = SignalReport(
+            peerId: 'p-guest',
+            seq: seq,
+            atMs: seq * 1000,
+            neighbors: [NeighborSignal(peerId: neighborId, rssi: rssi)],
+          ).encode();
+          for (final frag in encodeFragments(json)) {
+            t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // Two weak reports for p-ghost while it is off-roster — suppressed,
+        // must NOT arm the rate-limit watermark.
+        await feedReport(1, 'p-ghost', -95);
+        await feedReport(2, 'p-ghost', -95);
+        expect(fired, isEmpty);
+
+        // p-ghost joins the room — update the roster via a new JoinAccepted.
+        cubit.applyJoinAccepted(
+          JoinAccepted(
+            peerId: 'p-host',
+            seq: 2,
+            atMs: 2000,
+            hostPeerId: 'p-host',
+            roster: const [
+              ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'p-ghost', displayName: 'Kai'),
+            ],
+          ),
+        );
+
+        // First genuine weak trip for p-ghost now that it is in the roster.
+        // Must fire — the cooldown must not have been burned by the pre-join
+        // reports above.
+        await feedReport(3, 'p-ghost', -95);
+        await feedReport(4, 'p-ghost', -95);
+        expect(fired, hasLength(1));
+        expect(fired.first.peerId, 'p-ghost');
+        expect(fired.first.displayName, 'Kai');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
+
+    test(
       'guest _sendSignalReport resolves host MAC to application peerId (#316)',
       () async {
         // The GATT client keys connections by BT MAC, not application peerId.

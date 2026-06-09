@@ -137,6 +137,7 @@ void main() {
         _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
       );
       expect(fired, ['a']);
+      d.confirmFired('a');
 
       fakeNow = fakeNow.add(const Duration(seconds: 30));
       // Two more weak reports — would trip again if not for the rate-limit.
@@ -154,6 +155,7 @@ void main() {
       // First trip at T0.
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
       d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]));
+      d.confirmFired('a');
 
       // Counter is now ≥ 2, so any further weak report would trip *if*
       // the rate-limit allows it. Advance to exactly the rate-limit
@@ -178,6 +180,7 @@ void main() {
         _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
       );
       expect(fired, ['a']);
+      d.confirmFired('a');
 
       fakeNow = fakeNow.add(const Duration(seconds: 30));
       fired = d.onReport(
@@ -203,6 +206,7 @@ void main() {
       // Trip 'a' first.
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
       d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]));
+      d.confirmFired('a');
 
       // 'b' starts weak shortly after — its rate-limit watermark is
       // independent and should trip on its own two consecutive reports
@@ -213,6 +217,51 @@ void main() {
         _report(reporter: 'g1', seq: 4, neighbors: [_n('b', -85)]),
       );
       expect(fired, ['b']);
+    });
+
+    test('candidate without confirmFired does not arm rate-limit', () {
+      // Simulates the cubit filtering out a trip (host-self or off-roster):
+      // onReport returns the id but the caller never calls confirmFired.
+      // The next trip for the same id must still fire.
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final d = WeakSignalDetector(clock: () => fakeNow);
+
+      d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
+      final first = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
+      );
+      expect(first, ['a']);
+      // Caller does NOT call d.confirmFired('a') — toast was filtered.
+
+      fakeNow = fakeNow.add(const Duration(seconds: 5));
+      d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
+      final second = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]),
+      );
+      expect(
+        second,
+        ['a'],
+        reason: 'cooldown not armed — first real toast must not be blocked',
+      );
+    });
+
+    test('confirmFired arms rate-limit, suppressing the next trip', () {
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final d = WeakSignalDetector(clock: () => fakeNow);
+
+      d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
+      final first = d.onReport(
+        _report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]),
+      );
+      expect(first, ['a']);
+      d.confirmFired('a');
+
+      fakeNow = fakeNow.add(const Duration(seconds: 5));
+      d.onReport(_report(reporter: 'g1', seq: 3, neighbors: [_n('a', -85)]));
+      final second = d.onReport(
+        _report(reporter: 'g1', seq: 4, neighbors: [_n('a', -85)]),
+      );
+      expect(second, isEmpty, reason: 'cooldown armed — trip inside window suppressed');
     });
   });
 
@@ -238,6 +287,7 @@ void main() {
       final d = WeakSignalDetector(clock: () => fakeNow);
       d.onReport(_report(reporter: 'g1', seq: 1, neighbors: [_n('a', -85)]));
       d.onReport(_report(reporter: 'g1', seq: 2, neighbors: [_n('a', -85)]));
+      d.confirmFired('a');
       // 'a' is now under its 60s rate-limit. Forget + re-trip should
       // succeed immediately rather than waiting out the cooldown.
       d.forgetPeer('a');
@@ -265,6 +315,8 @@ void main() {
           neighbors: [_n('a', -85), _n('b', -85)],
         ),
       );
+      d.confirmFired('a');
+      d.confirmFired('b');
       d.clear();
       var fired = d.onReport(
         _report(

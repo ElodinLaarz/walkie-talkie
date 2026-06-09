@@ -50,8 +50,13 @@ class WeakSignalDetector {
     : _now = clock ?? DateTime.now;
 
   /// Process [report] from a guest. Returns the neighbor `peerId`s that
-  /// should fire a toast on this report (after threshold + rate-limit
-  /// gates). The list is empty when nothing trips.
+  /// passed both the consecutive-weak threshold and the rate-limit gate.
+  /// The list is empty when nothing trips.
+  ///
+  /// **The rate-limit watermark is NOT recorded here.** Call [confirmFired]
+  /// for each id the caller actually surfaces as a toast. This ensures a
+  /// phantom cooldown is never burned for a peer the cubit filters out
+  /// (host-self suppression or off-roster drop).
   ///
   /// State is mutated atomically per report: counters are advanced for
   /// every weak neighbor before the rate-limit gate runs, so two weak
@@ -63,10 +68,8 @@ class WeakSignalDetector {
         final next = (_consecutiveWeak[n.peerId] ?? 0) + 1;
         _consecutiveWeak[n.peerId] = next;
         if (next < consecutiveReportsToTrip) continue;
-        final now = _now();
         final last = _lastToastAt[n.peerId];
-        if (last != null && now.difference(last) < toastRateLimit) continue;
-        _lastToastAt[n.peerId] = now;
+        if (last != null && _now().difference(last) < toastRateLimit) continue;
         fired.add(n.peerId);
       } else {
         // Strong reading clears the consecutive counter immediately so a
@@ -78,6 +81,14 @@ class WeakSignalDetector {
       }
     }
     return fired;
+  }
+
+  /// Arm the rate-limit cooldown for [peerId]. Call after the toast has
+  /// been surfaced to the user. If the caller filtered [peerId] out
+  /// (host-self or off-roster), do NOT call this — the cooldown must not
+  /// be burned for toasts that were never shown.
+  void confirmFired(String peerId) {
+    _lastToastAt[peerId] = _now();
   }
 
   /// Drop all detector state for [peerId]. Call when a peer leaves the
