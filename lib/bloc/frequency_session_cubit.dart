@@ -372,6 +372,12 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // and clean up transport state, regardless of local role.
         final current = state;
         if (isClosed || current is! SessionRoom) return;
+        // Authorize the removal: only the current host may evict an arbitrary
+        // peer. A non-host peer is allowed to remove *itself* (effectively a
+        // Leave), but must not be able to evict another guest — otherwise any
+        // peer could forge a RemovePeer(target: someoneElse) and kick a peer
+        // out of every roster (issue #127).
+        if (m.peerId != current.hostPeerId && m.peerId != m.target) return;
         final updated = current.roster
             .where((p) => p.peerId != m.target)
             .toList();
@@ -404,6 +410,11 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
         // host writes to), so the `roomIsHost` guard is just defensive.
         final current = state;
         if (isClosed || current is! SessionRoom || current.roomIsHost) break;
+        // Authorize the handoff: only the *current* host may transfer host
+        // authority. Without this, any guest could forge a HostTransfer naming
+        // an arbitrary newHostPeerId and redirect every guest's hostPeerId
+        // (or promote itself), hijacking the room (issue #128).
+        if (m.peerId != current.hostPeerId) break;
         if (m.newHostPeerId == _localPeerId) {
           unawaited(_promoteToHost(m.sessionUuid));
         } else {

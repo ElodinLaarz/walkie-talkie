@@ -5533,6 +5533,191 @@ void main() {
         await t.inbox.close();
         t.transport.dispose();
       });
+
+      test('HostTransfer from a non-host peer is ignored (no hijack)', () async {
+        // A guest (peer-3) receives a forged HostTransfer whose *sender* is
+        // another guest (peer-2), not the current host (peer-1). The handoff
+        // must be rejected: hostPeerId stays peer-1 and the room is not put
+        // into reconnecting. Regression guard for issue #128.
+        final t = makeT();
+        final store = _FakeStore(initial: 'Charlie');
+        store._peerId = 'peer-3';
+        final cubit = _makeCubit(identityStore: store, transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Charlie'),
+            ],
+          ),
+        );
+
+        injectMsg(
+          t.inbox,
+          // Forged: sent by peer-2 (a guest), naming peer-2 as the new host.
+          HostTransfer(
+            peerId: 'peer-2',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.hostPeerId, 'peer-1');
+        expect(room.connectionPhase, isNot(ConnectionPhase.reconnecting));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      });
+
+      test('HostTransfer from a non-host peer naming self is not promoted',
+          () async {
+        // The strongest hijack: a guest (peer-2) forges a HostTransfer that
+        // names the *recipient* (peer-3) as the new host. Even though the
+        // recipient is the named target, the message did not come from the
+        // current host, so the recipient must not promote itself (issue #128).
+        final t = makeT();
+        final store = _FakeStore(initial: 'Charlie');
+        store._peerId = 'peer-3';
+        final cubit = _makeCubit(identityStore: store, transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Charlie'),
+            ],
+          ),
+        );
+
+        injectMsg(
+          t.inbox,
+          HostTransfer(
+            peerId: 'peer-2',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-3',
+            sessionUuid: _testHostSessionUuid,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.roomIsHost, isFalse);
+        expect(room.hostPeerId, 'peer-1');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      });
+
+      test('RemovePeer from a non-host peer targeting another guest is ignored',
+          () async {
+        // A guest (peer-2) forges a RemovePeer evicting another guest (peer-3).
+        // The sender is neither the host nor the target, so the removal must be
+        // rejected and peer-3 must stay in the roster (issue #127).
+        final t = makeT();
+        final store = _FakeStore(initial: 'Charlie');
+        store._peerId = 'peer-9';
+        final cubit = _makeCubit(identityStore: store, transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Eve'),
+            ],
+          ),
+        );
+
+        injectMsg(
+          t.inbox,
+          const RemovePeer(
+            peerId: 'peer-2',
+            seq: 1,
+            atMs: 0,
+            target: 'peer-3',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.roster.map((p) => p.peerId), contains('peer-3'));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      });
+
+      test('RemovePeer from the host evicts the target', () async {
+        // Sanity: a legitimate host-authored RemovePeer still removes the
+        // target (the issue #127 guard does not block real evictions).
+        final t = makeT();
+        final store = _FakeStore(initial: 'Charlie');
+        store._peerId = 'peer-9';
+        final cubit = _makeCubit(identityStore: store, transport: t.transport);
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Charlie',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Eve'),
+            ],
+          ),
+        );
+
+        injectMsg(
+          t.inbox,
+          const RemovePeer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            target: 'peer-3',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final room = cubit.state as SessionRoom;
+        expect(room.roster.map((p) => p.peerId), isNot(contains('peer-3')));
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      });
     });
   });
 
