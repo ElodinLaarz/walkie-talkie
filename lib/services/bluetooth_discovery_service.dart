@@ -34,6 +34,13 @@ class DiscoveryService {
   // short enough to unblock discovery on flaky OEM stacks (#432).
   static const Duration _kBtCheckTimeout = Duration(seconds: 3);
 
+  /// BLE company identifier the host advertises under (matches
+  /// `HostAdvertiser.MANUFACTURER_ID` on the native side). The hardware scan
+  /// filter constrains the scan to this id, but [parseResult] re-validates it
+  /// in software so a device advertising under a different company id whose
+  /// payload happens to start `0x01 0x01` can't surface as a fake host (#122).
+  static const int kManufacturerId = 0xFFFF;
+
   /// Starts scanning for Frequency advertisements.
   Future<void> startScan() async {
     // 1. Check if Bluetooth is available and on.
@@ -110,7 +117,7 @@ class DiscoveryService {
       // No timeout — user controls start/stop; avoids silent timeout failures.
       withMsd: [
         MsdFilter(
-          0xFFFF, // HostAdvertiser.MANUFACTURER_ID
+          kManufacturerId, // HostAdvertiser.MANUFACTURER_ID
           data: [0x01, 0x01], // protocol v1 + host role
           mask: [0xFF, 0xFF],
         ),
@@ -218,6 +225,11 @@ class DiscoveryService {
   DiscoveredSession? parseResult(ScanResult r) {
     // Manufacturer data is a Map<int, List<int>>.
     for (final entry in r.advertisementData.manufacturerData.entries) {
+      // Defense-in-depth: the hardware scan filter already constrains the scan
+      // to kManufacturerId, but re-parse every entry here, so skip any that
+      // isn't ours before treating its payload as a Frequency advertisement
+      // (#122).
+      if (entry.key != kManufacturerId) continue;
       final data = Uint8List.fromList(entry.value);
       final session = DiscoveredSession.fromManufacturerData(
         data,

@@ -76,7 +76,7 @@ void main() {
       'parseResult extracts valid manufacturer data and propagates all fields',
       () {
         final scanResult = makeScanResult(
-          manufacturerData: {0x05A0: validV1Payload().toList()},
+          manufacturerData: {0xFFFF: validV1Payload().toList()},
           advName: 'TestHost',
           rssi: -72,
           macAddress: '11:22:33:44:55:66',
@@ -103,7 +103,7 @@ void main() {
       ]);
 
       final scanResult = makeScanResult(
-        manufacturerData: {0x05A0: invalidPayload.toList()},
+        manufacturerData: {0xFFFF: invalidPayload.toList()},
         advName: 'InvalidHost',
         rssi: -50,
       );
@@ -119,7 +119,7 @@ void main() {
       ]);
 
       final scanResult = makeScanResult(
-        manufacturerData: {0x05A0: truncatedPayload.toList()},
+        manufacturerData: {0xFFFF: truncatedPayload.toList()},
         advName: 'BadHost',
         rssi: -45,
       );
@@ -129,14 +129,15 @@ void main() {
     });
 
     test('parseResult handles multiple manufacturer data entries', () {
-      // First entry is junk, second is valid
+      // A foreign company id is present alongside ours; only the kManufacturerId
+      // entry is parsed.
       final validPayload = validV1Payload();
       final junkPayload = Uint8List.fromList([0x99, 0x99]);
 
       final scanResult = makeScanResult(
         manufacturerData: {
-          0x0001: junkPayload.toList(), // Truncated payload; too short to parse
-          0x05A0: validPayload.toList(), // Valid Frequency payload
+          0x0001: junkPayload.toList(), // Foreign company id; skipped (#122)
+          0xFFFF: validPayload.toList(), // Valid Frequency payload
         },
         advName: 'MultiMfg',
         rssi: -65,
@@ -162,7 +163,7 @@ void main() {
 
     test('parseResult propagates advName to DiscoveredSession.hostName', () {
       final scanResult = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload().toList()},
+        manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'Pixel 7 Pro',
         rssi: -55,
       );
@@ -176,7 +177,7 @@ void main() {
     test('parseResult propagates macAddress from device.remoteId', () {
       const testMac = 'DE:AD:BE:EF:CA:FE';
       final scanResult = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload().toList()},
+        manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'TestDevice',
         rssi: -60,
         macAddress: testMac,
@@ -191,13 +192,13 @@ void main() {
     test('RSSI propagates correctly across negative range', () {
       // Test boundary values: very weak and very strong signals
       final weakSignal = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload().toList()},
+        manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'WeakHost',
         rssi: -95, // Very weak
       );
 
       final strongSignal = makeScanResult(
-        manufacturerData: {0x05A0: validV1Payload().toList()},
+        manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'StrongHost',
         rssi: -30, // Very strong
       );
@@ -218,7 +219,7 @@ void main() {
 
       final result1 = makeScanResult(
         manufacturerData: {
-          0x05A0: validV1Payload(sessionUuidLow8: uuid1).toList(),
+          0xFFFF: validV1Payload(sessionUuidLow8: uuid1).toList(),
         },
         advName: 'Host1',
         rssi: -50,
@@ -226,7 +227,7 @@ void main() {
 
       final result2 = makeScanResult(
         manufacturerData: {
-          0x05A0: validV1Payload(sessionUuidLow8: uuid2).toList(),
+          0xFFFF: validV1Payload(sessionUuidLow8: uuid2).toList(),
         },
         advName: 'Host2',
         rssi: -60,
@@ -244,10 +245,9 @@ void main() {
 
     test('parseResult accepts test/internal manufacturer ID 0xFFFF', () {
       // HostAdvertiser uses MANUFACTURER_ID = 0xFFFF (Bluetooth SIG test/internal
-      // range). parseResult iterates all manufacturer data entries and applies
-      // protocol-level filtering, so the company ID is irrelevant — any value
-      // that carries a valid v1 payload is accepted. This test pins the
-      // round-trip with the actual HostAdvertiser ID.
+      // range). parseResult re-checks the company id against kManufacturerId in
+      // software (#122) and only then applies protocol-level filtering. This
+      // test pins the accept path for the actual HostAdvertiser id.
       final scanResult = makeScanResult(
         manufacturerData: {0xFFFF: validV1Payload().toList()},
         advName: 'Moto G',
@@ -262,29 +262,46 @@ void main() {
     });
 
     test(
-      'parseResult returns first valid session from multiple mfg entries',
+      'parseResult ignores a valid payload under a foreign company id (#122)',
       () {
-        // Both entries are valid with different UUIDs
-        final uuid1 = '1111111111111111';
-        final uuid2 = '2222222222222222';
-        final payload1 = validV1Payload(sessionUuidLow8: uuid1);
-        final payload2 = validV1Payload(sessionUuidLow8: uuid2);
+        // A foreign company id (not kManufacturerId) carries a structurally
+        // valid v1 host payload, and it is iterated first. The platform scan
+        // filter constrains the scan, but parseResult re-parses every entry, so
+        // it must skip the foreign id and return only the kManufacturerId host —
+        // otherwise a device advertising under another company id whose payload
+        // happens to start 0x01 0x01 would surface as a fake host.
+        final foreignUuid = '1111111111111111';
+        final hostUuid = '2222222222222222';
 
         final scanResult = makeScanResult(
           manufacturerData: {
-            0x05A0: payload1.toList(), // First valid
-            0x05A1: payload2.toList(), // Second valid (different company ID)
+            // Iterated first; valid v1 payload but under the wrong company id.
+            0x05A1: validV1Payload(sessionUuidLow8: foreignUuid).toList(),
+            0xFFFF: validV1Payload(sessionUuidLow8: hostUuid).toList(),
           },
-          advName: 'MultiValid',
+          advName: 'MixedMfg',
           rssi: -70,
         );
 
         final session = service.parseResult(scanResult);
 
-        // Should return the first valid session found during iteration
         expect(session, isNotNull);
-        // Dart maps iterate in insertion order, so should return uuid1
-        expect(session!.sessionUuidLow8, uuid1.toLowerCase());
+        expect(session!.sessionUuidLow8, hostUuid.toLowerCase());
+      },
+    );
+
+    test(
+      'parseResult returns null when a valid payload is under a foreign id only',
+      () {
+        // Defense-in-depth: even a perfectly-formed v1 payload must be rejected
+        // when its company id is not kManufacturerId (#122).
+        final scanResult = makeScanResult(
+          manufacturerData: {0x05A1: validV1Payload().toList()},
+          advName: 'Impostor',
+          rssi: -55,
+        );
+
+        expect(service.parseResult(scanResult), isNull);
       },
     );
   });
