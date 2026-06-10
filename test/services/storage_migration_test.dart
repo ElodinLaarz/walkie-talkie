@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart' show Sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
 import 'package:walkie_talkie/services/recent_frequencies_store.dart';
@@ -94,6 +95,38 @@ void main() {
       final recents = await SqfliteRecentFrequenciesStore().getRecent();
       expect(recents, ['100.1', '92.4', '88.7']);
     });
+
+    test(
+      'caps migrated recents at maxEntries even when legacy list is longer',
+      () async {
+        Hive.init(hiveDir.path);
+        final box = await Hive.openBox<dynamic>('recent_frequencies');
+        // Seed 8 entries (> maxEntries=5), most-recent-first.
+        await box.put('list', <dynamic>[
+          'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8',
+        ]);
+        await box.close();
+        await Hive.close();
+
+        await migrateHiveToSqliteIfNeeded(hiveInit: initHiveAtTempDir);
+
+        final store = SqfliteRecentFrequenciesStore();
+        final recents = await store.getRecent();
+        // Only the 5 most-recent entries survive; on-disk row count must also
+        // be 5 (the store's invariant holds at migration time, not just in
+        // the display-layer truncation).
+        expect(recents.length, RecentFrequenciesStore.maxEntries);
+        expect(recents, ['f1', 'f2', 'f3', 'f4', 'f5']);
+
+        final db = await WalkieTalkieDatabase.open();
+        final count = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM recent_frequencies',
+          ),
+        );
+        expect(count, RecentFrequenciesStore.maxEntries);
+      },
+    );
 
     test('drops malformed entries silently (mixed-type list)', () async {
       Hive.init(hiveDir.path);

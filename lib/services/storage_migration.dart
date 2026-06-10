@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'recent_frequencies_store.dart';
 import 'walkie_talkie_database.dart';
 
 /// One-shot migration from Hive (v0 storage) to sqflite. The marker
@@ -112,6 +113,7 @@ Future<void> _migrateRecents(Database db) async {
           .whereType<String>()
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
+          .take(RecentFrequenciesStore.maxEntries)
           .toList();
       var ts = DateTime.now().millisecondsSinceEpoch << 16;
       await db.transaction((txn) async {
