@@ -32,6 +32,23 @@ List<InlineSpan> styledTemplate({
 }) {
   final rendered = template(_kSentinel);
   final parts = rendered.split(_kSentinel);
+  // A rendered string with no sentinel means the template dropped its
+  // placeholder (a translation that omits `{freq}`, or a function that ignores
+  // its argument). `split` would then yield a single part and `value` — a
+  // load-bearing frequency — would be silently dropped from the UI. Catch the
+  // broken template in debug, and in release still append `value` so the
+  // frequency is never lost.
+  if (parts.length < 2) {
+    assert(
+      false,
+      'styledTemplate: rendered string contains no placeholder sentinel — '
+      'the template dropped its argument. Rendered: "$rendered"',
+    );
+    return [
+      if (rendered.isNotEmpty) TextSpan(text: rendered, style: surroundingStyle),
+      TextSpan(text: value, style: valueStyle),
+    ];
+  }
   final spans = <InlineSpan>[];
   for (var i = 0; i < parts.length; i++) {
     if (parts[i].isNotEmpty) {

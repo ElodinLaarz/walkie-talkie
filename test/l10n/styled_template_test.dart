@@ -73,6 +73,22 @@ void main() {
       expect((spans[0] as TextSpan).text, '88');
     });
 
+    test('template that drops the placeholder asserts in debug', () {
+      // A translation that omits {freq}, or a function that ignores its
+      // argument, renders no sentinel. Asserts are enabled under `flutter
+      // test`, so the broken template must surface as an AssertionError rather
+      // than silently dropping the value.
+      String template(String s) => 'Join now';
+      expect(
+        () => styledTemplate(
+          template: template,
+          value: '92.5',
+          valueStyle: valueStyle,
+        ),
+        throwsAssertionError,
+      );
+    });
+
     test('value is inserted only once for single placeholder', () {
       String template(String s) => 'before${s}after';
       final spans = styledTemplate(
