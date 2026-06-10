@@ -605,12 +605,27 @@ final class Heartbeat extends FrequencyMessage {
 /// Field semantics:
 ///   * `lossPct` ∈ [0, 100] — fraction of expected frames that arrived too
 ///     late to play (jitter buffer rejections), as a percentage.
-///   * `jitterMs` ≥ 0 — current jitter buffer fill in ms (depth × 20 ms).
-///     Useful as an observability field; the adapter doesn't use it.
-///   * `underrunsPerSec` ≥ 0 — rate of mixer-tick underruns in the sampled
-///     window. A non-zero rate means the buffer drained faster than the
-///     wire could refill it.
+///   * `jitterMs` ∈ [0, kMaxJitterMs] — current jitter buffer fill in ms
+///     (depth × 20 ms). Useful as an observability field; the adapter
+///     doesn't use it.
+///   * `underrunsPerSec` ∈ [0, kMaxUnderrunsPerSec] — rate of mixer-tick
+///     underruns in the sampled window. A non-zero rate means the buffer
+///     drained faster than the wire could refill it.
 final class LinkQuality extends FrequencyMessage {
+  /// Upper bound accepted for a wire `jitterMs`. The native jitter buffer
+  /// hard-caps at `kJitterMaxDepth` = 10 frames × 20 ms = 200 ms
+  /// (`audio_config.h`), so any legitimate value sits well under this; the
+  /// 10 s ceiling is a 50× headroom for protocol evolution while still
+  /// rejecting an int64-garbage value before it skews the host's
+  /// voice-debug dashboard. Mirrors the `lossPct ∈ [0, 100]` range check.
+  static const int kMaxJitterMs = 10000;
+
+  /// Upper bound accepted for a wire `underrunsPerSec`. The mixer ticks at
+  /// 50 fps (20 ms frames), so the underrun rate physically can't exceed
+  /// ~50/s in steady state; 10 000 is generous headroom for a transient
+  /// sampling window while still rejecting garbage.
+  static const double kMaxUnderrunsPerSec = 10000;
+
   final double lossPct;
   final int jitterMs;
   final double underrunsPerSec;
@@ -660,6 +675,12 @@ final class LinkQuality extends FrequencyMessage {
     }
     _requireNonNeg(jitterMsRaw, 'jitterMs');
     _requireNonNeg(underruns, 'underrunsPerSec');
+    if (jitterMsRaw > kMaxJitterMs) {
+      throw FormatException('jitterMs out of range: $jitterMsRaw');
+    }
+    if (underruns > kMaxUnderrunsPerSec) {
+      throw FormatException('underrunsPerSec out of range: $underruns');
+    }
     return LinkQuality(
       peerId: reqString(j, 'peerId'),
       seq: reqSeq(j, 'seq'),

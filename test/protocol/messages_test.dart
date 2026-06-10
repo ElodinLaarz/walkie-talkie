@@ -535,6 +535,31 @@ void main() {
       );
     });
 
+    test('LinkQuality rejects over-upper-bound jitterMs / underrunsPerSec', () {
+      // A peer can otherwise send int64-garbage observability values that skew
+      // the host voice-debug dashboard; the decoder bounds them like lossPct.
+      final overJitter =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":${LinkQuality.kMaxJitterMs + 1},"underrunsPerSec":0.1}';
+      final overUnderruns =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":40,"underrunsPerSec":${LinkQuality.kMaxUnderrunsPerSec + 1}}';
+      final hugeJitter =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":9223372036854775807,"underrunsPerSec":0.1}';
+      expect(() => FrequencyMessage.decode(overJitter), throwsFormatException);
+      expect(
+        () => FrequencyMessage.decode(overUnderruns),
+        throwsFormatException,
+      );
+      expect(() => FrequencyMessage.decode(hugeJitter), throwsFormatException);
+    });
+
+    test('LinkQuality accepts values at the upper bound', () {
+      final atJitter =
+          '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":1.0,"jitterMs":${LinkQuality.kMaxJitterMs},"underrunsPerSec":${LinkQuality.kMaxUnderrunsPerSec}}';
+      final decoded = FrequencyMessage.decode(atJitter) as LinkQuality;
+      expect(decoded.jitterMs, LinkQuality.kMaxJitterMs);
+      expect(decoded.underrunsPerSec, LinkQuality.kMaxUnderrunsPerSec);
+    });
+
     test('LinkQuality rejects wrong-typed numeric fields', () {
       final stringLoss =
           '{"kind":"link_quality","peerId":"p","seq":1,"atMs":0,"v":1,"lossPct":"oops","jitterMs":40,"underrunsPerSec":0.1}';
