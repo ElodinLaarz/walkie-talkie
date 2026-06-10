@@ -65,7 +65,7 @@ void main() {
     },
   );
 
-  test('stopDiscovery clears sessions when paused', () async {
+  test('stopDiscovery preserves sessions from DiscoveryScanning state', () async {
     await cubit.startDiscovery();
     final sessions = [
       DiscoveredSession(
@@ -82,7 +82,7 @@ void main() {
     await Future.delayed(Duration.zero);
 
     await cubit.stopDiscovery();
-    expect(cubit.state, const DiscoveryStopped()); // empty sessions expected
+    expect(cubit.state, DiscoveryStopped(sessions: sessions));
   });
 
   test(
