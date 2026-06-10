@@ -106,12 +106,19 @@ int OpusEncoder::setBitrate(int bps) {
 void OpusEncoder::setExpectedLossPct(int pct) {
     if (!encoder_) return;
     int clamped = std::max(0, std::min(100, pct));
-    opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(clamped));
+    int err = opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(clamped));
+    if (err != OPUS_OK) {
+        LOGE("OPUS_SET_PACKET_LOSS_PERC(%d) failed: %s", clamped, opus_strerror(err));
+    }
 }
 
 void OpusEncoder::setInbandFec(bool enabled) {
     if (!encoder_) return;
-    opus_encoder_ctl(encoder_, OPUS_SET_INBAND_FEC(enabled ? 1 : 0));
+    int val = enabled ? 1 : 0;
+    int err = opus_encoder_ctl(encoder_, OPUS_SET_INBAND_FEC(val));
+    if (err != OPUS_OK) {
+        LOGE("OPUS_SET_INBAND_FEC(%d) failed: %s", val, opus_strerror(err));
+    }
 }
 
 OpusDecoder::OpusDecoder() : decoder_(nullptr) {
