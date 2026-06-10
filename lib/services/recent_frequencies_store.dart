@@ -247,9 +247,10 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     // trim-to-null rule and lines up with [_rowToRecent]'s read-side
     // normalization, so an empty string never round-trips as a non-null
     // value through the store.
-    final normalizedUuid = (sessionUuid == null || sessionUuid.trim().isEmpty)
+    final trimmedUuid = sessionUuid?.trim();
+    final normalizedUuid = (trimmedUuid == null || trimmedUuid.isEmpty)
         ? null
-        : sessionUuid.trim();
+        : trimmedUuid;
     final db = await WalkieTalkieDatabase.open();
     final orderingTimestamp = _nextOrderingTimestamp();
     await db.transaction((txn) async {
