@@ -57,14 +57,20 @@ class FrequencySession {
   static int _low12Bits(String uuid) => _hexTail(uuid, 3);
   static int _low20Bits(String uuid) => _hexTail(uuid, 5);
 
-  /// Returns the integer value of the last `nibbles` hex digits of `uuid`.
-  /// Hyphens are ignored.
+  /// Returns the integer value of the last `nibbles` hex digits of `uuid`,
+  /// or 0 if `uuid` is too short or the tail is not hex. Hyphens are ignored.
+  ///
+  /// The cosmetic getters ([mhzDisplay], [sessionCode]) must never throw on a
+  /// wire-derived `sessionUuid` — `HostTransfer` decodes it with a bare
+  /// `reqString` (no hex validation), so a peer can hand off a syntactically
+  /// valid but non-hex string like `"zzzz"`. Throwing here would escape the
+  /// protocol's 'drop the message, keep the link up' contract deep inside a UI
+  /// getter. A 0 fallback mirrors the defensive low-12 decode in
+  /// `discovery.dart` (`_deriveMhz` returns `'88.0'` on a short advert).
   static int _hexTail(String uuid, int nibbles) {
     final hex = uuid.replaceAll('-', '');
-    if (hex.length < nibbles) {
-      throw FormatException('UUID too short: $uuid');
-    }
-    return int.parse(hex.substring(hex.length - nibbles), radix: 16);
+    if (hex.length < nibbles) return 0;
+    return int.tryParse(hex.substring(hex.length - nibbles), radix: 16) ?? 0;
   }
 
   Map<String, dynamic> toJson() => {

@@ -111,11 +111,29 @@ void main() {
       );
     });
 
-    test('throws on a UUID too short to map', () {
-      expect(
-        () => FrequencySession(sessionUuid: 'ab', hostPeerId: 'h').mhzDisplay,
-        throwsFormatException,
+    test('cosmetic getters fall back instead of throwing on a short UUID', () {
+      // A too-short UUID has no low-12/low-20 tail; the getters must not throw
+      // (they are reachable from UI with wire-derived sessionUuids). Falls back
+      // to the low-bits=0 bucket: 88.0 MHz / "0000".
+      final s = FrequencySession(sessionUuid: 'ab', hostPeerId: 'h');
+      expect(s.mhzDisplay, '88.0');
+      expect(s.sessionCode, '0000');
+    });
+
+    test('cosmetic getters fall back instead of throwing on a non-hex UUID', () {
+      // A non-hex but syntactically valid sessionUuid can arrive via
+      // HostTransfer (decoded with a bare reqString, no hex validation). The
+      // cosmetic getters must degrade gracefully, not throw FormatException
+      // deep in a UI getter — keeping the protocol's drop-message-keep-link
+      // contract intact.
+      final s = FrequencySession(
+        sessionUuid: 'zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz',
+        hostPeerId: 'h',
       );
+      final mhz = double.parse(s.mhzDisplay);
+      expect(mhz, greaterThanOrEqualTo(88.0));
+      expect(mhz, lessThanOrEqualTo(107.9));
+      expect(s.sessionCode, matches(RegExp(r'^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4}$')));
     });
 
     test('hashCode + toString cover terminal members', () {
