@@ -206,9 +206,10 @@ List<T> _parseObjectList<T>(
 
 /// Rejects a negative wire field as `FormatException` (the receiver drops the
 /// message; the link stays up), using the `"$field out of range: $value"`
-/// wording the media decoders share. [trackIdx] and [positionMs] in both
-/// [MediaState] and [MediaCommand] are non-negative on the wire.
-void _requireNonNeg(int value, String field) {
+/// wording the numeric decoders share. Used for the int [trackIdx] /
+/// [positionMs] in [MediaState] and [MediaCommand] and for the int [jitterMs]
+/// / double [underrunsPerSec] in [LinkQuality] — hence [num], not [int].
+void _requireNonNeg(num value, String field) {
   if (value < 0) {
     throw FormatException('$field out of range: $value');
   }
@@ -657,12 +658,8 @@ final class LinkQuality extends FrequencyMessage {
     if (lossPct < 0 || lossPct > 100) {
       throw FormatException('lossPct out of range: $lossPct');
     }
-    if (jitterMsRaw < 0) {
-      throw FormatException('jitterMs out of range: $jitterMsRaw');
-    }
-    if (underruns < 0) {
-      throw FormatException('underrunsPerSec out of range: $underruns');
-    }
+    _requireNonNeg(jitterMsRaw, 'jitterMs');
+    _requireNonNeg(underruns, 'underrunsPerSec');
     return LinkQuality(
       peerId: reqString(j, 'peerId'),
       seq: reqSeq(j, 'seq'),
