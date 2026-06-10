@@ -178,6 +178,10 @@ class VoiceTelemetryMonitor {
     final cutoffMs = nowMs - window.inMilliseconds;
     _prevAtMs.removeWhere((id, t) => t < cutoffMs);
     _prev.removeWhere((id, _) => !_prevAtMs.containsKey(id));
+    for (final list in _points.values) {
+      _evict(list, nowMs);
+    }
+    _points.removeWhere((id, list) => list.isEmpty);
   }
 
   /// Forget a peer's history (e.g. on leave / re-register).

@@ -134,6 +134,22 @@ void main() {
       expect(m.points('p'), isNotEmpty);
     });
 
+    test('pruneStale evicts stale _points for a peer that went silent', () {
+      final m = VoiceTelemetryMonitor(window: const Duration(seconds: 10));
+      // Seed peer with two samples so it has a point in _points.
+      m.add('silent', _snap(recv: 0), 0);
+      m.add('silent', _snap(recv: 50), 1000); // produces a point at t=1000
+      expect(m.points('silent'), isNotEmpty);
+      // Advance past the window without any further add for 'silent'.
+      m.pruneStale(12000);
+      // _points entry must be gone.
+      expect(m.points('silent'), isEmpty);
+      // peer must not appear in peers or exportJson.
+      expect(m.peers, isNot(contains('silent')));
+      final exported = jsonDecode(m.exportJson(exportedAtMs: 12000));
+      expect((exported['peers'] as Map<String, dynamic>).containsKey('silent'), isFalse);
+    });
+
     test('forgetPeer and clear drop history', () {
       final m = VoiceTelemetryMonitor();
       m.add('g1', _snap(recv: 0), 0);
