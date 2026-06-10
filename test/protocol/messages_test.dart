@@ -627,6 +627,22 @@ void main() {
       expect(() => FrequencyMessage.decode(zero), throwsFormatException);
       expect(() => FrequencyMessage.decode(string), throwsFormatException);
     });
+
+    test('BitrateHint rejects bps above kMaxBps', () {
+      final over =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":500001}';
+      final giant =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":9007199254740992}';
+      expect(() => FrequencyMessage.decode(over), throwsFormatException);
+      expect(() => FrequencyMessage.decode(giant), throwsFormatException);
+      // kMaxBps itself is accepted
+      final atLimit =
+          '{"kind":"bitrate_hint","peerId":"p","seq":1,"atMs":0,"v":1,"target":"g","bps":${BitrateHint.kMaxBps}}';
+      expect(
+        (FrequencyMessage.decode(atLimit) as BitrateHint).bps,
+        BitrateHint.kMaxBps,
+      );
+    });
   });
 
   group('ProtocolPeer', () {

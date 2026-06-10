@@ -727,6 +727,13 @@ final class LinkQuality extends FrequencyMessage {
 /// the `RemovePeer` pattern: guests filter on receive by `target ==
 /// localPeerId` and ignore hints addressed to someone else.
 final class BitrateHint extends FrequencyMessage {
+  /// Upper bound accepted for a wire `bps`. Opus tops out at ~510 kbps for
+  /// multi-channel audio; 500 000 bps gives generous headroom for future
+  /// encoder growth while rejecting int64-garbage values (e.g. 2^53) before
+  /// they skew Dart-side display or heuristics. Mirrors the `kMaxJitterMs`
+  /// pattern on [LinkQuality].
+  static const int kMaxBps = 500000;
+
   final String target;
   final int bps;
 
@@ -751,6 +758,9 @@ final class BitrateHint extends FrequencyMessage {
   factory BitrateHint._fromJson(Map<String, dynamic> j) {
     final bps = reqInt(j, 'bps');
     if (bps <= 0) {
+      throw FormatException('bps out of range: $bps');
+    }
+    if (bps > kMaxBps) {
       throw FormatException('bps out of range: $bps');
     }
     return BitrateHint(
