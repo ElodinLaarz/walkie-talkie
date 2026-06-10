@@ -76,17 +76,26 @@ int PeerAudioManager::registerPeer(const std::string& macAddress) {
     auto it = peers_.find(macAddress);
     if (it != peers_.end()) {
         // Re-register of a still-known peer (fast GATT reconnect, or a role
-        // swap that didn't tear the audio state down). Reset the jitter buffer
-        // so the rejoin starts at the cold-start depth with a fresh playhead,
-        // instead of inheriting a stale playhead and a target depth that
-        // ratcheted up on the previous link — both make the first seconds of a
-        // rejoin play out of a mis-sized buffer. Safe to take the per-peer
-        // mutex while holding peerRegistryMutex_: no path locks in reverse.
+        // swap that didn't tear the audio state down). Reset jitter buffer,
+        // VAD, shedding flag, and lag estimator so the rejoin starts fully
+        // clean. Without resetting peerVad, a peer mid-utterance when it
+        // dropped keeps talking_=true after rejoin until the off-hysteresis
+        // fires, and talkingPeersDirty_ isn't set so Flutter's talking set
+        // never gets the correction. sheddingStale and lagEstimator carry
+        // stale per-link state that is meaningless on a new connection.
+        // Safe to take the per-peer mutex while holding peerRegistryMutex_:
+        // no path locks in reverse.
         {
             std::lock_guard<std::mutex> stateLock(it->second->mutex);
             it->second->jitterBuffer->reset();
+            it->second->peerVad.reset();
+            it->second->sheddingStale = false;
+            it->second->lagEstimator.reset();
         }
-        LOGI("Peer %s already registered with device ID %d (jitter reset)",
+        // If the peer was previously talking, its VAD state just flipped to
+        // silent; mark dirty so the mixer tick emits a corrected talking set.
+        talkingPeersDirty_.store(true, std::memory_order_release);
+        LOGI("Peer %s already registered with device ID %d (state reset)",
              macAddress.c_str(), it->second->deviceId);
         return it->second->deviceId;
     }
