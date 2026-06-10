@@ -160,6 +160,15 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
 
   static const String _table = 'recent_frequencies';
 
+  /// Collapses a null-or-empty string to `null`, leaving any non-empty value
+  /// untouched. The store's "blank means cleared" rule on both the read side
+  /// ([_rowToRecent]) and the write side ([_doRecord] / [_doSetNickname]) — so
+  /// the null/empty → null normalization lives here once instead of being
+  /// re-spelled at each call site. Callers that also want whitespace collapsed
+  /// (the write side) `.trim()` before passing in.
+  static String? _nullIfEmpty(String? s) =>
+      (s == null || s.isEmpty) ? null : s;
+
   /// Serializes [record] / [setNickname] / [setPinned] / [clear] against
   /// each other. Each call chains onto the previous, so two concurrent
   /// writers can't both observe the same pre-write state and last-write-
@@ -219,15 +228,11 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
       // [setNickname], but defend against legacy data) is normalized to
       // null so the UI's "render label or fall back" branch lines up with
       // "no nickname set" semantics.
-      nickname: (rawNickname == null || rawNickname.isEmpty)
-          ? null
-          : rawNickname,
+      nickname: _nullIfEmpty(rawNickname),
       pinned: (r['pinned'] as int? ?? 0) != 0,
       // Pre-v4 rows are NULL; an empty-string written by a buggy caller is
       // normalized to null with the same rationale as [nickname].
-      sessionUuid: (rawSessionUuid == null || rawSessionUuid.isEmpty)
-          ? null
-          : rawSessionUuid,
+      sessionUuid: _nullIfEmpty(rawSessionUuid),
     );
   }
 
@@ -247,10 +252,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     // trim-to-null rule and lines up with [_rowToRecent]'s read-side
     // normalization, so an empty string never round-trips as a non-null
     // value through the store.
-    final trimmedUuid = sessionUuid?.trim();
-    final normalizedUuid = (trimmedUuid == null || trimmedUuid.isEmpty)
-        ? null
-        : trimmedUuid;
+    final normalizedUuid = _nullIfEmpty(sessionUuid?.trim());
     final db = await WalkieTalkieDatabase.open();
     final orderingTimestamp = _nextOrderingTimestamp();
     await db.transaction((txn) async {
@@ -322,10 +324,7 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
     // Trim a non-null nickname; an empty/whitespace-only nickname collapses
     // to null so the UI's "fall back to default label" branch fires
     // instead of rendering a zero-width nickname.
-    final normalized = nickname?.trim();
-    final value = (normalized == null || normalized.isEmpty)
-        ? null
-        : normalized;
+    final value = _nullIfEmpty(nickname?.trim());
     final db = await WalkieTalkieDatabase.open();
     await db.update(
       _table,
