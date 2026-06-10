@@ -415,6 +415,19 @@ void main() {
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
+    test('queue_play with negative trackIdx is rejected as FormatException',
+        () {
+      final wire =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"queue_play","source":"lib","trackIdx":-1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('seek with negative positionMs is rejected as FormatException', () {
+      final wire =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"seek","source":"lib","positionMs":-1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
     test('queue_play carries trackIdx; play omits both optional fields', () {
       const queuePlay = MediaCommand(
         peerId: 'p',
@@ -686,6 +699,21 @@ void main() {
     test('rejects non-int positionMs as FormatException', () {
       final wire = '$base{"source":"s","trackIdx":1,"playing":true,"positionMs":37.5}}';
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('rejects negative trackIdx as FormatException', () {
+      final wire = '$base{"source":"s","trackIdx":-1,"playing":true,"positionMs":0}}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('rejects negative positionMs as FormatException', () {
+      final wire = '$base{"source":"s","trackIdx":0,"playing":true,"positionMs":-1}}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('accepts zero trackIdx and zero positionMs', () {
+      final wire = '$base{"source":"s","trackIdx":0,"playing":true,"positionMs":0}}';
+      expect(() => FrequencyMessage.decode(wire), returnsNormally);
     });
   });
 

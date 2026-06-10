@@ -71,12 +71,20 @@ class MediaState {
     'positionMs': positionMs,
   };
 
-  factory MediaState.fromJson(Map<String, dynamic> json) => MediaState(
-    source: reqString(json, 'source'),
-    trackIdx: reqInt(json, 'trackIdx'),
-    playing: reqBool(json, 'playing'),
-    positionMs: reqInt(json, 'positionMs'),
-  );
+  factory MediaState.fromJson(Map<String, dynamic> json) {
+    final trackIdx = reqInt(json, 'trackIdx');
+    final positionMs = reqInt(json, 'positionMs');
+    if (trackIdx < 0) throw FormatException('trackIdx out of range: $trackIdx');
+    if (positionMs < 0) {
+      throw FormatException('positionMs out of range: $positionMs');
+    }
+    return MediaState(
+      source: reqString(json, 'source'),
+      trackIdx: trackIdx,
+      playing: reqBool(json, 'playing'),
+      positionMs: positionMs,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -492,6 +500,12 @@ final class MediaCommand extends FrequencyMessage {
     }
     if (op == MediaOp.seek && positionMs == null) {
       throw const FormatException('MediaCommand(seek) requires positionMs');
+    }
+    if (trackIdx != null && trackIdx < 0) {
+      throw FormatException('trackIdx out of range: $trackIdx');
+    }
+    if (positionMs != null && positionMs < 0) {
+      throw FormatException('positionMs out of range: $positionMs');
     }
     return MediaCommand(
       peerId: reqString(j, 'peerId'),
