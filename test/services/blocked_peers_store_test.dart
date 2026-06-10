@@ -126,6 +126,30 @@ void main() {
       expect(await store.getAll(), {'peer-A', 'peer-B', 'peer-C', 'peer-D'});
     });
 
+    test('getAll trims whitespace already stored by any pre-trim path', () async {
+      // Symmetry guarantee: block() normalizes before writing, so rows
+      // stored via a pre-normalization path (direct DB write or an old
+      // schema migration) are still returned trimmed by getAll().
+      final store = SqfliteBlockedPeersStore();
+      final db = await WalkieTalkieDatabase.open();
+      await db.insert('blocked_peers', {
+        'peer_id': '  peer-legacy  ',
+        'blocked_at': 0,
+      });
+      expect(await store.getAll(), {'peer-legacy'});
+    });
+
+    test('getAll result is membership-compatible with untrimmed caller input', () async {
+      // A caller that holds the raw peerId '  peer-A  ' (untrimmed) can
+      // check membership by trimming before the contains() call — the
+      // getAll() set contains only trimmed keys.
+      final store = SqfliteBlockedPeersStore();
+      await store.block('  peer-A  ');
+      final blocked = await store.getAll();
+      expect(blocked.contains('peer-A'), isTrue);
+      expect(blocked.contains('  peer-A  '), isFalse);
+    });
+
     test('concurrent block / unblock of the same peer leaves a deterministic '
         'final state (last write wins on the chain)', () async {
       // The store serializes writes per-instance via _writeChain, so

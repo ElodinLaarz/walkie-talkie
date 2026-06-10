@@ -48,7 +48,7 @@ class SqfliteBlockedPeersStore implements BlockedPeersStore {
   Future<Set<String>> getAll() async {
     final db = await WalkieTalkieDatabase.open();
     final rows = await db.query(_table, columns: ['peer_id']);
-    return rows.map((r) => r['peer_id']).whereType<String>().toSet();
+    return rows.map((r) => r['peer_id']).whereType<String>().map((id) => id.trim()).toSet();
   }
 
   @override
