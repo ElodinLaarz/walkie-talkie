@@ -218,27 +218,23 @@ class BitrateAdapter {
         if (elapsedMs < _downHold.inMilliseconds) return null;
         if (state.level == BitrateLevel.low) {
           // Already at floor — clear pending so a future change can be detected.
-          state.pendingDirection = _Direction.none;
-          state.pendingSinceMs = null;
+          state.clearPending();
           return null;
         }
         state.level = BitrateLevel.low;
-        state.pendingDirection = _Direction.none;
-        state.pendingSinceMs = null;
+        state.clearPending();
         return BitrateLevel.low;
 
       case _Direction.downToMid:
         if (elapsedMs < _downHold.inMilliseconds) return null;
         if (state.level == BitrateLevel.high) {
           state.level = BitrateLevel.mid;
-          state.pendingDirection = _Direction.none;
-          state.pendingSinceMs = null;
+          state.clearPending();
           return BitrateLevel.mid;
         }
         // Already at mid or low — the >5 % rule shouldn't push us deeper.
         // Clear pending and wait for either a >12 % sample or a clean run.
-        state.pendingDirection = _Direction.none;
-        state.pendingSinceMs = null;
+        state.clearPending();
         return null;
 
       case _Direction.up:
@@ -255,8 +251,7 @@ class BitrateAdapter {
             next = BitrateLevel.high;
           case BitrateLevel.high:
             // Already at the ceiling — clear pending and emit no step.
-            state.pendingDirection = _Direction.none;
-            state.pendingSinceMs = null;
+            state.clearPending();
             return null;
         }
         state.level = next;
@@ -294,6 +289,13 @@ class _PeerAdapterState {
   _PeerAdapterState({required this.level})
     : pendingDirection = _Direction.none,
       pendingSinceMs = null;
+
+  /// Clear any in-flight pending transition so the next dead-zone or
+  /// disagreeing sample starts dwell accounting from scratch.
+  void clearPending() {
+    pendingDirection = _Direction.none;
+    pendingSinceMs = null;
+  }
 }
 
 enum _Direction { none, downToLow, downToMid, up }
