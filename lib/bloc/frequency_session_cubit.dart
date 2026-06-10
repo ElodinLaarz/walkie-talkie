@@ -1644,8 +1644,15 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     ++_voiceGeneration; // invalidate any in-flight startVoiceServer callback
     final recent = await _loadRecentFrequencies();
     if (isClosed) return;
+    // Re-read the latest state for myName: a rename() during the host-transfer
+    // await above (or the recents load) emits room.copyWith(myName: ...), and
+    // the pre-await `current` snapshot would silently discard it — sending the
+    // user back to Discovery under their old name. Mirrors the re-read-latest
+    // idiom in setRecentNickname / deleteRecentFrequency.
+    final latest = state;
+    final name = latest is SessionRoom ? latest.myName : current.myName;
     emit(
-      SessionDiscovery(myName: current.myName, recentHostedFrequencies: recent),
+      SessionDiscovery(myName: name, recentHostedFrequencies: recent),
     );
   }
 

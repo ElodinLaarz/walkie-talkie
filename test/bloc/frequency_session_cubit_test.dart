@@ -1182,6 +1182,82 @@ void main() {
       expect: () => const <FrequencySessionState>[],
     );
 
+    test(
+      'leaveRoom emits the renamed myName when rename() races host transfer',
+      () async {
+        // Regression for the stale-state-after-await bug: leaveRoom captured
+        // `current = state` up front, then awaited the ~200ms host-transfer
+        // hold. A rename() landing in that window updated the live state but
+        // leaveRoom emitted SessionDiscovery from the stale `current`, sending
+        // the user back to Discovery under their old name.
+        final inbox =
+            StreamController<
+              ({String endpointId, Uint8List bytes})
+            >.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async {},
+        );
+        final store = _FakeStore(initial: 'Devon');
+        store._peerId = 'peer-2';
+        final cubit = _makeCubit(
+          transport: transport,
+          identityStore: store,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            macAddress: 'AA:BB:CC:DD:EE:FF',
+            sessionUuidLow8: '0011223344556677',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+              ProtocolPeer(peerId: 'peer-3', displayName: 'Charlie'),
+            ],
+          ),
+        );
+
+        // Promote peer-2 (this cubit) to host. This sets `_sessionUuid` and
+        // leaves a guest (peer-3) in the roster, so leaveRoom below takes the
+        // host-transfer path with its ~200ms await window.
+        for (final frag in encodeFragments(
+          const HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ).encode(),
+        )) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect((cubit.state as SessionRoom).roomIsHost, isTrue);
+
+        // Start leaving (suspends on the host-transfer hold), rename mid-await,
+        // then let leaveRoom finish.
+        final leaving = cubit.leaveRoom();
+        await cubit.rename('Renamed');
+        await leaving;
+
+        expect(cubit.state, isA<SessionDiscovery>());
+        expect((cubit.state as SessionDiscovery).myName, 'Renamed');
+
+        await cubit.close();
+        await inbox.close();
+        transport.dispose();
+      },
+    );
+
     // ── Recent-frequencies persistence ─────────────────────────────────
 
     blocTest<FrequencySessionCubit, FrequencySessionState>(
