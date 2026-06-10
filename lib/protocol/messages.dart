@@ -527,13 +527,30 @@ final class MediaCommand extends FrequencyMessage {
 // ── Health ──────────────────────────────────────────────────────────────────
 
 class NeighborSignal {
+  /// RSSI is reported in dBm. Real Bluetooth radios sit roughly in
+  /// `[-120, 0]`; the bounds below allow a small margin and reject a
+  /// corrupted or malicious peer that sends an absurd value (e.g. 1000000)
+  /// that would otherwise skew signal-quality UI and any link/bitrate
+  /// heuristics that read neighbor RSSI.
+  static const int kMinRssiDbm = -127;
+  static const int kMaxRssiDbm = 0;
+
   final String peerId;
   final int rssi;
-  const NeighborSignal({required this.peerId, required this.rssi});
+  const NeighborSignal({required this.peerId, required this.rssi})
+    : assert(
+        rssi >= kMinRssiDbm && rssi <= kMaxRssiDbm,
+        'rssi must be a dBm value in [kMinRssiDbm, kMaxRssiDbm]',
+      );
 
   Map<String, dynamic> toJson() => {'peerId': peerId, 'rssi': rssi};
-  factory NeighborSignal.fromJson(Map<String, dynamic> j) =>
-      NeighborSignal(peerId: reqString(j, 'peerId'), rssi: reqInt(j, 'rssi'));
+  factory NeighborSignal.fromJson(Map<String, dynamic> j) {
+    final rssi = reqInt(j, 'rssi');
+    if (rssi < kMinRssiDbm || rssi > kMaxRssiDbm) {
+      throw FormatException('rssi out of range: $rssi');
+    }
+    return NeighborSignal(peerId: reqString(j, 'peerId'), rssi: rssi);
+  }
 
   @override
   bool operator ==(Object other) =>

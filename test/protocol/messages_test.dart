@@ -470,6 +470,27 @@ void main() {
       expect(round.neighbors.first.rssi, -56);
     });
 
+    test('NeighborSignal.fromJson accepts an in-range dBm rssi', () {
+      expect(NeighborSignal.fromJson({'peerId': 'a', 'rssi': -90}).rssi, -90);
+      expect(NeighborSignal.fromJson({'peerId': 'b', 'rssi': 0}).rssi, 0);
+      expect(NeighborSignal.fromJson({'peerId': 'c', 'rssi': -127}).rssi, -127);
+    });
+
+    test('NeighborSignal.fromJson rejects an out-of-range rssi', () {
+      expect(
+        () => NeighborSignal.fromJson({'peerId': 'a', 'rssi': 1000000}),
+        throwsFormatException,
+      );
+      expect(
+        () => NeighborSignal.fromJson({'peerId': 'a', 'rssi': 1}),
+        throwsFormatException,
+      );
+      expect(
+        () => NeighborSignal.fromJson({'peerId': 'a', 'rssi': -128}),
+        throwsFormatException,
+      );
+    });
+
     test('Heartbeat round-trips', () {
       const msg = Heartbeat(peerId: 'p', seq: 99, atMs: 1234);
       final round = _roundTrip(msg);
