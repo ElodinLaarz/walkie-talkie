@@ -296,8 +296,14 @@ Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeUpdateDeviceAudio(
     if (!mixer) {
         return;
     }
+    if (audioData == nullptr) {
+        return;
+    }
     jsize length = env->GetArrayLength(audioData);
     jshort* buffer = env->GetShortArrayElements(audioData, nullptr);
+    if (buffer == nullptr) {
+        return;
+    }
     mixer->updateDeviceAudio(deviceId, buffer, length);
     env->ReleaseShortArrayElements(audioData, buffer, JNI_ABORT);
 }
@@ -309,8 +315,17 @@ Java_com_elodin_walkie_1talkie_AudioMixerManager_nativeGetMixedAudio(
     if (!mixer) {
         return nullptr;
     }
+    if (numFrames <= 0) {
+        return nullptr;
+    }
     jshortArray result = env->NewShortArray(numFrames);
+    if (result == nullptr) {
+        return nullptr;
+    }
     jshort* buffer = env->GetShortArrayElements(result, nullptr);
+    if (buffer == nullptr) {
+        return nullptr;
+    }
     mixer->getMixedAudioForDevice(deviceId, buffer, numFrames);
     env->ReleaseShortArrayElements(result, buffer, 0);
     return result;
