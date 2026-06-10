@@ -112,7 +112,9 @@ import 'counter_delta.dart';
 ///
 /// Per [docs/protocol.md] §"link_quality": [defaultInterval] is 2 s — fast
 /// enough that a sustained-loss rule of "loss > 12% for 4 s" trips after
-/// two consecutive bad samples, slow enough that the JNI hop into the
+/// three consecutive bad samples (the dwell is armed on the first bad
+/// sample at t=0, and [BitrateAdapter] requires elapsed ≥ 4 s, so it trips
+/// at t=4 s — the third sample), slow enough that the JNI hop into the
 /// native telemetry struct is amortised.
 ///
 /// **Lifecycle.** [start] is called when the local peer enters a room and
