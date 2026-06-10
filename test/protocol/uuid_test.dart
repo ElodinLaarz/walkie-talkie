@@ -43,4 +43,53 @@ void main() {
       expect(a, isNot(equals(b)));
     });
   });
+
+  group('isCanonicalUuid', () {
+    test('accepts a well-formed lowercase UUID', () {
+      expect(
+        isCanonicalUuid('550e8400-e29b-41d4-a716-446655440000'),
+        isTrue,
+      );
+    });
+
+    test('accepts output of generateUuidV4', () {
+      expect(isCanonicalUuid(generateUuidV4()), isTrue);
+    });
+
+    test('rejects uppercase UUID', () {
+      expect(
+        isCanonicalUuid('550E8400-E29B-41D4-A716-446655440000'),
+        isFalse,
+      );
+    });
+
+    test('rejects UUID missing a hyphen group', () {
+      expect(isCanonicalUuid('550e8400e29b41d4a716446655440000'), isFalse);
+    });
+
+    test('rejects UUID with wrong segment length', () {
+      expect(
+        isCanonicalUuid('550e840-e29b-41d4-a716-446655440000'),
+        isFalse,
+      );
+    });
+
+    test('rejects empty string', () {
+      expect(isCanonicalUuid(''), isFalse);
+    });
+
+    test('rejects UUID with leading whitespace', () {
+      expect(
+        isCanonicalUuid(' 550e8400-e29b-41d4-a716-446655440000'),
+        isFalse,
+      );
+    });
+
+    test('rejects non-hex characters', () {
+      expect(
+        isCanonicalUuid('550e8400-e29b-41d4-a716-44665544000g'),
+        isFalse,
+      );
+    });
+  });
 }

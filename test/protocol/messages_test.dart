@@ -794,6 +794,42 @@ void main() {
     });
   });
 
+  group('HostTransfer', () {
+    const validUuid = '550e8400-e29b-41d4-a716-446655440000';
+
+    test('round-trips with a canonical sessionUuid', () {
+      const msg = HostTransfer(
+        peerId: 'p1',
+        seq: 1,
+        atMs: 0,
+        newHostPeerId: 'p2',
+        sessionUuid: validUuid,
+      );
+      final rt = _roundTrip(msg);
+      expect(rt.sessionUuid, validUuid);
+      expect(rt.newHostPeerId, 'p2');
+    });
+
+    test('decode rejects non-canonical sessionUuid as FormatException', () {
+      for (final bad in [
+        'not-a-uuid',
+        '550E8400-E29B-41D4-A716-446655440000', // uppercase
+        '550e8400e29b41d4a716446655440000', // no hyphens
+        '',
+        '550e840-e29b-41d4-a716-446655440000', // short first segment
+      ]) {
+        final wire =
+            '{"kind":"host_transfer","v":1,"peerId":"p1","seq":1,"atMs":0,'
+            '"newHostPeerId":"p2","sessionUuid":"$bad"}';
+        expect(
+          () => FrequencyMessage.decode(wire),
+          throwsFormatException,
+          reason: 'expected rejection for sessionUuid="$bad"',
+        );
+      }
+    });
+  });
+
   group('exhaustive switch on FrequencyMessage', () {
     // Compile-time check: if a new sealed subclass is added, this switch
     // becomes non-exhaustive and the analyzer fails. That's the whole point

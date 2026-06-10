@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'peer.dart';
+import 'uuid.dart';
 import 'wire_fields.dart';
 
 /// Wire-format version sent on every message and parsed by every receiver.
@@ -805,11 +806,17 @@ final class HostTransfer extends FrequencyMessage {
     'sessionUuid': sessionUuid,
   };
 
-  factory HostTransfer._fromJson(Map<String, dynamic> j) => HostTransfer(
-    peerId: reqString(j, 'peerId'),
-    seq: reqSeq(j, 'seq'),
-    atMs: reqAtMs(j, 'atMs'),
-    newHostPeerId: reqString(j, 'newHostPeerId'),
-    sessionUuid: reqString(j, 'sessionUuid'),
-  );
+  factory HostTransfer._fromJson(Map<String, dynamic> j) {
+    final uuid = reqString(j, 'sessionUuid');
+    if (!isCanonicalUuid(uuid)) {
+      throw FormatException('`sessionUuid` is not a canonical UUID: $uuid');
+    }
+    return HostTransfer(
+      peerId: reqString(j, 'peerId'),
+      seq: reqSeq(j, 'seq'),
+      atMs: reqAtMs(j, 'atMs'),
+      newHostPeerId: reqString(j, 'newHostPeerId'),
+      sessionUuid: uuid,
+    );
+  }
 }

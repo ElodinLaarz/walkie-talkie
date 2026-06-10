@@ -9,6 +9,15 @@ import 'hex.dart';
 ///
 /// Shared by [IdentityStore] (per-install peerId) and the host-side session
 /// bootstrap in [FrequencySessionCubit] (per-session sessionUuid).
+/// Canonical UUID regex: `8-4-4-4-12` lowercase hex groups.
+final _kCanonicalUuid = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+);
+
+/// Returns true when [uuid] matches the canonical `8-4-4-4-12` hex form
+/// produced by [generateUuidV4] (all lowercase, no surrounding whitespace).
+bool isCanonicalUuid(String uuid) => _kCanonicalUuid.hasMatch(uuid);
+
 String generateUuidV4() {
   final rng = Random.secure();
   final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
