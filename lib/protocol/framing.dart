@@ -260,6 +260,17 @@ class FragmentReassembler {
     }
 
     final payloadLen = fragment.length - kFragmentHeaderSize;
+    // Zero-payload non-first fragments wedge the reassembler: the buffer never
+    // reaches total_len, so the message never completes. The only legal
+    // zero-payload case is a sole fragment of an empty message
+    // (total_len == 0, idx == 0).
+    if (payloadLen == 0 && !(totalLen == 0 && idx == 0)) {
+      reset();
+      throw InconsistentFragment(
+        'Zero-payload fragment only legal for empty messages '
+        '(total_len=0, idx=0); got total_len=$totalLen idx=$idx',
+      );
+    }
     final remaining = totalLen - _buffer.length;
     if (payloadLen > remaining) {
       reset();

@@ -295,6 +295,38 @@ void main() {
       },
     );
 
+    test(
+      'zero-payload continuation fragment is rejected (liveness fix)',
+      () {
+        // Reproduces issue #111: a peer sends idx=0 with real payload then
+        // idx=1 with zero payload. Without the fix, the buffer never reaches
+        // total_len so the message wedges forever. With the fix, idx=1 throws
+        // InconsistentFragment.
+        final r = FragmentReassembler();
+        // First fragment: total_len=8, idx=0, 4 bytes of payload.
+        final first = Uint8List.fromList([0x00, 0x00, 0x08, 0x00, 0x61, 0x62, 0x63, 0x64]);
+        expect(r.feed(first), isNull);
+        // Second fragment: total_len=8, idx=1, zero payload.
+        final zeroCont = Uint8List.fromList([0x00, 0x00, 0x08, 0x01]);
+        expect(() => r.feed(zeroCont), throwsA(isA<InconsistentFragment>()));
+        // After the violation the reassembler is reset and accepts a new message.
+        expect(r.feed(encodeFragments('{"k":"v"}').single), '{"k":"v"}');
+      },
+    );
+
+    test(
+      'zero-payload sole fragment is legal for empty messages (total_len=0)',
+      () {
+        // Encoding an empty string produces a header-only fragment with
+        // total_len=0; the reassembler must accept it.
+        final r = FragmentReassembler();
+        final fragments = encodeFragments('');
+        expect(fragments, hasLength(1));
+        expect(fragments.single.length, kFragmentHeaderSize);
+        expect(r.feed(fragments.single), '');
+      },
+    );
+
     test('reset() drops in-flight buffer without surfacing an error', () {
       final json = 'x' * (kMaxFragmentPayloadSize + 5);
       final fragments = encodeFragments(json);
