@@ -183,6 +183,31 @@ void main() {
         await store.clear();
         expect(await store.getDisplayName(), isNull);
       });
+
+      test(
+        'getPeerId concurrent with clear does not re-cache the stale ID',
+        () async {
+          // Regression for the delete-after-null ordering bug: if _peerIdFuture
+          // is nulled before db.delete, a concurrent getPeerId() can start a
+          // new _readOrCreatePeerId, read the not-yet-deleted row, and cache
+          // the old ID. The fix (delete first, null second) closes that window.
+          final store = SqfliteIdentityStore();
+          final original = await store.getPeerId();
+
+          // Fire clear() and an overlapping getPeerId() together so both
+          // are in-flight at the same time.
+          await Future.wait([
+            store.clear(),
+            store.getPeerId(),
+          ]);
+
+          // After clear() has settled, the next getPeerId() must be a fresh
+          // UUID — not the stale pre-clear ID.
+          final fresh = await store.getPeerId();
+          expect(fresh, isNot(equals(original)));
+          expect(fresh, matches(_uuidV4Pattern));
+        },
+      );
     });
   });
 }

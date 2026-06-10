@@ -107,12 +107,15 @@ class SqfliteIdentityStore implements IdentityStore {
     try {
       await _peerIdFuture;
     } catch (_) {}
-    _peerIdFuture = null;
+    // Delete rows before nulling the cache. If we null first, a concurrent
+    // getPeerId() can start a new _readOrCreatePeerId, read the not-yet-deleted
+    // row, and cache the stale ID — leaving it cached after the delete.
     final db = await WalkieTalkieDatabase.open();
     await db.delete(
       'kv',
       where: 'key = ? OR key = ?',
       whereArgs: [_displayNameKey, _peerIdKey],
     );
+    _peerIdFuture = null;
   }
 }
