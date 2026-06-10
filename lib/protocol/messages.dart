@@ -74,10 +74,8 @@ class MediaState {
   factory MediaState.fromJson(Map<String, dynamic> json) {
     final trackIdx = reqInt(json, 'trackIdx');
     final positionMs = reqInt(json, 'positionMs');
-    if (trackIdx < 0) throw FormatException('trackIdx out of range: $trackIdx');
-    if (positionMs < 0) {
-      throw FormatException('positionMs out of range: $positionMs');
-    }
+    _requireNonNeg(trackIdx, 'trackIdx');
+    _requireNonNeg(positionMs, 'positionMs');
     return MediaState(
       source: reqString(json, 'source'),
       trackIdx: trackIdx,
@@ -204,6 +202,16 @@ List<T> _parseObjectList<T>(
     out.add(fromJson(Map<String, dynamic>.from(element)));
   }
   return out;
+}
+
+/// Rejects a negative wire field as `FormatException` (the receiver drops the
+/// message; the link stays up), using the `"$field out of range: $value"`
+/// wording the media decoders share. [trackIdx] and [positionMs] in both
+/// [MediaState] and [MediaCommand] are non-negative on the wire.
+void _requireNonNeg(int value, String field) {
+  if (value < 0) {
+    throw FormatException('$field out of range: $value');
+  }
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────
@@ -501,12 +509,8 @@ final class MediaCommand extends FrequencyMessage {
     if (op == MediaOp.seek && positionMs == null) {
       throw const FormatException('MediaCommand(seek) requires positionMs');
     }
-    if (trackIdx != null && trackIdx < 0) {
-      throw FormatException('trackIdx out of range: $trackIdx');
-    }
-    if (positionMs != null && positionMs < 0) {
-      throw FormatException('positionMs out of range: $positionMs');
-    }
+    if (trackIdx != null) _requireNonNeg(trackIdx, 'trackIdx');
+    if (positionMs != null) _requireNonNeg(positionMs, 'positionMs');
     return MediaCommand(
       peerId: reqString(j, 'peerId'),
       seq: reqSeq(j, 'seq'),
