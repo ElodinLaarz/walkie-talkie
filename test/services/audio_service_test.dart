@@ -164,6 +164,60 @@ void main() {
       },
     );
 
+    test(
+      'getConnectedDevices skips bad entries instead of dropping the whole list',
+      () async {
+        // Native returns a mix of valid and malformed entries: a null name,
+        // a missing address, a non-string address, a non-map. Only the two
+        // valid devices should survive — a bare cast would throw on the first
+        // bad entry and the outer catch would return an empty list.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('com.elodin.walkie_talkie/audio'),
+              (MethodCall methodCall) async {
+                if (methodCall.method == 'getConnectedDevices') {
+                  return <dynamic>[
+                    {'address': 'AA:BB:CC:DD:EE:01', 'name': 'Good'},
+                    {'address': 'AA:BB:CC:DD:EE:02', 'name': null},
+                    {'name': 'No Address'},
+                    {'address': 1234, 'name': 'Bad Addr Type'},
+                    'not-a-map',
+                  ];
+                }
+                return null;
+              },
+            );
+
+        final result = await audioService.getConnectedDevices();
+        expect(result.length, 2);
+        expect(result[0]['address'], 'AA:BB:CC:DD:EE:01');
+        expect(result[0]['name'], 'Good');
+        // Unnamed device falls back to its address rather than crashing.
+        expect(result[1]['address'], 'AA:BB:CC:DD:EE:02');
+        expect(result[1]['name'], 'AA:BB:CC:DD:EE:02');
+      },
+    );
+
+    test('getConnectedDevices skips an entry with an empty address', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.elodin.walkie_talkie/audio'),
+            (MethodCall methodCall) async {
+              if (methodCall.method == 'getConnectedDevices') {
+                return <dynamic>[
+                  {'address': '', 'name': 'Empty Addr'},
+                  {'address': 'AA:BB:CC:DD:EE:03', 'name': 'Keep'},
+                ];
+              }
+              return null;
+            },
+          );
+
+      final result = await audioService.getConnectedDevices();
+      expect(result.length, 1);
+      expect(result.first['address'], 'AA:BB:CC:DD:EE:03');
+    });
+
     test('talkingPeers maps native events to peer ID sets', () async {
       const eventChannelName = 'com.elodin.walkie_talkie/audio_events';
 

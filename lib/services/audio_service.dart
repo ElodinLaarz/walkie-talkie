@@ -336,13 +336,23 @@ class AudioService {
     try {
       final result = await _methodChannel.invokeMethod('getConnectedDevices');
       final List<dynamic> devices = result as List<dynamic>;
-      return devices.map((device) {
-        final Map<dynamic, dynamic> deviceMap = device as Map<dynamic, dynamic>;
-        return {
-          'address': deviceMap['address'] as String,
-          'name': deviceMap['name'] as String,
-        };
-      }).toList();
+      final out = <Map<String, String>>[];
+      for (final device in devices) {
+        if (device is! Map) continue;
+        final address = device['address'];
+        // `address` is the device identity; an entry without a valid one is
+        // unusable. Skip it rather than letting a bare cast throw and abort the
+        // whole enumeration (the outer catch would drop every device).
+        if (address is! String || address.isEmpty) continue;
+        final name = device['name'];
+        out.add({
+          'address': address,
+          // Unnamed BT devices (or OS/firmware quirks) report a null/absent
+          // name; fall back to the address instead of crashing the parse.
+          'name': name is String ? name : address,
+        });
+      }
+      return out;
     } catch (e) {
       if (kDebugMode) debugPrint('Error getting connected devices: $e');
       return [];
