@@ -134,8 +134,12 @@ class VoiceTelemetryMonitor {
   List<VoiceTelemetryPoint> points(String peerId) =>
       List.unmodifiable(_points[peerId] ?? const []);
 
-  /// Peers with at least one retained point.
-  Iterable<String> get peers => _points.keys;
+  /// All peers the monitor is currently tracking: peers with at least one
+  /// retained point in the window **plus** peers whose baseline was seeded on
+  /// the first sample but have not yet produced a second delta (present in
+  /// `_prev` but not yet in `_points`).  A peer silenced long enough for its
+  /// baseline to be evicted by [pruneStale] is no longer included.
+  Iterable<String> get peers => {..._prev.keys, ..._points.keys};
 
   /// Mean lag (ms) over the retained window for [peerId], or null if empty.
   double? avgLagMs(String peerId) {

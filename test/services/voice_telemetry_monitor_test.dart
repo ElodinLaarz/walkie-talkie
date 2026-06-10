@@ -103,11 +103,20 @@ void main() {
       expect((g1.single)['throughputPerSec'], 50.0);
     });
 
+    test('once-seen peer visible in peers while baseline is live', () {
+      final m = VoiceTelemetryMonitor(window: const Duration(seconds: 10));
+      // First sample seeds _prev but produces no point — peer must still be visible.
+      m.add('ghost', _snap(recv: 100), 0);
+      expect(m.peers, contains('ghost'));
+      // Second sample produces a point; peer still visible.
+      m.add('ghost', _snap(recv: 150), 1000);
+      expect(m.peers, contains('ghost'));
+    });
+
     test('pruneStale evicts once-seen peer baselines after window expires', () {
       final m = VoiceTelemetryMonitor(window: const Duration(seconds: 10));
       // 'ghost' gets exactly one sample — seeds _prev/_prevAtMs, no point yet.
       m.add('ghost', _snap(recv: 100), 0);
-      expect(m.peers, isEmpty);
       // Advance past the window and add another peer to trigger auto-pruning.
       m.add('active', _snap(recv: 0), 11000);
       // ghost's stale baseline must be gone.
