@@ -803,7 +803,7 @@ class AudioService {
           final raw = e['bytes'];
           final bytes = raw is Uint8List
               ? raw
-              : Uint8List.fromList((raw as List).cast<int>());
+              : Uint8List.fromList((raw as List).whereType<int>().toList());
           return (endpointId: e['endpointId'] as String, bytes: bytes);
         });
   }

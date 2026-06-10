@@ -1182,6 +1182,55 @@ void main() {
         expect(received[0].bytes, Uint8List.fromList([1, 2, 3]));
       });
 
+      test('filters non-int elements from List bytes without crashing stream',
+          () async {
+        // A List<dynamic> with non-int elements would cause cast<int>() to
+        // throw CastError inside .map(), after the only handleError in the
+        // chain — killing the stream. whereType<int>() drops bad elements
+        // and keeps the stream alive.
+        const eventChannelName = 'com.elodin.walkie_talkie/control_bytes';
+        final codec = const StandardMethodCodec();
+
+        final received = <({String endpointId, Uint8List bytes})>[];
+        Object? streamError;
+        final sub = audioService.controlBytes.listen(
+          received.add,
+          onError: (Object e) => streamError = e,
+        );
+        addTearDown(sub.cancel);
+
+        // bytes is a List<dynamic> with a non-int element mixed in.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'endpointId': 'AA:BB',
+                'bytes': <dynamic>[1, 'bad', 3],
+              }),
+              (_) {},
+            );
+        // Well-formed event after — stream must still be alive.
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              eventChannelName,
+              codec.encodeSuccessEnvelope({
+                'endpointId': 'CC:DD',
+                'bytes': Uint8List.fromList([9, 8, 7]),
+              }),
+              (_) {},
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(streamError, isNull);
+        // First event: non-int element filtered out, valid ints retained.
+        expect(received, hasLength(2));
+        expect(received[0].endpointId, 'AA:BB');
+        expect(received[0].bytes, Uint8List.fromList([1, 3]));
+        // Second event arrives normally — stream was not torn down.
+        expect(received[1].endpointId, 'CC:DD');
+        expect(received[1].bytes, Uint8List.fromList([9, 8, 7]));
+      });
+
       test('caches the broadcast source across reads', () async {
         // The exposed stream is the where/map wrapper, so identity does not
         // hold; instead, verify a single emission fan-outs to two listeners
