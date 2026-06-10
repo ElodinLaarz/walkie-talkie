@@ -76,41 +76,9 @@ class DiscoveryService {
     // results after scanning stops, avoiding a spurious re-emission on the
     // next startScan() call before the new results arrive.
     await _scanSubscription?.cancel();
-    _scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
-      for (ScanResult r in results) {
-        final session = parseResult(r);
-        if (session != null) {
-          final existing = _discovered[session.sessionUuidLow8];
-          final resolvedHostName =
-              (session.hostName.isEmpty && existing != null)
-              ? existing.session.hostName
-              : session.hostName;
-
-          final resolvedSession = resolvedHostName == session.hostName
-              ? session
-              : DiscoveredSession(
-                  protocolVersion: session.protocolVersion,
-                  isHost: session.isHost,
-                  sessionUuidLow8: session.sessionUuidLow8,
-                  flags: session.flags,
-                  hostName: resolvedHostName,
-                  rssi: session.rssi,
-                  macAddress: session.macAddress,
-                );
-
-          _discovered[session.sessionUuidLow8] = (
-            session: resolvedSession,
-            lastSeen: DateTime.now(),
-          );
-        }
-      }
-      // Coalesced emit: pushes only when the visible set changed (see [_emit]).
-      // continuousUpdates:true forwards a host's advertisement several times a
-      // second, but the NEARBY list rarely changes that fast — gating here
-      // avoids rebuilding the UI on every packet. Time-based pruning and RSSI
-      // refresh are handled by the prune timer's forced emit below.
-      _emit();
-    });
+    _scanSubscription = FlutterBluePlus.onScanResults.listen(
+      handleScanResults,
+    );
     // Auto-cancel the subscription if the OS stops the scan unexpectedly
     // (e.g. adapter turned off, or platform scan timeout).
     FlutterBluePlus.cancelWhenScanComplete(_scanSubscription!);
@@ -197,8 +165,8 @@ class DiscoveryService {
         (_discovered.values
               .map(
                 (e) =>
-                    '${e.session.sessionUuidLow8}|${e.session.isHost}'
-                    '|${e.session.flags}|${e.session.hostName}',
+                    '${e.session.sessionUuidLow8}|${e.session.macAddress}'
+                    '|${e.session.isHost}|${e.session.flags}|${e.session.hostName}',
               )
               .toList()
             ..sort())
@@ -206,6 +174,44 @@ class DiscoveryService {
     if (!force && sig == _lastEmittedSig) return;
     _lastEmittedSig = sig;
     _resultsController.add(sessions);
+  }
+
+  @visibleForTesting
+  void handleScanResults(List<ScanResult> results) {
+    for (final r in results) {
+      final session = parseResult(r);
+      if (session != null) {
+        final key = '${session.sessionUuidLow8}|${session.macAddress}';
+        final existing = _discovered[key];
+        final resolvedHostName =
+            (session.hostName.isEmpty && existing != null)
+            ? existing.session.hostName
+            : session.hostName;
+
+        final resolvedSession = resolvedHostName == session.hostName
+            ? session
+            : DiscoveredSession(
+                protocolVersion: session.protocolVersion,
+                isHost: session.isHost,
+                sessionUuidLow8: session.sessionUuidLow8,
+                flags: session.flags,
+                hostName: resolvedHostName,
+                rssi: session.rssi,
+                macAddress: session.macAddress,
+              );
+
+        _discovered[key] = (
+          session: resolvedSession,
+          lastSeen: DateTime.now(),
+        );
+      }
+    }
+    // Coalesced emit: pushes only when the visible set changed (see [_emit]).
+    // continuousUpdates:true forwards a host's advertisement several times a
+    // second, but the NEARBY list rarely changes that fast — gating here
+    // avoids rebuilding the UI on every packet. Time-based pruning and RSSI
+    // refresh are handled by the prune timer's forced emit below.
+    _emit();
   }
 
   @visibleForTesting

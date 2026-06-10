@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:walkie_talkie/protocol/discovery.dart';
 import 'package:walkie_talkie/services/bluetooth_discovery_service.dart';
 
 import 'bluetooth_discovery_service_test.mocks.dart';
@@ -284,6 +285,81 @@ void main() {
         expect(session, isNotNull);
         // Dart maps iterate in insertion order, so should return uuid1
         expect(session!.sessionUuidLow8, uuid1.toLowerCase());
+      },
+    );
+  });
+
+  group('DiscoveryService handleScanResults — composite key', () {
+    late DiscoveryService service;
+
+    setUp(() {
+      service = DiscoveryService();
+    });
+
+    tearDown(() async {
+      await service.dispose();
+    });
+
+    ScanResult makeScanResult2({
+      required Map<int, List<int>> manufacturerData,
+      required String advName,
+      required int rssi,
+      String macAddress = 'AA:BB:CC:DD:EE:FF',
+    }) {
+      final device = MockBluetoothDevice();
+      final advData = MockAdvertisementData();
+      when(device.remoteId).thenReturn(DeviceIdentifier(macAddress));
+      when(advData.manufacturerData).thenReturn(manufacturerData);
+      when(advData.advName).thenReturn(advName);
+      return ScanResult(
+        device: device,
+        advertisementData: advData,
+        rssi: rssi,
+        timeStamp: DateTime.now(),
+      );
+    }
+
+    Uint8List validV1Payload2({String sessionUuidLow8 = '0011223344556677'}) {
+      final uuidBytes = <int>[];
+      for (var i = 0; i < sessionUuidLow8.length; i += 2) {
+        uuidBytes.add(
+          int.parse(sessionUuidLow8.substring(i, i + 2), radix: 16),
+        );
+      }
+      return Uint8List.fromList([
+        0x01, 0x01, ...uuidBytes, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      ]);
+    }
+
+    test(
+      'two advertisers with same sessionUuidLow8 but different MACs both tracked',
+      () async {
+        const sharedUuid = 'aabbccddeeff0011';
+        final r1 = makeScanResult2(
+          manufacturerData: {0xFFFF: validV1Payload2(sessionUuidLow8: sharedUuid).toList()},
+          advName: 'HostA',
+          rssi: -50,
+          macAddress: 'AA:AA:AA:AA:AA:AA',
+        );
+        final r2 = makeScanResult2(
+          manufacturerData: {0xFFFF: validV1Payload2(sessionUuidLow8: sharedUuid).toList()},
+          advName: 'HostB',
+          rssi: -60,
+          macAddress: 'BB:BB:BB:BB:BB:BB',
+        );
+
+        final emitted = <List<DiscoveredSession>>[];
+        service.results.listen(emitted.add);
+
+        service.handleScanResults([r1, r2]);
+
+        await Future<void>.delayed(Duration.zero);
+
+        expect(emitted, isNotEmpty);
+        final sessions = emitted.last;
+        expect(sessions.length, 2, reason: 'both hosts must appear, not clobber each other');
+        final macs = sessions.map((s) => s.macAddress).whereType<String>().toSet();
+        expect(macs, containsAll(['AA:AA:AA:AA:AA:AA', 'BB:BB:BB:BB:BB:BB']));
       },
     );
   });

@@ -194,6 +194,9 @@ class _FakeDiscoveryService implements DiscoveryService {
 
   @override
   DiscoveredSession? parseResult(ScanResult r) => null;
+
+  @override
+  void handleScanResults(List<ScanResult> results) {}
 }
 
 /// No-op watcher for widget tests. The production [DefaultPermissionWatcher]
