@@ -227,14 +227,6 @@ class DefaultPermissionWatcher
     return snapshot;
   }
 
-  /// Hook for tests; production calls [ph.Permission.microphone.isGranted].
-  @visibleForTesting
-  Future<bool> isMicrophoneGranted() => _isMicrophoneGranted();
-
-  /// Hook for tests; production aggregates the three BT runtime permissions.
-  @visibleForTesting
-  Future<bool> isBluetoothGranted() => _isBluetoothGranted();
-
   Future<bool> _isMicrophoneGranted() async {
     final status = await ph.Permission.microphone.status;
     return status.isGranted || status.isLimited;
