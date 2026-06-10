@@ -8,10 +8,16 @@ import 'dart:typed_data';
 
 /// Encodes [bytes] as a lowercase hex string, two digits per byte and no
 /// separators (e.g. `[0x0a, 0xff]` -> `"0aff"`).
+///
+/// Each value is masked to its low 8 bits (`b & 0xFF`) so the "two digits per
+/// byte" invariant holds even if a caller passes an out-of-range or negative
+/// value — without the mask, `b > 255` emits 3+ chars and a negative `b` emits
+/// a `-`-prefixed string, both of which desync round-trips through [hexDecode]
+/// (which assumes exactly two chars per byte).
 String hexEncode(Iterable<int> bytes) {
   final sb = StringBuffer();
   for (final b in bytes) {
-    sb.write(b.toRadixString(16).padLeft(2, '0'));
+    sb.write((b & 0xFF).toRadixString(16).padLeft(2, '0'));
   }
   return sb.toString();
 }
