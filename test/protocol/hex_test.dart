@@ -35,6 +35,28 @@ void main() {
     });
   });
 
+  group('hexDecode', () {
+    test('rejects leading sign in first chunk', () {
+      expect(hexDecode('-1'), Uint8List(0));
+      expect(hexDecode('+a'), Uint8List(0));
+    });
+
+    test('rejects sign in interior chunk', () {
+      expect(hexDecode('0-'), Uint8List(0));
+      expect(hexDecode('ff0+'), Uint8List(0));
+    });
+
+    test('rejects odd-length input', () {
+      expect(hexDecode('a'), Uint8List(0));
+      expect(hexDecode('abc'), Uint8List(0));
+    });
+
+    test('accepts valid hex strings', () {
+      expect(hexDecode('0aff'), Uint8List.fromList([0x0a, 0xff]));
+      expect(hexDecode('AABB'), Uint8List.fromList([0xaa, 0xbb]));
+    });
+  });
+
   group('hexEncode/hexDecode round-trip', () {
     test('clean bytes survive a round-trip', () {
       final bytes = Uint8List.fromList([0, 1, 127, 128, 255, 16, 240]);

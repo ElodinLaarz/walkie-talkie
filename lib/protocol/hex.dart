@@ -27,6 +27,7 @@ String hexEncode(Iterable<int> bytes) {
 /// default value rather than crashing on a bad payload from the wire.
 Uint8List hexDecode(String hex) {
   if (hex.length.isOdd) return Uint8List(0);
+  if (!RegExp(r'^[0-9a-fA-F]*$').hasMatch(hex)) return Uint8List(0);
   final result = Uint8List(hex.length ~/ 2);
   for (var i = 0; i < hex.length; i += 2) {
     final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
