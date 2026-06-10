@@ -116,6 +116,30 @@ class AudioService {
   Stream<Map<String, dynamic>>? _eventStream;
   Stream<Map<String, dynamic>>? _controlBytesStream;
 
+  /// Shared shape behind the "fire and report success" boolean platform
+  /// calls: invoke [method] with [args], coerce the native result to a
+  /// non-null `bool` (`null` / non-`true` → `false`), and on any platform
+  /// exception log `Error <action>: …` under [kDebugMode] and return `false`.
+  ///
+  /// [action] is the gerund phrase spliced into the log line (e.g.
+  /// `'starting voice'`), preserving the per-call diagnostic text the inlined
+  /// try/catch blocks carried. Methods whose native side can legitimately
+  /// return `null` and that want a *throw* (e.g. `result as bool`) stay
+  /// hand-written — their null handling differs from this `== true` coercion.
+  Future<bool> _invokeBool(
+    String method,
+    String action, [
+    Map<String, dynamic>? args,
+  ]) async {
+    try {
+      final result = await _methodChannel.invokeMethod<bool>(method, args);
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error $action: $e');
+      return false;
+    }
+  }
+
   /// Start the foreground service. Pass [freq] to show the active frequency
   /// in the notification ("On 104.3 · Tap to return").
   Future<bool> startService({String? freq}) async {
@@ -202,28 +226,12 @@ class AudioService {
   /// denied, no L2CAP link, AudioRecord init failure) or if the platform
   /// call throws. Logs the failure; callers are responsible for any
   /// user-visible error handling. Does not retry.
-  Future<bool> startVoice() async {
-    try {
-      final result = await _methodChannel.invokeMethod('startVoice');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error starting voice: $e');
-      return false;
-    }
-  }
+  Future<bool> startVoice() => _invokeBool('startVoice', 'starting voice');
 
   /// Tear down voice capture and streaming. Counterpart to [startVoice];
   /// safe to call when voice isn't running (the native side resolves it as
   /// a no-op rather than throwing).
-  Future<bool> stopVoice() async {
-    try {
-      final result = await _methodChannel.invokeMethod('stopVoice');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error stopping voice: $e');
-      return false;
-    }
-  }
+  Future<bool> stopVoice() => _invokeBool('stopVoice', 'stopping voice');
 
   /// Start the single-device native loopback path used for field validation.
   ///
@@ -231,26 +239,12 @@ class AudioService {
   /// Oboe engine used by production voice, and routes local mic PCM through a
   /// synthetic mixer peer before speaker playback. This is intentionally not
   /// used by normal rooms because users should not hear their own mic.
-  Future<bool> startLoopbackTest() async {
-    try {
-      final result = await _methodChannel.invokeMethod('startLoopbackTest');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error starting loopback test: $e');
-      return false;
-    }
-  }
+  Future<bool> startLoopbackTest() =>
+      _invokeBool('startLoopbackTest', 'starting loopback test');
 
   /// Stop the native loopback validation path and release audio resources.
-  Future<bool> stopLoopbackTest() async {
-    try {
-      final result = await _methodChannel.invokeMethod('stopLoopbackTest');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error stopping loopback test: $e');
-      return false;
-    }
-  }
+  Future<bool> stopLoopbackTest() =>
+      _invokeBool('stopLoopbackTest', 'stopping loopback test');
 
   /// Set the local mic mute flag at the native layer. Mute does **not**
   /// tear down the L2CAP CoC or the AudioRecord — it just gates whether
@@ -262,50 +256,23 @@ class AudioService {
   /// REQUEST characteristic is the *cubit's* job (so the host can echo it
   /// to the rest of the roster); this method only affects the local audio
   /// path. They're called together from the room screen.
-  Future<bool> setMuted(bool muted) async {
-    try {
-      final result = await _methodChannel.invokeMethod('setMuted', {
-        'muted': muted,
-      });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error setting mute state: $e');
-      return false;
-    }
-  }
+  Future<bool> setMuted(bool muted) =>
+      _invokeBool('setMuted', 'setting mute state', {'muted': muted});
 
   /// Set playback volume for a specific peer's stream.
   /// [volume] ranges from 0.0 (muted) to 1.0 (full volume).
-  Future<bool> setPeerVolume(String macAddress, double volume) async {
-    try {
-      final result = await _methodChannel.invokeMethod('setPeerVolume', {
-        'macAddress': macAddress,
-        'volume': volume,
-      });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error setting peer volume for $macAddress to $volume: $e');
-      }
-      return false;
-    }
-  }
+  Future<bool> setPeerVolume(String macAddress, double volume) => _invokeBool(
+    'setPeerVolume',
+    'setting peer volume for $macAddress to $volume',
+    {'macAddress': macAddress, 'volume': volume},
+  );
 
   /// Mute or unmute a specific peer's stream.
-  Future<bool> setPeerMuted(String macAddress, bool muted) async {
-    try {
-      final result = await _methodChannel.invokeMethod('setPeerMuted', {
-        'macAddress': macAddress,
-        'muted': muted,
-      });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error setting peer muted for $macAddress to $muted: $e');
-      }
-      return false;
-    }
-  }
+  Future<bool> setPeerMuted(String macAddress, bool muted) => _invokeBool(
+    'setPeerMuted',
+    'setting peer muted for $macAddress to $muted',
+    {'macAddress': macAddress, 'muted': muted},
+  );
 
   /// Set the audio output routing for the voice stream.
   ///
@@ -319,17 +286,11 @@ class AudioService {
   ///
   /// Returns true if routing was successfully configured, false if the
   /// requested device type is unavailable or if the platform call fails.
-  Future<bool> setAudioOutput(String output) async {
-    try {
-      final result = await _methodChannel.invokeMethod('setAudioOutput', {
-        'output': output,
-      });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error setting audio output to $output: $e');
-      return false;
-    }
-  }
+  Future<bool> setAudioOutput(String output) => _invokeBool(
+    'setAudioOutput',
+    'setting audio output to $output',
+    {'output': output},
+  );
 
   /// Get list of connected devices
   Future<List<Map<String, String>>> getConnectedDevices() async {
@@ -462,31 +423,16 @@ class AudioService {
   Future<bool> startAdvertising({
     required String sessionUuid,
     required String displayName,
-  }) async {
-    try {
-      final result = await _methodChannel.invokeMethod('startAdvertising', {
-        'sessionUuid': sessionUuid,
-        'displayName': displayName,
-      });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error starting advertising: $e');
-      return false;
-    }
-  }
+  }) => _invokeBool('startAdvertising', 'starting advertising', {
+    'sessionUuid': sessionUuid,
+    'displayName': displayName,
+  });
 
   /// Stop LE advertising. Counterpart to [startAdvertising]; safe to call
   /// when advertising isn't running (the native side resolves it as a
   /// no-op rather than throwing).
-  Future<bool> stopAdvertising() async {
-    try {
-      final result = await _methodChannel.invokeMethod('stopAdvertising');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error stopping advertising: $e');
-      return false;
-    }
-  }
+  Future<bool> stopAdvertising() =>
+      _invokeBool('stopAdvertising', 'stopping advertising');
 
   /// Start the GATT server for the host.
   ///
@@ -496,15 +442,8 @@ class AudioService {
   /// Heartbeat messages via RESPONSE notifications.
   ///
   /// Returns true if the GATT server started successfully, false otherwise.
-  Future<bool> startGattServer() async {
-    try {
-      final result = await _methodChannel.invokeMethod('startGattServer');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error starting GATT server: $e');
-      return false;
-    }
-  }
+  Future<bool> startGattServer() =>
+      _invokeBool('startGattServer', 'starting GATT server');
 
   /// Start the GATT server and begin advertising only after the service is
   /// fully registered.
@@ -749,15 +688,8 @@ class AudioService {
   }
 
   /// Stop the GATT server.
-  Future<bool> stopGattServer() async {
-    try {
-      final result = await _methodChannel.invokeMethod('stopGattServer');
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error stopping GATT server: $e');
-      return false;
-    }
-  }
+  Future<bool> stopGattServer() =>
+      _invokeBool('stopGattServer', 'stopping GATT server');
 
   /// Send a notification to a connected GATT client.
   ///
@@ -766,20 +698,11 @@ class AudioService {
   /// to guests.
   ///
   /// Returns true if the notification was queued successfully, false otherwise.
-  Future<bool> writeNotification(String deviceAddress, List<int> bytes) async {
-    try {
-      final result = await _methodChannel.invokeMethod('writeNotification', {
+  Future<bool> writeNotification(String deviceAddress, List<int> bytes) =>
+      _invokeBool('writeNotification', 'writing notification to $deviceAddress', {
         'deviceAddress': deviceAddress,
         'bytes': bytes,
       });
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error writing notification to $deviceAddress: $e');
-      }
-      return false;
-    }
-  }
 
   /// Start an L2CAP CoC server socket for the voice plane.
   ///
@@ -805,32 +728,16 @@ class AudioService {
   /// exhausted or the native layer is unavailable. A false result should be
   /// treated as non-fatal — the control plane stays up and the user can see a
   /// degraded-voice toast; see the known risks in issue #46.
-  Future<bool> connectVoiceClient(String macAddress, int psm) async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'connectVoiceClient',
-        <String, dynamic>{'macAddress': macAddress, 'psm': psm},
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error connecting voice client: $e');
-      return false;
-    }
-  }
+  Future<bool> connectVoiceClient(String macAddress, int psm) =>
+      _invokeBool('connectVoiceClient', 'connecting voice client', {
+        'macAddress': macAddress,
+        'psm': psm,
+      });
 
   /// Tear down the L2CAP voice transport (both server and client).
   /// Safe to call when the transport is not running.
-  Future<bool> stopVoiceTransport() async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'stopVoiceTransport',
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error stopping voice transport: $e');
-      return false;
-    }
-  }
+  Future<bool> stopVoiceTransport() =>
+      _invokeBool('stopVoiceTransport', 'stopping voice transport');
 
   /// Drop a departed peer's native voice state.
   ///
@@ -846,18 +753,10 @@ class AudioService {
   /// Safe to call for a MAC that was never registered — the native side
   /// resolves an unknown MAC as a no-op. Returns true if the platform call
   /// succeeded, false if it threw.
-  Future<bool> unregisterPeer(String macAddress) async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'unregisterVoicePeer',
-        <String, dynamic>{'macAddress': macAddress},
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error unregistering peer $macAddress: $e');
-      return false;
-    }
-  }
+  Future<bool> unregisterPeer(String macAddress) =>
+      _invokeBool('unregisterVoicePeer', 'unregistering peer $macAddress', {
+        'macAddress': macAddress,
+      });
 
   /// Stream of control-plane byte fragments from the native GATT layer.
   ///
@@ -926,34 +825,17 @@ class AudioService {
   ///
   /// Returns true if the connection attempt was initiated, false otherwise.
   /// Actual connection state changes are reported through the audioEvents stream.
-  Future<bool> connectToHost(String macAddress) async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'connectToHost',
-        <String, dynamic>{'macAddress': macAddress},
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error connecting to host: $e');
-      return false;
-    }
-  }
+  Future<bool> connectToHost(String macAddress) =>
+      _invokeBool('connectToHost', 'connecting to host', {
+        'macAddress': macAddress,
+      });
 
   /// Disconnect from the host's GATT server.
   ///
   /// Tears down the GATT connection established via [connectToHost].
   /// Safe to call when not connected (the native side resolves it as a no-op).
-  Future<bool> disconnectFromHost() async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'disconnectFromHost',
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error disconnecting from host: $e');
-      return false;
-    }
-  }
+  Future<bool> disconnectFromHost() =>
+      _invokeBool('disconnectFromHost', 'disconnecting from host');
 
   /// Write bytes to the host's REQUEST characteristic.
   ///
@@ -961,18 +843,8 @@ class AudioService {
   /// The connection must be established via [connectToHost] before calling this.
   ///
   /// Returns true if the write was queued successfully, false otherwise.
-  Future<bool> writeRequest(Uint8List bytes) async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'writeRequest',
-        <String, dynamic>{'bytes': bytes},
-      );
-      return result == true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Error writing request: $e');
-      return false;
-    }
-  }
+  Future<bool> writeRequest(Uint8List bytes) =>
+      _invokeBool('writeRequest', 'writing request', {'bytes': bytes});
 
   /// Returns the freq query param from a cold-start invite deep link
   /// (`walkietalkie://join?freq=<name>`), or null when the app was not
