@@ -8,6 +8,12 @@ import 'package:flutter/foundation.dart';
 /// wall-clock to get the rates the protocol's `LinkQuality` carries.
 @immutable
 class LinkTelemetrySnapshot {
+  /// Number of int fields the native `nativeGetTelemetry` marshals into the
+  /// IntArray, kept in lockstep with the `kTelemetryFieldCount` constant in
+  /// `android/app/src/main/cpp/peer_audio_manager.cpp`. New fields are
+  /// appended, so this is the single number both sides bump together.
+  static const int fieldCount = 11;
+
   /// Lifetime mixer-tick underruns for this peer's stream.
   final int underrunCount;
 
@@ -604,7 +610,9 @@ class AudioService {
         'getLinkTelemetry',
         <String, dynamic>{'macAddress': macAddress},
       );
-      if (raw is! List || raw.length != 11) return null;
+      if (raw is! List || raw.length != LinkTelemetrySnapshot.fieldCount) {
+        return null;
+      }
       // Native returns an 11-element int array: [underruns, late, target,
       // current, bitrate, lost, lagMs, staleDrops, recv, lastSeq,
       // ringUnderReadCount]. New fields are appended so the historical 0-9

@@ -953,9 +953,14 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
 
     if (!t.valid) return nullptr;
 
-    jintArray arr = env->NewIntArray(11);
+    // Single source of truth for the marshaled field count; kept in lockstep
+    // with `LinkTelemetrySnapshot.fieldCount` on the Dart side. New fields are
+    // appended so the existing index layout is undisturbed.
+    static constexpr jint kTelemetryFieldCount = 11;
+
+    jintArray arr = env->NewIntArray(kTelemetryFieldCount);
     if (!arr) return nullptr;
-    jint values[11] = {
+    jint values[kTelemetryFieldCount] = {
         static_cast<jint>(t.underrunCount),
         static_cast<jint>(t.lateFrameCount),
         static_cast<jint>(t.jitterTargetDepth),
@@ -968,7 +973,9 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
         static_cast<jint>(t.lastSeq),
         static_cast<jint>(t.ringUnderReadCount),
     };
-    env->SetIntArrayRegion(arr, 0, 11, values);
+    static_assert(sizeof(values) / sizeof(values[0]) == kTelemetryFieldCount,
+                  "telemetry values[] must hold exactly kTelemetryFieldCount entries");
+    env->SetIntArrayRegion(arr, 0, kTelemetryFieldCount, values);
     return arr;
 }
 
