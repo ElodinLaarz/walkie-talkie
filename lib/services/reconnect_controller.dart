@@ -23,6 +23,13 @@ class ReconnectController {
   final AudioService _audio;
   final List<Duration> _delays;
   bool _cancelled = false;
+  // Monotonic token identifying the latest [attempt] loop. Each call bumps it;
+  // a loop bails the moment its captured token is no longer current. This makes
+  // overlapping [attempt] calls re-entrancy-safe: starting a new attempt
+  // supersedes any in-flight one (only the latest drives the dial), and a
+  // [cancel] can no longer be clobbered by a sibling resetting the shared
+  // `_cancelled` flag — the superseded loop is also stale by generation.
+  int _generation = 0;
 
   ReconnectController({required AudioService audio, List<Duration>? delays})
     : _audio = audio,
@@ -30,17 +37,18 @@ class ReconnectController {
 
   /// Attempt to reconnect to [macAddress], retrying up to [delays.length]
   /// times with exponential backoff. Returns `true` if the BLE connection is
-  /// re-established, `false` if all retries are exhausted or [cancel] was
-  /// called.
+  /// re-established, `false` if all retries are exhausted, [cancel] was called,
+  /// or a later [attempt] superseded this one.
   Future<bool> attempt({required String macAddress}) async {
+    final generation = ++_generation;
     _cancelled = false;
     for (final delay in _delays) {
-      if (_cancelled) return false;
+      if (_isStale(generation)) return false;
       await Future.delayed(delay);
-      if (_cancelled) return false;
+      if (_isStale(generation)) return false;
       try {
         final connected = await _audio.connectToHost(macAddress);
-        if (_cancelled) return false;
+        if (_isStale(generation)) return false;
         if (connected) return true;
       } catch (_) {
         // Native errors are already logged inside AudioService; treat as a
@@ -50,6 +58,9 @@ class ReconnectController {
     }
     return false;
   }
+
+  /// True once this loop has been cancelled or superseded by a newer [attempt].
+  bool _isStale(int generation) => _cancelled || generation != _generation;
 
   /// Signals the in-progress [attempt] to stop after its current delay.
   /// Safe to call after [attempt] has already completed.

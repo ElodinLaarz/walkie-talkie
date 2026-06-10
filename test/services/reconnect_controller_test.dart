@@ -111,6 +111,46 @@ void main() {
       controller.cancel(); // must not throw
     });
 
+    test('a superseding attempt does not clobber a prior cancel', () async {
+      // Regression for #34: the old design reset a shared `_cancelled` flag at
+      // the start of every attempt, so a second overlapping call resurrected a
+      // loop that had already been cancelled. The generation guard keeps the
+      // first loop cancelled even though the second call clears the flag.
+      connectResults.addAll([true, true, true, true, true, true]);
+      final delays = List<Duration>.filled(6, const Duration(milliseconds: 20));
+      final controller = ReconnectController(audio: audio, delays: delays);
+
+      final f1 = controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
+      // Cancel f1 mid first-delay, then immediately supersede it with f2.
+      await Future.delayed(const Duration(milliseconds: 5));
+      controller.cancel();
+      final f2 = controller.attempt(macAddress: '11:22:33:44:55:66');
+
+      final r1 = await f1;
+      final r2 = await f2;
+
+      expect(r1, isFalse); // stays cancelled despite f2 resetting the flag
+      expect(r2, isTrue); // f2 runs fresh and its first dial succeeds
+    });
+
+    test('starting a new attempt supersedes the in-flight one', () async {
+      // Two overlapping attempts must not both drive the dial loop; the later
+      // call wins and the earlier bails on the generation change before it
+      // ever dials, so only f2 consumes the retry budget (no double-dial).
+      final delays = List<Duration>.filled(6, const Duration(milliseconds: 20));
+      final controller = ReconnectController(audio: audio, delays: delays);
+
+      final f1 = controller.attempt(macAddress: 'AA:BB:CC:DD:EE:FF');
+      await Future.delayed(const Duration(milliseconds: 5));
+      final f2 = controller.attempt(macAddress: '11:22:33:44:55:66');
+
+      final r1 = await f1;
+      await f2;
+
+      expect(r1, isFalse);
+      expect(connectCallCount, _testDelays.length); // 6 — only f2 dialed
+    });
+
     test('delays list has six entries covering ~19s total budget', () {
       final total = ReconnectController.delays.fold(
         Duration.zero,
