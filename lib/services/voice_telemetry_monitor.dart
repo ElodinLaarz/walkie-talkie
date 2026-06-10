@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'audio_service.dart';
+import 'counter_delta.dart';
 
 /// One derived telemetry data point for the voice debug dashboard, computed
 /// from two consecutive [LinkTelemetrySnapshot]s for a peer.
@@ -95,13 +96,13 @@ class VoiceTelemetryMonitor {
     if (elapsedMs <= 0) return null;
     final elapsedSec = elapsedMs / 1000.0;
 
-    // Lifetime counters: clamp deltas at 0 so a native-side reset (peer
-    // re-register zeroes recvCount/staleDropCount) reads as "no traffic this
-    // interval" rather than a negative spike.
-    final recvDelta = (snap.recvCount - prev.recvCount).clamp(0, 1 << 31);
-    final staleDelta = (snap.staleDropCount - prev.staleDropCount).clamp(
-      0,
-      1 << 31,
+    // Lifetime counters: clampCounterDelta floors deltas at 0 so a native-side
+    // reset (peer re-register zeroes recvCount/staleDropCount) reads as "no
+    // traffic this interval" rather than a negative spike.
+    final recvDelta = clampCounterDelta(snap.recvCount, prev.recvCount);
+    final staleDelta = clampCounterDelta(
+      snap.staleDropCount,
+      prev.staleDropCount,
     );
 
     final point = VoiceTelemetryPoint(

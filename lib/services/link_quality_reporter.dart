@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'audio_service.dart';
+import 'counter_delta.dart';
 
 /// Compute a `LinkQuality` rate triple from two consecutive telemetry
 /// snapshots. The native side reports lifetime counters; the protocol
@@ -64,19 +65,19 @@ import 'audio_service.dart';
   final expectedFrames = elapsedMs / frameDurationMs;
 
   // Lifetime counters; deltas can't go negative under normal operation.
-  // Clamp to zero to swallow a counter reset (e.g. native side cleared and
-  // reseeded between snapshots) without poisoning the adapter with a
+  // clampCounterDelta swallows a counter reset (native side cleared and
+  // reseeded between snapshots) so it can't poison the adapter with a
   // negative rate.
   // True network loss (seq-gap), NOT lateFrameCount — see the loss-model note
   // above for why jitter-buffer late/overflow drops must never feed the
   // bitrate adapter.
-  final lostDelta = (current.lostFrameCount - previous.lostFrameCount).clamp(
-    0,
-    1 << 31,
+  final lostDelta = clampCounterDelta(
+    current.lostFrameCount,
+    previous.lostFrameCount,
   );
-  final underrunDelta = (current.underrunCount - previous.underrunCount).clamp(
-    0,
-    1 << 31,
+  final underrunDelta = clampCounterDelta(
+    current.underrunCount,
+    previous.underrunCount,
   );
 
   final lossPctRaw = expectedFrames <= 0
