@@ -387,8 +387,11 @@ void PeerAudioManager::mixerTickLoop() {
     // once per tick to avoid holding the lock through the heavier work.
     std::vector<std::shared_ptr<PeerState>> peerSnapshot;
     std::vector<std::string> macSnapshot;
-    peerSnapshot.reserve(audio_config::kJitterMaxDepth);
-    macSnapshot.reserve(audio_config::kJitterMaxDepth);
+    // One entry per registered peer, so the ceiling is AudioMixer::kMaxDevices
+    // (not the per-stream frame-depth bound kJitterMaxDepth). Reserving against
+    // the right constant keeps this allocation-free even if kMaxDevices rises.
+    peerSnapshot.reserve(AudioMixer::kMaxDevices);
+    macSnapshot.reserve(AudioMixer::kMaxDevices);
 
     // Mix-minus output uses a per-peer monotonically-increasing seq, separate
     // from the per-peer recv seq tracked inside the jitter buffer. Stays here

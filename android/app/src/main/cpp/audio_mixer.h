@@ -41,10 +41,13 @@ private:
     std::mutex deviceRegistryMutex;
     std::map<int, std::shared_ptr<DeviceAudioBuffer>> devices;  // shared_ptr for safe concurrent access
 
-    static constexpr int kMaxDevices = 8;
     static constexpr int kMaxFrames = 1024;
 
 public:
+    // Hard cap on concurrently mixed devices (peers). Public so callers can
+    // size per-peer scratch against the real peer-count ceiling.
+    static constexpr int kMaxDevices = 8;
+
     // Stuck-producer prune threshold. A frame whose forward delta from the
     // last accepted seq exceeds this value is dropped and the peer is marked
     // poisoned. Recovery happens on the next frame whose forward delta from
