@@ -30,9 +30,7 @@ Uint8List hexDecode(String hex) {
   if (!RegExp(r'^[0-9a-fA-F]*$').hasMatch(hex)) return Uint8List(0);
   final result = Uint8List(hex.length ~/ 2);
   for (var i = 0; i < hex.length; i += 2) {
-    final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
-    if (byte == null) return Uint8List(0);
-    result[i ~/ 2] = byte;
+    result[i ~/ 2] = int.parse(hex.substring(i, i + 2), radix: 16);
   }
   return result;
 }

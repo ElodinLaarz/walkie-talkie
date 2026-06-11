@@ -225,7 +225,7 @@ void main() {
     test(
       'mhzDisplay falls back to 88.0 on a sessionUuidLow8 with non-hex chars',
       () {
-        // Hits the int.tryParse-null branch in hexDecode; the parse fails,
+        // The non-hex `Z` chars fail hexDecode's hex-charset guard, so
         // hexDecode returns an empty Uint8List, and _deriveMhz returns the
         // 88.0 default when bytes.length < 2.
         final s = DiscoveredSession(
