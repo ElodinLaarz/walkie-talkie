@@ -125,5 +125,41 @@ void main() {
         expect(f.watermarks, {'a': 1000});
       },
     );
+
+    test('a delayed pre-wrap straggler after a wrap does not re-mute the peer', () {
+      // Regression: after the counter wraps and the watermark sits low, a
+      // late high-numbered pre-wrap frame must NOT be accepted — accepting it
+      // would ratchet the watermark back up near 0xFFFFFFFF and silently drop
+      // every real post-wrap frame until another half-range wrap.
+      final f = SequenceFilter();
+      const uint32Max = 0xFFFFFFFF;
+      expect(f.accept(peerId: 'a', seq: uint32Max), isTrue);
+      // Wrap: counter resumes at 1.
+      expect(f.accept(peerId: 'a', seq: 1), isTrue);
+      expect(f.accept(peerId: 'a', seq: 2), isTrue);
+      // The straggler from just before the wrap arrives late — a huge forward
+      // jump. It is rejected and the watermark stays at the post-wrap value.
+      expect(f.accept(peerId: 'a', seq: uint32Max - 15), isFalse);
+      expect(f.watermarks, {'a': 2});
+      // Normal post-wrap progress keeps flowing — the peer is not muted.
+      expect(f.accept(peerId: 'a', seq: 3), isTrue);
+      expect(f.accept(peerId: 'a', seq: 4), isTrue);
+    });
+
+    test('the half-range (2^31) boundary partitions forward vs backward', () {
+      // Forward distance of exactly 2^31 counts as "after" (accepted); a
+      // forward distance one past it is treated as a backward straggler.
+      final f = SequenceFilter();
+      f.accept(peerId: 'a', seq: 1);
+      // (0x80000001 - 1) == 0x80000000 forward — accepted.
+      expect(f.accept(peerId: 'a', seq: 0x80000001), isTrue);
+
+      final g = SequenceFilter();
+      g.accept(peerId: 'a', seq: 1);
+      // (0x80000002 - 1) == 0x80000001 forward (> 2^31) — rejected as a
+      // backward straggler; the watermark holds.
+      expect(g.accept(peerId: 'a', seq: 0x80000002), isFalse);
+      expect(g.watermarks, {'a': 1});
+    });
   });
 }

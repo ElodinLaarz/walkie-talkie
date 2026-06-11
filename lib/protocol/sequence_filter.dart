@@ -45,24 +45,38 @@ class SequenceFilter {
   /// `seq` is a uint32 on the wire. A long-lived peer's counter eventually
   /// wraps from 0xFFFFFFFF back to 1; without special handling every
   /// post-wrap frame would read as `seq <= last` and the peer would go
-  /// permanently silent until [forget] is called. A large backwards jump
-  /// (more than half the uint32 space) is therefore treated as a wrap and
-  /// accepted, advancing the watermark — consistent with the
-  /// receiver-permissive posture documented above.
+  /// permanently silent until [forget] is called. To keep wraps working
+  /// without letting a stale frame poison the watermark, "later than" is
+  /// decided by uint32 serial-number arithmetic (RFC 1982) rather than a raw
+  /// `>` comparison — see [_isAfter].
   bool accept({required String peerId, required int seq}) {
     if (seq < 1 || seq > 0xFFFFFFFF) return false;
     final last = _lastSeq[peerId];
-    if (last != null && seq <= last && !_isWrap(last, seq)) return false;
+    if (last != null && !_isAfter(last, seq)) return false;
     _lastSeq[peerId] = seq;
     return true;
   }
 
-  /// True when going from [last] to [seq] looks like a uint32 counter wrap
-  /// rather than a stale/duplicate frame: the backwards gap exceeds half the
-  /// uint32 range (2^31). A duplicate or mildly out-of-order frame sits just
-  /// below the watermark and is correctly rejected; a genuine wrap lands far
-  /// below it (e.g. 0xFFFFFFFF -> 1).
-  static bool _isWrap(int last, int seq) => last - seq > 0x80000000;
+  /// True when [seq] is strictly *after* [last] in uint32 serial-number
+  /// arithmetic (RFC 1982): the forward modular distance `(seq - last) mod
+  /// 2^32` lands in `(0, 2^31]`.
+  ///
+  /// This is symmetric, which is the whole point. A small forward step is
+  /// accepted; a duplicate (distance 0) or small backward step (distance just
+  /// under 2^32) is rejected; a genuine wrap such as `0xFFFFFFFF -> 1` is a
+  /// small forward step and accepted.
+  ///
+  /// Crucially it also rejects a *large forward* jump (distance > 2^31). After
+  /// the counter wraps and the watermark sits low (say `seq=1`), a delayed
+  /// pre-wrap straggler like `0xFFFFFFF0` would otherwise read as `seq > last`,
+  /// get accepted, and ratchet the watermark back up to near 0xFFFFFFFF —
+  /// silently muting every real post-wrap frame until another half-range wrap.
+  /// Treating that as a backward straggler keeps one late frame from killing
+  /// the peer.
+  static bool _isAfter(int last, int seq) {
+    final forward = (seq - last) & 0xFFFFFFFF;
+    return forward > 0 && forward <= 0x80000000;
+  }
 
   /// Drop the watermark for [peerId]. Callers MUST invoke this on clean
   /// disconnect (the `Leave`/`RemovePeer` flow in `docs/protocol.md` §
