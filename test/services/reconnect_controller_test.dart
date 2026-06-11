@@ -151,14 +151,19 @@ void main() {
       expect(connectCallCount, _testDelays.length); // 6 — only f2 dialed
     });
 
-    test('delays list has six entries covering ~19s total budget', () {
-      final total = ReconnectController.delays.fold(
+    test('six-step budget fits within 20 s purge window', () {
+      final sleepBudget = ReconnectController.delays.fold(
         Duration.zero,
         (acc, d) => acc + d,
       );
-      // 250ms + 500ms + 1s + 2s + 5s + 10s = 18750ms
-      expect(total.inMilliseconds, 18750);
+      // 250ms + 500ms + 1s + 2s + 4s + 5s = 12750ms
+      expect(sleepBudget.inMilliseconds, 12750);
       expect(ReconnectController.delays, hasLength(6));
+
+      final n = ReconnectController.delays.length;
+      final worstCase = sleepBudget + ReconnectController.connectTimeout * n;
+      // 12750ms + 6 × 1000ms = 18750ms < 20000ms (15s miss-threshold + 5s grace)
+      expect(worstCase.inMilliseconds, lessThan(20000));
     });
   });
 }
