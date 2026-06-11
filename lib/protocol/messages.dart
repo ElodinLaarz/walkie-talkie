@@ -758,10 +758,7 @@ final class BitrateHint extends FrequencyMessage {
 
   factory BitrateHint._fromJson(Map<String, dynamic> j) {
     final bps = reqInt(j, 'bps');
-    if (bps <= 0) {
-      throw FormatException('bps out of range: $bps');
-    }
-    if (bps > kMaxBps) {
+    if (bps <= 0 || bps > kMaxBps) {
       throw FormatException('bps out of range: $bps');
     }
     return BitrateHint(
