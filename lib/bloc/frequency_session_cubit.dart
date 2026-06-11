@@ -522,7 +522,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     if (_voicePsm == null && psm != null) _voicePsm = psm;
     // Guard: the await above can suspend this method across a room teardown
     // or role change. Re-check that we're still a live host before sending.
-    if (isClosed || state is! SessionRoom) return;
+    if (isClosed || state is! SessionRoom || !(state as SessionRoom).roomIsHost) return;
     final msg = JoinAccepted(
       peerId: localPeerId,
       seq: ++_seq,

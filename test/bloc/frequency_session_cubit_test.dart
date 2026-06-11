@@ -881,6 +881,88 @@ void main() {
     );
 
     test(
+      '_sendJoinAccepted does not emit JoinAccepted if no longer host after await',
+      () async {
+        TestWidgetsFlutterBinding.ensureInitialized();
+        const channel = MethodChannel('com.elodin.walkie_talkie/audio');
+        final serverCompleter = Completer<Object?>();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              if (call.method == 'startVoiceServer') return serverCompleter.future;
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+          if (!serverCompleter.isCompleted) serverCompleter.complete(null);
+        });
+
+        final outbox = <Uint8List>[];
+        final inbox =
+            StreamController<
+              ({String endpointId, Uint8List bytes})
+            >.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async => outbox.add(bytes),
+        );
+        final cubit = _makeCubit(
+          audio: AudioService(),
+          transport: transport,
+          heartbeats: HeartbeatScheduler(
+            pingInterval: const Duration(hours: 1),
+          ),
+        );
+        await cubit.bootstrap();
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+        await cubit.joinRoom(isHost: true);
+        // _voiceServerStartup is pending (serverCompleter not yet complete).
+        // _voicePsm is still null, so _sendJoinAccepted will await.
+        outbox.clear();
+
+        // Send JoinRequest — triggers unawaited _sendJoinAccepted which suspends
+        // on `await _voiceServerStartup`.
+        final req = const JoinRequest(
+          peerId: 'p-guest',
+          seq: 1,
+          atMs: 1000,
+          displayName: 'Maya',
+        ).encode();
+        for (final frag in encodeFragments(req)) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        // Pump so _sendJoinAccepted reaches the await point.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        // Simulate role loss mid-await by emitting state with roomIsHost: false.
+        final room = cubit.state as SessionRoom;
+        cubit.emit(room.copyWith(roomIsHost: false));
+
+        // Unblock _voiceServerStartup — _sendJoinAccepted should now bail.
+        serverCompleter.complete(0x81);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final reassembler = FragmentReassembler();
+        final messages = <FrequencyMessage>[];
+        for (final bytes in outbox) {
+          final json = reassembler.feed(bytes);
+          if (json != null) messages.add(FrequencyMessage.decode(json));
+        }
+        expect(
+          messages.whereType<JoinAccepted>().isEmpty,
+          isTrue,
+          reason: 'must not send JoinAccepted after losing host role mid-await',
+        );
+
+        await cubit.close();
+        await inbox.close();
+        transport.dispose();
+      },
+    );
+
+    test(
       'applyJoinAccepted with voicePsm dials connectVoiceClient on guest',
       () async {
         TestWidgetsFlutterBinding.ensureInitialized();
