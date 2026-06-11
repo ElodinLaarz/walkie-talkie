@@ -238,6 +238,12 @@ class BleControlTransport {
   /// Returns the BT MAC address (endpointId) mapped to a [peerId], or null.
   String? endpointForPeer(String peerId) => _endpointByPeer[peerId];
 
+  /// Number of live per-endpoint reassemblers. Test-only window onto the
+  /// `_reassemblers` map so coverage can assert the dirty-reconnect cleanup
+  /// (a peer migrating to a new endpoint must not orphan its old buffer).
+  @visibleForTesting
+  int get reassemblerCount => _reassemblers.length;
+
   /// Drop the watermark and reassembler buffer for **every** known peer.
   ///
   /// Called when the cubit leaves a room — held-over watermarks from the
@@ -273,6 +279,15 @@ class BleControlTransport {
       // The endpoint this peerId was last seen on, captured before we
       // overwrite the mapping below — used to gate the watermark reset.
       final priorEndpoint = _endpointByPeer[msg.peerId];
+      // Reclaim the old endpoint's reassembler when this peer migrated to a
+      // new Bluetooth endpoint without a clean disconnect (MAC rotation /
+      // fresh GATT link, no Leave or heartbeat-timeout forgetPeer in between).
+      // forgetPeer can only reach the *latest* endpoint via _endpointByPeer,
+      // so the buffer keyed by the old endpoint would otherwise leak — and
+      // _reassemblers grows unbounded over a long session of dirty reconnects.
+      if (priorEndpoint != null && priorEndpoint != event.endpointId) {
+        _reassemblers.remove(priorEndpoint);
+      }
       // Record the mapping so forgetPeer can clean up the correct reassembler.
       _endpointByPeer[msg.peerId] = event.endpointId;
       // A JoinRequest is the start of a fresh session from this peer, whose

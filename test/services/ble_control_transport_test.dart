@@ -730,6 +730,50 @@ void main() {
           await sub.cancel();
         },
       );
+
+      test(
+        'reclaims the old reassembler when a peer dirty-reconnects on a new '
+        'endpoint',
+        () async {
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
+
+          // Peer establishes a session on 'ep-old' — registers the
+          // peerId→endpoint mapping and a reassembler keyed by 'ep-old'.
+          _injectMessage(
+            controlBytesController,
+            _joinRequest(peerId: 'peer-a', seq: 1),
+            endpointId: 'ep-old',
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(1));
+          expect(transport.reassemblerCount, 1);
+          expect(transport.endpointForPeer('peer-a'), 'ep-old');
+
+          // Dirty reconnect: same peer reappears on a fresh endpoint with no
+          // Leave or forgetPeer in between (MAC rotation / new GATT link).
+          // seq advances past the watermark so the message is accepted and the
+          // endpoint mapping is overwritten — the path that orphans 'ep-old'.
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-a', seq: 2),
+            endpointId: 'ep-new',
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(2));
+
+          // The 'ep-old' reassembler must be reclaimed, not orphaned — the
+          // map holds only the live 'ep-new' buffer.
+          expect(transport.reassemblerCount, 1);
+          expect(transport.endpointForPeer('peer-a'), 'ep-new');
+
+          // And forgetPeer (reachable only via the latest endpoint) now
+          // empties the map — proving nothing was stranded.
+          transport.forgetPeer('peer-a');
+          expect(transport.reassemblerCount, 0);
+          await sub.cancel();
+        },
+      );
     });
   });
 }
