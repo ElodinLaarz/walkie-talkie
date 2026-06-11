@@ -59,14 +59,14 @@ class SequenceFilter {
 
   /// True when [seq] is strictly *after* [last] in uint32 serial-number
   /// arithmetic (RFC 1982): the forward modular distance `(seq - last) mod
-  /// 2^32` lands in `(0, 2^31]`.
+  /// 2^32` lands in `(0, 2^31)`.
   ///
   /// This is symmetric, which is the whole point. A small forward step is
   /// accepted; a duplicate (distance 0) or small backward step (distance just
   /// under 2^32) is rejected; a genuine wrap such as `0xFFFFFFFF -> 1` is a
   /// small forward step and accepted.
   ///
-  /// Crucially it also rejects a *large forward* jump (distance > 2^31). After
+  /// Crucially it also rejects a *large forward* jump (distance >= 2^31). After
   /// the counter wraps and the watermark sits low (say `seq=1`), a delayed
   /// pre-wrap straggler like `0xFFFFFFF0` would otherwise read as `seq > last`,
   /// get accepted, and ratchet the watermark back up to near 0xFFFFFFFF —
@@ -75,7 +75,7 @@ class SequenceFilter {
   /// the peer.
   static bool _isAfter(int last, int seq) {
     final forward = (seq - last) & 0xFFFFFFFF;
-    return forward > 0 && forward <= 0x80000000;
+    return forward > 0 && forward < 0x80000000;
   }
 
   /// Drop the watermark for [peerId]. Callers MUST invoke this on clean

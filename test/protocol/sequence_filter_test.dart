@@ -147,19 +147,19 @@ void main() {
     });
 
     test('the half-range (2^31) boundary partitions forward vs backward', () {
-      // Forward distance of exactly 2^31 counts as "after" (accepted); a
-      // forward distance one past it is treated as a backward straggler.
+      // Forward distance of exactly 2^31 is ambiguous (attacker vector) and
+      // is rejected. The accepted range is (0, 2^31) exclusive.
       final f = SequenceFilter();
       f.accept(peerId: 'a', seq: 1);
-      // (0x80000001 - 1) == 0x80000000 forward — accepted.
-      expect(f.accept(peerId: 'a', seq: 0x80000001), isTrue);
+      // (0x80000001 - 1) == 0x80000000 forward (== 2^31) — rejected.
+      expect(f.accept(peerId: 'a', seq: 0x80000001), isFalse);
+      expect(f.watermarks, {'a': 1});
 
+      // One step inside the window is still accepted.
       final g = SequenceFilter();
       g.accept(peerId: 'a', seq: 1);
-      // (0x80000002 - 1) == 0x80000001 forward (> 2^31) — rejected as a
-      // backward straggler; the watermark holds.
-      expect(g.accept(peerId: 'a', seq: 0x80000002), isFalse);
-      expect(g.watermarks, {'a': 1});
+      // (0x80000000 - 1) == 0x7FFFFFFF forward (< 2^31) — accepted.
+      expect(g.accept(peerId: 'a', seq: 0x80000000), isTrue);
     });
   });
 }
