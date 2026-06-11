@@ -370,6 +370,18 @@ void PeerAudioManager::mixerTickLoop() {
 
     constexpr int kFrameSize = audio_config::kCodecFrameSize;
 
+    // Decode-call sizing note: the trailing size arg means two different
+    // things, which is why the normal path passes kCodecMaxFrameSize (5760)
+    // while the FEC/PLC paths pass kFrameSize (480). On the normal decode()
+    // it is a *capacity cap* — the buffer headroom Opus may not exceed, so we
+    // hand it the worst-case 120 ms frame size and let Opus emit whatever the
+    // packet actually encodes. On decodeFec()/decodeMissing() it is instead
+    // the *requested* recovery/concealment length: Opus has no packet to read
+    // the duration from, so this arg tells it exactly how many samples to
+    // synthesize, and it must be a valid Opus frame length (one 20 ms frame =
+    // kFrameSize). The two are not interchangeable: bumping the FEC/PLC arg to
+    // kCodecMaxFrameSize would ask Opus to conceal 120 ms, not cap a buffer.
+
     // Per-thread JVM attachment. The thread runs at 50 Hz × N peers, so we
     // do the attach once and reuse the JNIEnv — per-call attach/detach is
     // wasteful and adds jitter to the mixer loop.
