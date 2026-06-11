@@ -15,11 +15,6 @@ private:
     std::atomic<size_t> writeIndex{0};
     std::atomic<size_t> readIndex{0};
 
-    // Get next index with wraparound
-    static constexpr size_t nextIndex(size_t current) {
-        return (current + 1) % Capacity;
-    }
-
 public:
     RingBuffer() {
         std::memset(buffer, 0, sizeof(buffer));
