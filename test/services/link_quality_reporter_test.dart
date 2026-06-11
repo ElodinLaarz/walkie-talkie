@@ -93,6 +93,34 @@ void main() {
       final reporter = LinkQualityReporter();
       expect(reporter.stop, returnsNormally);
     });
+
+    test('debugTick fires onTick synchronously without real timers', () {
+      // Mirrors the sibling schedulers' seam (SignalReporter.debugTick /
+      // HeartbeatScheduler.debugTick): drive the tick path without waiting
+      // on a wall-clock Timer.periodic.
+      final reporter = LinkQualityReporter(
+        interval: const Duration(seconds: 1),
+      );
+      var ticks = 0;
+      reporter.start(onTick: () => ticks++);
+      reporter.debugTick();
+      reporter.debugTick();
+      expect(ticks, 2);
+      reporter.stop();
+    });
+
+    test('debugTick is a no-op after stop', () {
+      // stop() clears _onTick, so a stray debugTick must not fire a
+      // dangling callback.
+      final reporter = LinkQualityReporter(
+        interval: const Duration(seconds: 1),
+      );
+      var ticks = 0;
+      reporter.start(onTick: () => ticks++);
+      reporter.stop();
+      reporter.debugTick();
+      expect(ticks, 0);
+    });
   });
 
   group('computeLinkQuality', () {

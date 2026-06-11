@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'audio_service.dart';
 import 'counter_delta.dart';
 
@@ -161,4 +163,9 @@ class LinkQualityReporter {
     _timer = null;
     _onTick = null;
   }
+
+  /// Fires [onTick] immediately without waiting for the next timer interval.
+  /// Mirrors [HeartbeatScheduler.debugTick] / [SignalReporter.debugTick].
+  @visibleForTesting
+  void debugTick() => _onTick?.call();
 }
