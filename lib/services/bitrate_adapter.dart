@@ -77,7 +77,7 @@ enum BitrateLevel {
 /// alone is sufficient to hold the line.
 ///
 /// **Hysteresis.** A single bad sample never trips a downstep; it must
-/// hold for [downHoldMid] or [downHoldLow] in wall-clock time. Up-steps
+/// hold for [downHoldMid] in wall-clock time. Up-steps
 /// require [upHold]. These aren't sample counts: a bigger reporter
 /// [interval] doesn't change the dwell.
 ///
@@ -117,11 +117,6 @@ class BitrateAdapter {
   /// spec: 4 s. Same dwell is used for the >12 % and >5 % rules — both
   /// are "down" decisions and we want the same patience for either.
   static const Duration downHoldMid = Duration(seconds: 4);
-
-  /// Alias preserved for documentation — the >12 % rule uses the same
-  /// dwell as >5 %. Kept as a separate constant in case the protocol
-  /// later wants to differentiate.
-  static const Duration downHoldLow = downHoldMid;
 
   /// Sustained-clean dwell required before an upstep fires. Per the issue
   /// spec: 30 s. Long on purpose so a brief recovery lull doesn't drag
