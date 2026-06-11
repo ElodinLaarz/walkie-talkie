@@ -346,7 +346,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       case RosterUpdate m:
         final current = state;
         if (isClosed || current is! SessionRoom) return;
-        emit(current.copyWith(roster: m.roster));
+        emit(current.copyWith(roster: _boundRoster(m.roster)));
       case Leave m:
         // Host role: drop the leaving peer from the roster and clean up
         // transport state. Guest role: if the host leaves, leaveRoom().
@@ -456,6 +456,25 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
   /// latest displayName / btDevice from the request. A targeted [JoinAccepted]
   /// is sent and a [RosterUpdate] broadcast informs existing guests of any
   /// metadata change. The re-join does not consume a roster slot.
+  /// Clamps a host-supplied roster to [kMaxRoomPeers] before it lands in
+  /// guest state. The cap is enforced host-side on admit (see [_onJoinRequest]
+  /// line ~471), but that is a one-sided invariant: a broken or malicious host
+  /// can still ship an oversized roster in a [JoinAccepted] / [RosterUpdate],
+  /// and the guest would otherwise render an unbounded list (UI blowup / OOM on
+  /// a flood). Defend the same invariant on receive — keep the first
+  /// [kMaxRoomPeers] entries and log when truncating. Returns the input
+  /// unchanged when already within bounds.
+  List<ProtocolPeer> _boundRoster(List<ProtocolPeer> roster) {
+    if (roster.length <= kMaxRoomPeers) return roster;
+    if (kDebugMode) {
+      debugPrint(
+        'Truncating inbound roster ${roster.length} -> $kMaxRoomPeers '
+        '(kMaxRoomPeers cap)',
+      );
+    }
+    return roster.sublist(0, kMaxRoomPeers);
+  }
+
   void _onJoinRequest(JoinRequest m) {
     final current = state;
     if (isClosed || current is! SessionRoom || !current.roomIsHost) return;
@@ -1954,7 +1973,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     emit(
       current.copyWith(
         hostPeerId: msg.hostPeerId,
-        roster: msg.roster,
+        roster: _boundRoster(msg.roster),
         mediaState: msg.mediaState,
         connectionPhase: ConnectionPhase.online,
       ),

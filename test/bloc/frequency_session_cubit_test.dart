@@ -1893,6 +1893,41 @@ void main() {
       ],
     );
 
+    blocTest<FrequencySessionCubit, FrequencySessionState>(
+      'applyJoinAccepted clamps an over-cap host roster to kMaxRoomPeers',
+      // A broken/malicious host can ship a roster longer than the host-side
+      // admit cap; the guest must defend the same invariant on receive rather
+      // than emitting an unbounded list into UI state.
+      build: () => _makeCubit(),
+      seed: () => const SessionRoom(
+        myName: 'Maya',
+        roomFreq: '104.3',
+        roomIsHost: false,
+      ),
+      act: (cubit) => cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: List<ProtocolPeer>.generate(
+            FrequencySessionCubit.kMaxRoomPeers + 8,
+            (i) => ProtocolPeer(peerId: 'p$i', displayName: 'Peer $i'),
+          ),
+        ),
+      ),
+      verify: (cubit) {
+        final roster = (cubit.state as SessionRoom).roster;
+        expect(roster, hasLength(FrequencySessionCubit.kMaxRoomPeers));
+        // Truncation keeps the leading entries in order.
+        expect(roster.first.peerId, 'p0');
+        expect(
+          roster.last.peerId,
+          'p${FrequencySessionCubit.kMaxRoomPeers - 1}',
+        );
+      },
+    );
+
     test('SessionRoom.copyWith returns an unmodifiable roster', () {
       // Wire-decoded JoinAccepted.roster is a plain mutable list. Once
       // it lands in SessionRoom, callers shouldn't be able to mutate
@@ -2757,6 +2792,42 @@ void main() {
       await t.inbox.close();
       t.transport.dispose();
     });
+
+    test(
+      'RosterUpdate clamps an over-cap host roster to kMaxRoomPeers',
+      () async {
+        // The host-side admit cap is one-sided; a guest must defend the same
+        // kMaxRoomPeers invariant when it ingests a host-supplied roster off
+        // the wire, or a broken/malicious host floods unbounded UI state.
+        final t = makeTestTransport();
+        final cubit = _makeCubit(transport: t.transport);
+        await cubit.bootstrap(); // wires the transport.incoming subscription
+        cubit.emit(const SessionDiscovery(myName: 'Maya'));
+        await cubit.joinRoom(freq: '104.3', isHost: true);
+
+        final oversized = RosterUpdate(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 1000,
+          roster: List<ProtocolPeer>.generate(
+            FrequencySessionCubit.kMaxRoomPeers + 8,
+            (i) => ProtocolPeer(peerId: 'p$i', displayName: 'Peer $i'),
+          ),
+        ).encode();
+        for (final frag in encodeFragments(oversized)) {
+          t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+
+        final roster = (cubit.state as SessionRoom).roster;
+        expect(roster, hasLength(FrequencySessionCubit.kMaxRoomPeers));
+        expect(roster.first.peerId, 'p0');
+
+        await cubit.close();
+        await t.inbox.close();
+        t.transport.dispose();
+      },
+    );
 
     test('incoming Heartbeat refreshes the watermark for the sender', () async {
       final t = makeTestTransport();
