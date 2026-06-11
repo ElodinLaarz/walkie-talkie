@@ -24,6 +24,10 @@ class _FakeStore implements IdentityStore {
   bool throwOnSet = false;
   bool throwOnGetPeerId = false;
   int setCalls = 0;
+  // When set, getPeerId() awaits this gate before returning, letting a test
+  // suspend a caller mid-await (e.g. _promoteToHost) and mutate state in the
+  // window.
+  Completer<void>? getPeerIdGate;
 
   _FakeStore({String? initial}) : _name = initial;
 
@@ -43,6 +47,7 @@ class _FakeStore implements IdentityStore {
 
   @override
   Future<String> getPeerId() async {
+    if (getPeerIdGate != null) await getPeerIdGate!.future;
     if (throwOnGetPeerId) throw StateError('boom');
     return _peerId ??= 'fake-peer-id';
   }
@@ -1356,6 +1361,168 @@ void main() {
               'JoinAccepted sent during the promote window must carry the real '
               'PSM once the voice server starts, never null (#120)',
         );
+
+        await cubit.close();
+        await inbox.close();
+        transport.dispose();
+      },
+    );
+
+    test(
+      '_promoteToHost: leaving the room during the getPeerId await does not '
+      'resurrect the room as host — #40',
+      () async {
+        final inbox =
+            StreamController<
+              ({String endpointId, Uint8List bytes})
+            >.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async {},
+        );
+        // throwOnGetPeerId leaves _localPeerId null after bootstrap (the
+        // catch in bootstrap swallows it), which is the only path on which
+        // _promoteToHost actually awaits identityStore.getPeerId() — and so
+        // the only path with a stale-state window to exercise.
+        final store = _FakeStore(initial: 'Devon')..throwOnGetPeerId = true;
+        store._peerId = 'peer-2';
+        final cubit = _makeCubit(transport: transport, identityStore: store);
+        await cubit.bootstrap();
+
+        // Re-enable getPeerId but gate it so the promote suspends mid-await.
+        store.throwOnGetPeerId = false;
+        final gate = Completer<void>();
+        store.getPeerIdGate = gate;
+
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            roster: [
+              ProtocolPeer(peerId: 'peer-1', displayName: 'Maya'),
+              ProtocolPeer(peerId: 'peer-2', displayName: 'Devon'),
+            ],
+          ),
+        );
+
+        // HostTransfer promotes peer-2 (this cubit) to host; _promoteToHost
+        // begins and blocks on the gated getPeerId await.
+        for (final frag in encodeFragments(
+          const HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ).encode(),
+        )) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        // User leaves the room while getPeerId is still in flight.
+        cubit.emit(const SessionDiscovery(myName: 'Devon'));
+
+        // Release the await and let _promoteToHost resume.
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        // Pre-fix, _promoteToHost emitted from the stale pre-await SessionRoom
+        // snapshot, clobbering Discovery and resurrecting the (now-left) room
+        // as host. Post-fix it re-reads state, sees it is no longer a guest
+        // room, and bails.
+        expect(
+          cubit.state,
+          isA<SessionDiscovery>(),
+          reason: 'promote must not resurrect a room the user already left',
+        );
+
+        await cubit.close();
+        await inbox.close();
+        transport.dispose();
+      },
+    );
+
+    test(
+      '_promoteToHost: switching frequency during the getPeerId await does '
+      'not promote the new room — #40',
+      () async {
+        final inbox =
+            StreamController<
+              ({String endpointId, Uint8List bytes})
+            >.broadcast();
+        final transport = BleControlTransport.forTest(
+          controlBytes: inbox.stream,
+          writeBytes: (bytes) async {},
+        );
+        final store = _FakeStore(initial: 'Devon')..throwOnGetPeerId = true;
+        store._peerId = 'peer-2';
+        final cubit = _makeCubit(transport: transport, identityStore: store);
+        await cubit.bootstrap();
+
+        store.throwOnGetPeerId = false;
+        final gate = Completer<void>();
+        store.getPeerIdGate = gate;
+
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '104.3',
+            roomIsHost: false,
+            hostPeerId: 'peer-1',
+            roster: [ProtocolPeer(peerId: 'peer-1', displayName: 'Maya')],
+          ),
+        );
+
+        for (final frag in encodeFragments(
+          const HostTransfer(
+            peerId: 'peer-1',
+            seq: 1,
+            atMs: 0,
+            newHostPeerId: 'peer-2',
+            sessionUuid: _testHostSessionUuid,
+          ).encode(),
+        )) {
+          inbox.add((endpointId: 'AA:BB', bytes: frag));
+        }
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        // User hops to a different frequency (a new guest room) mid-await.
+        cubit.emit(
+          const SessionRoom(
+            myName: 'Devon',
+            roomFreq: '99.7',
+            roomIsHost: false,
+            hostPeerId: 'peer-9',
+            roster: [ProtocolPeer(peerId: 'peer-9', displayName: 'Sam')],
+          ),
+        );
+
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final state = cubit.state;
+        expect(state, isA<SessionRoom>());
+        final room = state as SessionRoom;
+        expect(
+          room.roomFreq,
+          '99.7',
+          reason: 'the new room must be untouched by the stale promote',
+        );
+        expect(
+          room.roomIsHost,
+          isFalse,
+          reason: 'a promote for the prior room must not host the new one',
+        );
+        expect(room.hostPeerId, 'peer-9');
 
         await cubit.close();
         await inbox.close();

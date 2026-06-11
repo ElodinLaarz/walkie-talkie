@@ -1225,20 +1225,33 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
     _joinAcceptedWatchdog = null;
     final localPeerId = _localPeerId ?? await identityStore.getPeerId();
     if (isClosed) return;
+    // Re-read state after the `identityStore.getPeerId()` await above. The
+    // user may have left the room or switched frequencies while it was in
+    // flight; emitting from the stale pre-await `current` would resurrect a
+    // room the user already left (and any peers who departed during the
+    // await) under the new host role (#40). Mirror the post-await re-checks
+    // in _sendJoinAccepted / _sendLinkQuality. roomFreq is the stable
+    // per-room identity, so a frequency change means a different room.
+    final latest = state;
+    if (latest is! SessionRoom ||
+        latest.roomIsHost ||
+        latest.roomFreq != current.roomFreq) {
+      return;
+    }
     // Remove the departing host from the roster and ensure the local
     // peer (the new host) has an entry.
-    final roster = current.roster
-        .where((p) => p.peerId != current.hostPeerId)
+    final roster = latest.roster
+        .where((p) => p.peerId != latest.hostPeerId)
         .toList();
     if (!roster.any((p) => p.peerId == localPeerId)) {
       roster.add(
-        ProtocolPeer(peerId: localPeerId, displayName: current.myName),
+        ProtocolPeer(peerId: localPeerId, displayName: latest.myName),
       );
     }
     _sessionUuid = sessionUuid;
     _localPeerId = localPeerId;
     emit(
-      current.copyWith(
+      latest.copyWith(
         roomIsHost: true,
         hostPeerId: localPeerId,
         roster: roster,
@@ -1253,7 +1266,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       unawaited(
         audio.startGattServerAndAdvertise(
           sessionUuid: sessionUuid,
-          displayName: current.myName,
+          displayName: latest.myName,
           shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
         ),
       );
