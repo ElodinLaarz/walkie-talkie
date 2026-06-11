@@ -91,6 +91,13 @@ int PeerAudioManager::registerPeer(const std::string& macAddress) {
             it->second->peerVad.reset();
             it->second->sheddingStale = false;
             it->second->lagEstimator.reset();
+            // The jitter buffer was just emptied, so the first ticks of the
+            // rejoin will underrun. Zero the underrun hysteresis too: a counter
+            // left at >= 2 from the previous link would fire the popAny() drain
+            // in the mixer tick on the very first fresh underrun instead of
+            // after the intended cold-start hysteresis — defeating the
+            // cold-start playhead/depth this reset block exists to enforce.
+            it->second->consecutiveUnderruns = 0;
         }
         // If the peer was previously talking, its VAD state just flipped to
         // silent; mark dirty so the mixer tick emits a corrected talking set.
