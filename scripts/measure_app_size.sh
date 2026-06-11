@@ -236,7 +236,11 @@ java -jar "$BUNDLETOOL_JAR" build-apks \
 # largest combined download across every (sdk, abi, density, language) device
 # spec the bundle covers. MAX is the worst-case device — that's what the
 # budget should track.
-SIZE_CSV=$(java -jar "$BUNDLETOOL_JAR" get-size total --apks="$APKS_PATH")
+# tr strips the \r bundletool terminates CSV rows with — it would otherwise
+# sit between the digits and `$` in the row regex below and defeat the match
+# (first observed on the v0.1.1 release build: a valid 9839097,10679382 row
+# was rejected as unparseable).
+SIZE_CSV=$(java -jar "$BUNDLETOOL_JAR" get-size total --apks="$APKS_PATH" | tr -d '\r')
 echo "$SIZE_CSV"
 
 # Take the last numeric "<min>,<max>" row — robust to header ordering and to
