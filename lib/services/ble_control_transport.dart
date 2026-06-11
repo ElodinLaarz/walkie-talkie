@@ -270,6 +270,9 @@ class BleControlTransport {
       final json = r.feed(event.bytes);
       if (json == null) return;
       final msg = FrequencyMessage.decode(json);
+      // The endpoint this peerId was last seen on, captured before we
+      // overwrite the mapping below — used to gate the watermark reset.
+      final priorEndpoint = _endpointByPeer[msg.peerId];
       // Record the mapping so forgetPeer can clean up the correct reassembler.
       _endpointByPeer[msg.peerId] = event.endpointId;
       // A JoinRequest is the start of a fresh session from this peer, whose
@@ -281,7 +284,19 @@ class BleControlTransport {
       // Without this, a rejoining guest's JoinRequest (seq=1) is dropped
       // against the host's old watermark and the guest is stranded until its
       // watchdog gives up.
-      if (msg is JoinRequest) {
+      //
+      // Only honour the reset when this peerId is unknown (first contact —
+      // there is no watermark to clear) or is currently bound to the same
+      // endpoint the fragment arrived on. The SequenceFilter is keyed by
+      // peerId alone, so without this guard any peer could spoof another
+      // peer's id in a JoinRequest envelope and force the host to drop the
+      // victim's watermark — re-opening the victim to replay of previously
+      // captured authentic frames. The endpoint id (BT link) is the
+      // hard-to-spoof identity; the peerId is application-level. A genuine
+      // reconnect on a new endpoint is recovered by the heartbeat watchdog's
+      // forgetPeer instead.
+      if (msg is JoinRequest &&
+          (priorEndpoint == null || priorEndpoint == event.endpointId)) {
         _filter.forget(msg.peerId);
       }
       if (!_filter.accept(peerId: msg.peerId, seq: msg.seq)) {

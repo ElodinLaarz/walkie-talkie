@@ -606,6 +606,93 @@ void main() {
       );
 
       test(
+        'a JoinRequest from another endpoint cannot clear a victim peer\'s '
+        'watermark',
+        () async {
+          // Cross-peer control-plane replay guard. The SequenceFilter is keyed
+          // by peerId alone; an attacker on a different BT endpoint must not be
+          // able to forge a JoinRequest carrying the victim's peerId and force
+          // the host to drop the victim's dedup watermark — which would re-open
+          // the victim to replay of previously captured authentic frames.
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
+
+          // Victim establishes a session on 'ep-victim' and advances its
+          // watermark to seq=5.
+          for (var i = 1; i <= 5; i++) {
+            _injectMessage(
+              controlBytesController,
+              _heartbeat(peerId: 'peer-victim', seq: i),
+              endpointId: 'ep-victim',
+            );
+          }
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(5));
+
+          // Attacker on a different endpoint forges a JoinRequest whose
+          // envelope peerId is the victim's. The watermark reset must be
+          // refused because the peerId is bound to 'ep-victim', not
+          // 'ep-attacker'.
+          _injectMessage(
+            controlBytesController,
+            _joinRequest(peerId: 'peer-victim', seq: 1),
+            endpointId: 'ep-attacker',
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          // seq=1 <= watermark(5) → dropped. The forged JoinRequest is not
+          // emitted and, crucially, the victim's watermark is untouched.
+          expect(emitted, hasLength(5));
+
+          // Prove the watermark survived: a replayed seq=3 from the real
+          // victim endpoint is still rejected as a duplicate.
+          _injectMessage(
+            controlBytesController,
+            _heartbeat(peerId: 'peer-victim', seq: 3),
+            endpointId: 'ep-victim',
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(5));
+          await sub.cancel();
+        },
+      );
+
+      test(
+        'a JoinRequest on the peer\'s own endpoint still resets its watermark',
+        () async {
+          // The legitimate dirty-reconnect path: the peer's GATT link drops
+          // before its Leave flushes, then it reconnects on the *same*
+          // endpoint and re-sends a JoinRequest at seq=1. The in-band reset
+          // must still fire so the rejoin isn't swallowed by the stale
+          // watermark before the heartbeat watchdog notices.
+          final emitted = <FrequencyMessage>[];
+          final sub = transport.incoming.listen(emitted.add);
+
+          for (var i = 1; i <= 5; i++) {
+            _injectMessage(
+              controlBytesController,
+              _heartbeat(peerId: 'peer-a', seq: i),
+              endpointId: 'ep-a',
+            );
+          }
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(5));
+
+          // Same endpoint, fresh JoinRequest at seq=1 → watermark reset, so it
+          // is accepted.
+          _injectMessage(
+            controlBytesController,
+            _joinRequest(peerId: 'peer-a', seq: 1),
+            endpointId: 'ep-a',
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(emitted, hasLength(6));
+          expect(emitted.last, isA<JoinRequest>());
+          await sub.cancel();
+        },
+      );
+
+      test(
         'cleans up the reassembler via endpointId mapping on reconnect',
         () async {
           final emitted = <FrequencyMessage>[];
