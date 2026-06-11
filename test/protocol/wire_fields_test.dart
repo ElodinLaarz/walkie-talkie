@@ -27,6 +27,41 @@ void main() {
     });
   });
 
+  // ── reqBoundedString ───────────────────────────────────────────────────────
+
+  group('reqBoundedString', () {
+    test('returns the string when within the bound', () {
+      expect(reqBoundedString({'k': 'hi'}, 'k', maxLen: 8), 'hi');
+    });
+
+    test('accepts a string exactly at maxLen', () {
+      final s = 'a' * 8;
+      expect(reqBoundedString({'k': s}, 'k', maxLen: 8), s);
+    });
+
+    test('accepts the empty string', () {
+      expect(reqBoundedString({'k': ''}, 'k', maxLen: 8), '');
+    });
+
+    test('throws when longer than maxLen', () {
+      expect(
+        () => reqBoundedString({'k': 'a' * 9}, 'k', maxLen: 8),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on missing key (delegates to reqString)', () {
+      expect(() => reqBoundedString({}, 'k', maxLen: 8), throwsFormatException);
+    });
+
+    test('throws on mistyped (non-string) value', () {
+      expect(
+        () => reqBoundedString({'k': 1}, 'k', maxLen: 8),
+        throwsFormatException,
+      );
+    });
+  });
+
   // ── reqInt ────────────────────────────────────────────────────────────────
 
   group('reqInt', () {

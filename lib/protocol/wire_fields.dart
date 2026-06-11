@@ -21,6 +21,27 @@ String reqString(Map<String, dynamic> j, String key) {
   return raw;
 }
 
+/// Required String field bounded to [maxLen] characters (inclusive).
+///
+/// Like [reqString], but also rejects an over-long value as a
+/// [FormatException] so a hostile or corrupt peer can't push an
+/// arbitrarily large string into UI state or any re-serialization. This is
+/// the string analogue of the numeric range checks ([reqSeq], [reqAtMs]):
+/// free-form wire strings that have a natural upper bound get one here.
+String reqBoundedString(
+  Map<String, dynamic> j,
+  String key, {
+  required int maxLen,
+}) {
+  final raw = reqString(j, key);
+  if (raw.length > maxLen) {
+    throw FormatException(
+      '`$key` exceeds max length $maxLen, got ${raw.length}',
+    );
+  }
+  return raw;
+}
+
 /// Required int field. Note JSON `1.0` decodes to a `double` and is rejected
 /// here — the protocol sends integer `seq`/`atMs`.
 int reqInt(Map<String, dynamic> j, String key) {

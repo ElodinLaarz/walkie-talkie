@@ -53,6 +53,12 @@ extension MediaOpWire on MediaOp {
 /// freshly-joined guest can render the room without waiting for the next
 /// `MediaCommand`.
 class MediaState {
+  /// Upper bound on the [source] label length on the wire. `source` is a
+  /// short human-facing media-source name (e.g. "YouTube Music"); bounding it
+  /// keeps a hostile peer from shipping a multi-kilobyte string into UI state
+  /// and re-serialization, mirroring the numeric caps elsewhere in this file.
+  static const int kMaxSourceLen = 256;
+
   final String source;
   final int trackIdx;
   final bool playing;
@@ -78,7 +84,7 @@ class MediaState {
     _requireNonNeg(trackIdx, 'trackIdx');
     _requireNonNeg(positionMs, 'positionMs');
     return MediaState(
-      source: reqString(json, 'source'),
+      source: reqBoundedString(json, 'source', maxLen: kMaxSourceLen),
       trackIdx: trackIdx,
       playing: reqBool(json, 'playing'),
       positionMs: positionMs,
@@ -518,7 +524,7 @@ final class MediaCommand extends FrequencyMessage {
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
       op: op,
-      source: reqString(j, 'source'),
+      source: reqBoundedString(j, 'source', maxLen: MediaState.kMaxSourceLen),
       trackIdx: trackIdx,
       positionMs: positionMs,
     );

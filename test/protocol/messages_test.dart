@@ -452,6 +452,13 @@ void main() {
       expect(playJson.containsKey('trackIdx'), isFalse);
       expect(playJson.containsKey('positionMs'), isFalse);
     });
+
+    test('source longer than kMaxSourceLen is rejected as FormatException', () {
+      final src = 'a' * (MediaState.kMaxSourceLen + 1);
+      final wire =
+          '{"kind":"media","peerId":"p","seq":1,"atMs":0,"v":1,"op":"play","source":"$src"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
   });
 
   group('health messages', () {
@@ -776,6 +783,20 @@ void main() {
     test('accepts zero trackIdx and zero positionMs', () {
       final wire = '$base{"source":"s","trackIdx":0,"playing":true,"positionMs":0}}';
       expect(() => FrequencyMessage.decode(wire), returnsNormally);
+    });
+
+    test('accepts source exactly at MediaState.kMaxSourceLen', () {
+      final src = 'a' * MediaState.kMaxSourceLen;
+      final wire =
+          '$base{"source":"$src","trackIdx":0,"playing":true,"positionMs":0}}';
+      expect(() => FrequencyMessage.decode(wire), returnsNormally);
+    });
+
+    test('rejects source longer than kMaxSourceLen as FormatException', () {
+      final src = 'a' * (MediaState.kMaxSourceLen + 1);
+      final wire =
+          '$base{"source":"$src","trackIdx":0,"playing":true,"positionMs":0}}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
   });
 
