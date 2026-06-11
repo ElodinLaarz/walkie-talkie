@@ -219,15 +219,21 @@ android {
 // Sentry Gradle plugin — build-time symbol/mapping upload pipeline.
 // Runtime SDK init is gated separately by the user's Settings → Privacy toggle
 // (handled by sentry_flutter; see autoInstallation block below).
+// Every upload task shells out to sentry-cli, which hard-fails the release
+// build when no SENTRY_AUTH_TOKEN is available (CI without the secret, local
+// builds). Key all upload switches off the token's presence so an unsigned-in
+// build still produces the APK/AAB — it just ships without deobfuscation data.
+val sentryUploadEnabled = !System.getenv("SENTRY_AUTH_TOKEN").isNullOrBlank()
+
 sentry {
     // Build-time uploads for crash deobfuscation:
     //   - native sources + symbols → C++ stacks (Oboe / Opus)
     //   - ProGuard/R8 mapping → Java/Kotlin stacks
     //   - source context → resolves to source line in the Sentry UI
-    includeNativeSources = true
-    autoUploadNativeSymbols = true
-    autoUploadProguardMapping = true
-    includeSourceContext = true
+    includeNativeSources = sentryUploadEnabled
+    autoUploadNativeSymbols = sentryUploadEnabled
+    autoUploadProguardMapping = sentryUploadEnabled
+    includeSourceContext = sentryUploadEnabled
 
     // Runtime SDK init is handled by sentry_flutter (driven by the
     // SENTRY_DSN dart-define + the user's Settings → Privacy toggle).
