@@ -852,6 +852,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeRegisterPeer(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return -1;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return -1;
     int id = g_peerAudioManager->registerPeer(std::string(mac));
     env->ReleaseStringUTFChars(macAddress, mac);
     return id;
@@ -863,6 +864,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeUnregisterPeer(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return;
     g_peerAudioManager->unregisterPeer(std::string(mac));
     env->ReleaseStringUTFChars(macAddress, mac);
 }
@@ -939,6 +941,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return -1;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return -1;
     int applied = g_peerAudioManager->setPeerBitrate(std::string(mac), bps);
     env->ReleaseStringUTFChars(macAddress, mac);
     return applied;
@@ -957,6 +960,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     std::lock_guard<std::mutex> lock(g_peerManagerMutex);
     if (!g_peerAudioManager) return nullptr;
     const char* mac = env->GetStringUTFChars(macAddress, nullptr);
+    if (!mac) return nullptr;
     auto t = g_peerAudioManager->getTelemetry(std::string(mac));
     env->ReleaseStringUTFChars(macAddress, mac);
 
