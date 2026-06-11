@@ -148,6 +148,32 @@ void main() {
       });
     });
 
+    group('error isolation', () {
+      test('write chain remains usable after a failed write', () async {
+        final store = SqfliteSettingsStore();
+        // Poison the chain to simulate what a failed _writeBool does on the
+        // unfixed code (stores the bare error future in _writeChain).
+        store.poisonWriteChainForTesting();
+        // The first write after a poisoned chain propagates the error to the
+        // caller but the fixed code stores _writeChain = next.catchError so
+        // the chain is clean for subsequent writes.
+        await expectLater(store.setPttModeEnabled(true), throwsException);
+        // Must succeed — chain is isolated by the fix.
+        await store.setCrashReportingEnabled(true);
+        expect(await store.getCrashReportingEnabled(), isTrue);
+      });
+
+      test('clear chain remains usable after a failed write', () async {
+        final store = SqfliteSettingsStore();
+        await store.setCrashReportingEnabled(true);
+        store.poisonWriteChainForTesting();
+        await expectLater(store.clear(), throwsException);
+        // Chain must still work.
+        await store.setPttModeEnabled(true);
+        expect(await store.getPttModeEnabled(), isTrue);
+      });
+    });
+
     group('clear', () {
       test('resets all settings to their defaults', () async {
         final store = SqfliteSettingsStore();

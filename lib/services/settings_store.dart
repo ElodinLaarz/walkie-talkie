@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'walkie_talkie_database.dart';
@@ -60,13 +61,15 @@ class SqfliteSettingsStore implements SettingsStore {
   }
 
   Future<void> _writeBool(String key, bool value) {
-    return _writeChain = _writeChain.then((_) async {
+    final next = _writeChain.then((_) async {
       final db = await WalkieTalkieDatabase.open();
       await db.insert('kv', {
         'key': key,
         'value': value ? '1' : '0',
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
+    _writeChain = next.catchError((_) {});
+    return next;
   }
 
   @override
@@ -90,9 +93,16 @@ class SqfliteSettingsStore implements SettingsStore {
   Future<void> setKeepScreenOn(bool enabled) =>
       _writeBool(_keepScreenOnKey, enabled);
 
+  /// Test seam: puts an error into [_writeChain] without touching the DB,
+  /// simulating a failed [_writeBool] or [clear] call.
+  @visibleForTesting
+  void poisonWriteChainForTesting() {
+    _writeChain = Future.error(Exception('test-injected chain failure'));
+  }
+
   @override
   Future<void> clear() {
-    return _writeChain = _writeChain.then((_) async {
+    final next = _writeChain.then((_) async {
       final db = await WalkieTalkieDatabase.open();
       await db.delete(
         'kv',
@@ -100,5 +110,7 @@ class SqfliteSettingsStore implements SettingsStore {
         whereArgs: [_crashReportingKey, _pttModeKey, _keepScreenOnKey],
       );
     });
+    _writeChain = next.catchError((_) {});
+    return next;
   }
 }
