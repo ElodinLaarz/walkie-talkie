@@ -1257,19 +1257,29 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
           shouldProceed: () => !isClosed && _sessionUuid == sessionUuid,
         ),
       );
-      // Close the guest-side voice client before opening the host server.
-      // Awaited so the native layer tears down the client transport before
-      // startVoiceServer() runs; without this, the native code reuses the
-      // existing client-mode transport (no peer-registration callback) and
-      // reconnecting guests would never be registered with registerVoicePeer.
-      await audio.stopVoiceTransport();
-      if (isClosed) return;
-      final promoted = state;
-      if (promoted is! SessionRoom || !promoted.roomIsHost) return;
-      // Open the voice L2CAP server. Store the future so _sendJoinAccepted
-      // can await it if a guest reconnects before the native call returns.
+      // Open the voice L2CAP server as a single composite future, assigned
+      // *before* the first await so there is never a window in which the cubit
+      // is already a live host (roomIsHost: true was emitted above) while
+      // _voiceServerStartup is still null. A JoinRequest arriving during the
+      // stopVoiceTransport()/startVoiceServer() sequence routes through
+      // _sendJoinAccepted, which awaits this future — so it blocks on a real
+      // PSM instead of sending JoinAccepted(voicePsm: null) (#120). Were the
+      // future left null here, `await null` resolves to null and the guest
+      // would get a null PSM it cannot open the L2CAP voice channel with.
+      //
+      // The composite closes the guest-side voice client before opening the
+      // host server: the native layer must tear down the client transport
+      // before startVoiceServer() runs, otherwise it reuses the existing
+      // client-mode transport (no peer-registration callback) and reconnecting
+      // guests would never be registered with registerVoicePeer. The
+      // generation check aborts the startup if the room is torn down or the
+      // role changes while stopVoiceTransport() is in flight.
       final gen = ++_voiceGeneration;
-      _voiceServerStartup = audio.startVoiceServer();
+      _voiceServerStartup = () async {
+        await audio.stopVoiceTransport();
+        if (isClosed || _voiceGeneration != gen) return null;
+        return audio.startVoiceServer();
+      }();
       unawaited(
         _voiceServerStartup!.then((psm) {
           if (!isClosed && _voiceGeneration == gen) _voicePsm = psm;
