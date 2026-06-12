@@ -25,9 +25,10 @@ class HostAdvertiser(private val context: Context) {
     companion object {
         private const val TAG = "HostAdvertiser"
 
-        // Same 128-bit UUID Dart guests filter on (see kWalkieTalkieServiceUuid
-        // in lib/protocol/discovery.dart). Kept in sync with
-        // GattConstants.SERVICE_UUID — they're the same wire identifier.
+        // Same 128-bit UUID declared Dart-side as kWalkieTalkieServiceUuid in
+        // lib/protocol/discovery.dart (guests discover via a manufacturer-data
+        // scan filter, NOT this UUID — see BluetoothDiscoveryService). Kept in
+        // sync with GattConstants.SERVICE_UUID — they're the same wire identifier.
         val SERVICE_UUID: UUID = GattConstants.SERVICE_UUID
 
         // Test/internal manufacturer ID range (0xFFFF). Fine for v1; if we

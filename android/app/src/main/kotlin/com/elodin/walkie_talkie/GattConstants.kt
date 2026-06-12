@@ -9,8 +9,10 @@ import java.util.UUID
  * walkie-talkie service.
  *
  * The values must stay byte-identical to:
- *  - `lib/protocol/discovery.dart::kWalkieTalkieServiceUuid` (Dart side, used
- *    for advertising filters), and
+ *  - `lib/protocol/discovery.dart::kWalkieTalkieServiceUuid` (the Dart-side
+ *    declaration of the same identifier; note Dart discovery does NOT filter
+ *    scans on this UUID — it filters on manufacturer data, see
+ *    `BluetoothDiscoveryService` / issue #361), and
  *  - `docs/protocol.md § GATT service` (the spec callers verify against).
  *
  * Per issue #107 — anything that wants a UUID, a target ATT MTU, or the
