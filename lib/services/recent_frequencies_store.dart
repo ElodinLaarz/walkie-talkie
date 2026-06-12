@@ -220,19 +220,17 @@ class SqfliteRecentFrequenciesStore implements RecentFrequenciesStore {
   }
 
   RecentFrequency _rowToRecent(Map<String, Object?> r) {
-    final rawNickname = r['nickname'] as String?;
-    final rawSessionUuid = r['session_uuid'] as String?;
     return RecentFrequency(
       freq: r['freq']! as String,
       // NULL stays null; an empty string in storage (shouldn't happen via
       // [setNickname], but defend against legacy data) is normalized to
       // null so the UI's "render label or fall back" branch lines up with
       // "no nickname set" semantics.
-      nickname: _nullIfEmpty(rawNickname),
+      nickname: _nullIfEmpty(r['nickname'] as String?),
       pinned: (r['pinned'] as int? ?? 0) != 0,
       // Pre-v4 rows are NULL; an empty-string written by a buggy caller is
       // normalized to null with the same rationale as [nickname].
-      sessionUuid: _nullIfEmpty(rawSessionUuid),
+      sessionUuid: _nullIfEmpty(r['session_uuid'] as String?),
     );
   }
 
