@@ -118,7 +118,10 @@ class VoiceFrame {
     return VoiceFrame(
       seq: seq,
       senderTsMs: senderTsMs,
-      payload: Uint8List.fromList(bytes.sublist(kVoiceHeaderSize)),
+      // sublist already allocates an independent Uint8List copy, so the
+      // payload stays decoupled from the (possibly reused) source buffer
+      // without a second Uint8List.fromList copy on top.
+      payload: bytes.sublist(kVoiceHeaderSize),
     );
   }
 
