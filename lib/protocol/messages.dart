@@ -275,6 +275,13 @@ final class JoinRequest extends FrequencyMessage {
 }
 
 final class JoinAccepted extends FrequencyMessage {
+  /// Upper bound on the number of `roster` entries accepted at decode, applied
+  /// before any element is materialized so a hostile peer can't force unbounded
+  /// allocation with a multi-thousand-entry roster. Mirrors [SignalReport.kMaxNeighbors]
+  /// (256) for the neighbor list; shared with [RosterUpdate], which carries the
+  /// same roster payload.
+  static const int kMaxRosterSize = 256;
+
   final String hostPeerId;
   final List<ProtocolPeer> roster;
   final MediaState? mediaState;
@@ -342,7 +349,12 @@ final class JoinAccepted extends FrequencyMessage {
         'hostPeerId',
         maxLen: ProtocolPeer.kMaxPeerIdLen,
       ),
-      roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
+      roster: _parseObjectList(
+        j['roster'],
+        'roster',
+        ProtocolPeer.fromJson,
+        maxLen: kMaxRosterSize,
+      ),
       mediaState: rawMediaState == null
           ? null
           : MediaState.fromJson(Map<String, dynamic>.from(rawMediaState)),
@@ -443,7 +455,12 @@ final class RosterUpdate extends FrequencyMessage {
     peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
-    roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
+    roster: _parseObjectList(
+      j['roster'],
+      'roster',
+      ProtocolPeer.fromJson,
+      maxLen: JoinAccepted.kMaxRosterSize,
+    ),
   );
 }
 

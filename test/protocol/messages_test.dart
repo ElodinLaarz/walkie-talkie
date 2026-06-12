@@ -70,6 +70,49 @@ void main() {
       expect(() => FrequencyMessage.decode(badElement), throwsFormatException);
     });
 
+    // A roster naming more peers than kMaxRosterSize is malformed/hostile and
+    // is rejected at the decode boundary before the list is materialized, so a
+    // remote peer can't force unbounded allocation. Mirrors the neighbor-cap
+    // guard on SignalReport (issue #208).
+    String rosterEntries(int n) => List.generate(
+          n,
+          (i) => '{"peerId":"p$i","displayName":"A"}',
+        ).join(',');
+
+    test('decode rejects join_accepted with an over-long roster', () {
+      final n = JoinAccepted.kMaxRosterSize + 1;
+      final json =
+          '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,'
+          '"hostPeerId":"h","roster":[${rosterEntries(n)}]}';
+      expect(() => FrequencyMessage.decode(json), throwsFormatException);
+    });
+
+    test('decode accepts join_accepted at the roster cap', () {
+      final n = JoinAccepted.kMaxRosterSize;
+      final json =
+          '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,'
+          '"hostPeerId":"h","roster":[${rosterEntries(n)}]}';
+      final msg = FrequencyMessage.decode(json) as JoinAccepted;
+      expect(msg.roster.length, n);
+    });
+
+    test('decode rejects roster_update with an over-long roster', () {
+      final n = JoinAccepted.kMaxRosterSize + 1;
+      final json =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"roster":[${rosterEntries(n)}]}';
+      expect(() => FrequencyMessage.decode(json), throwsFormatException);
+    });
+
+    test('decode accepts roster_update at the roster cap', () {
+      final n = JoinAccepted.kMaxRosterSize;
+      final json =
+          '{"kind":"roster_update","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"roster":[${rosterEntries(n)}]}';
+      final msg = FrequencyMessage.decode(json) as RosterUpdate;
+      expect(msg.roster.length, n);
+    });
+
     // Regression: the envelope fields (peerId/seq/atMs) and kind-specific
     // fields used to be parsed with bare `as` casts, which throw `TypeError`
     // — a subclass of `Error`, NOT `Exception` and NOT `FormatException`. The
