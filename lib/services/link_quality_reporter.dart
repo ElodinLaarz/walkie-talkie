@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../protocol/messages.dart';
 import 'audio_service.dart';
 import 'counter_delta.dart';
 
@@ -90,8 +91,15 @@ import 'counter_delta.dart';
   // (and a strict-mode reader) happy.
   final lossPct = lossPctRaw.clamp(0.0, 100.0).toDouble();
 
-  final jitterMs = current.currentDepthFrames * frameDurationMs;
-  final underrunsPerSec = underrunDelta / elapsedSeconds;
+  final jitterMs =
+      (current.currentDepthFrames * frameDurationMs).clamp(
+        0,
+        LinkQuality.kMaxJitterMs,
+      );
+  final underrunsPerSec =
+      (underrunDelta / elapsedSeconds)
+          .clamp(0.0, LinkQuality.kMaxUnderrunsPerSec)
+          .toDouble();
 
   return (
     lossPct: lossPct,

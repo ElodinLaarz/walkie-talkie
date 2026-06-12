@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/services/audio_service.dart';
 import 'package:walkie_talkie/services/link_quality_reporter.dart';
 
@@ -230,6 +231,33 @@ void main() {
       expect(out.lossPct.isFinite, isTrue, reason: 'must not divide by zero');
       expect(out.lossPct, lessThanOrEqualTo(100.0));
     });
+
+    test('jitterMs clamps to kMaxJitterMs when currentDepthFrames is huge', () {
+      // 501 frames × 20 ms = 10020 ms, exceeds kMaxJitterMs = 10000.
+      final prev = _snap(current: 0);
+      final curr = _snap(current: 501);
+      final out = computeLinkQuality(
+        previous: prev,
+        current: curr,
+        elapsed: const Duration(seconds: 2),
+      );
+      expect(out.jitterMs, LinkQuality.kMaxJitterMs);
+    });
+
+    test(
+      'underrunsPerSec clamps to kMaxUnderrunsPerSec when rate is huge',
+      () {
+        // 20001 underruns over 1 s → 20001/s, exceeds kMaxUnderrunsPerSec = 10000.
+        final prev = _snap(underrun: 0);
+        final curr = _snap(underrun: 20001);
+        final out = computeLinkQuality(
+          previous: prev,
+          current: curr,
+          elapsed: const Duration(seconds: 1),
+        );
+        expect(out.underrunsPerSec, LinkQuality.kMaxUnderrunsPerSec);
+      },
+    );
 
     test('non-positive elapsed throws ArgumentError', () {
       final prev = _snap();
