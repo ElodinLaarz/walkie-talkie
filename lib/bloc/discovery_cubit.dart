@@ -37,7 +37,9 @@ class DiscoveryCubit extends Cubit<DiscoveryState> {
     await _discoveryService.stopScan();
     final sessions = state is DiscoveryScanning
         ? (state as DiscoveryScanning).sessions
-        : const <DiscoveredSession>[];
+        : (state is DiscoveryStopped
+              ? (state as DiscoveryStopped).sessions
+              : const <DiscoveredSession>[]);
     emit(DiscoveryStopped(sessions: sessions));
   }
 

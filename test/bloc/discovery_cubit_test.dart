@@ -86,6 +86,34 @@ void main() {
   });
 
   test(
+    'stopDiscovery preserves sessions when already in DiscoveryStopped',
+    () async {
+      await cubit.startDiscovery();
+      final sessions = [
+        DiscoveredSession(
+          protocolVersion: 1,
+          isHost: true,
+          sessionUuidLow8: '1234567890123456',
+          flags: 0,
+          hostName: 'Host',
+          rssi: -50,
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+        ),
+      ];
+      resultsController.add(sessions);
+      await Future.delayed(Duration.zero);
+
+      // First stop carries sessions forward from DiscoveryScanning.
+      await cubit.stopDiscovery();
+      expect(cubit.state, DiscoveryStopped(sessions: sessions));
+
+      // A redundant stop from DiscoveryStopped must not wipe them.
+      await cubit.stopDiscovery();
+      expect(cubit.state, DiscoveryStopped(sessions: sessions));
+    },
+  );
+
+  test(
     'startDiscovery from DiscoveryStopped emits empty DiscoveryStopped on failure',
     () async {
       await cubit.startDiscovery();
