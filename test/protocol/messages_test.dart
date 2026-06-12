@@ -498,6 +498,34 @@ void main() {
       );
     });
 
+    test('decode rejects a signal_report with an over-long neighbors list', () {
+      // A frequency holds a handful of peers; a report naming more than
+      // kMaxNeighbors is malformed/hostile and is rejected at the decode
+      // boundary before the list is materialized (issue #194).
+      final n = SignalReport.kMaxNeighbors + 1;
+      final neighbors = List.generate(
+        n,
+        (i) => '{"peerId":"p$i","rssi":-60}',
+      ).join(',');
+      final json =
+          '{"kind":"signal_report","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"neighbors":[$neighbors]}';
+      expect(() => FrequencyMessage.decode(json), throwsFormatException);
+    });
+
+    test('decode accepts a signal_report at the neighbors cap', () {
+      final n = SignalReport.kMaxNeighbors;
+      final neighbors = List.generate(
+        n,
+        (i) => '{"peerId":"p$i","rssi":-60}',
+      ).join(',');
+      final json =
+          '{"kind":"signal_report","peerId":"p","seq":1,"atMs":0,"v":1,'
+          '"neighbors":[$neighbors]}';
+      final msg = FrequencyMessage.decode(json) as SignalReport;
+      expect(msg.neighbors.length, n);
+    });
+
     test('Heartbeat round-trips', () {
       const msg = Heartbeat(peerId: 'p', seq: 99, atMs: 1234);
       final round = _roundTrip(msg);

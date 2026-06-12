@@ -193,13 +193,24 @@ sealed class FrequencyMessage {
 /// [field] names the list in the error messages; [fromJson] decodes each
 /// element. Shared by the `roster` and `neighbors` parsers, which differ only
 /// in their element type.
+///
+/// When [maxLen] is non-null, a list longer than [maxLen] is rejected as a
+/// `FormatException` *before* any element is materialized — the array-length
+/// analogue of [reqBoundedString], so a hostile peer can't ship a
+/// multi-thousand-element list that is fully decoded and held in message state.
 List<T> _parseObjectList<T>(
   Object? raw,
   String field,
-  T Function(Map<String, dynamic>) fromJson,
-) {
+  T Function(Map<String, dynamic>) fromJson, {
+  int? maxLen,
+}) {
   if (raw is! List) {
     throw FormatException('`$field` must be a JSON array');
+  }
+  if (maxLen != null && raw.length > maxLen) {
+    throw FormatException(
+      '`$field` exceeds max length $maxLen, got ${raw.length}',
+    );
   }
   final out = <T>[];
   for (final element in raw) {
@@ -569,6 +580,12 @@ class NeighborSignal {
 }
 
 final class SignalReport extends FrequencyMessage {
+  /// Upper bound on decoded `neighbors` entries. A frequency holds a handful of
+  /// peers, so a report naming thousands of neighbors is malformed/hostile; the
+  /// list is walked by `WeakSignalDetector.onReport` and held in message state,
+  /// so bounding the length at the decode boundary caps that work.
+  static const int kMaxNeighbors = 256;
+
   final List<NeighborSignal> neighbors;
 
   const SignalReport({
@@ -591,7 +608,12 @@ final class SignalReport extends FrequencyMessage {
     peerId: reqString(j, 'peerId'),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
-    neighbors: _parseObjectList(j['neighbors'], 'neighbors', NeighborSignal.fromJson),
+    neighbors: _parseObjectList(
+      j['neighbors'],
+      'neighbors',
+      NeighborSignal.fromJson,
+      maxLen: kMaxNeighbors,
+    ),
   );
 }
 
