@@ -128,6 +128,32 @@ void main() {
       },
     );
 
+    test(
+      'synthesized recorded_at stays within the JS safe-integer range',
+      () async {
+        // Regression for the `epochMs << 16` form, which (* 65536 ~= 1.1e17)
+        // overflows the 53-bit safe-integer range on the Dart-web backend and
+        // silently corrupts recents ordering. The `* 1000` form must keep
+        // every synthesized timestamp <= 2^53 - 1.
+        Hive.init(hiveDir.path);
+        final box = await Hive.openBox<dynamic>('recent_frequencies');
+        await box.put('list', <dynamic>['100.1', '92.4', '88.7']);
+        await box.close();
+        await Hive.close();
+
+        await migrateHiveToSqliteIfNeeded(hiveInit: initHiveAtTempDir);
+
+        final db = await WalkieTalkieDatabase.open();
+        final maxTs = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT MAX(recorded_at) FROM recent_frequencies'),
+        );
+        const maxSafeInt = 0x1FFFFFFFFFFFFF; // 2^53 - 1
+        expect(maxTs, isNotNull);
+        expect(maxTs! <= maxSafeInt, isTrue,
+            reason: 'recorded_at $maxTs exceeds the JS safe-integer range');
+      },
+    );
+
     test('drops malformed entries silently (mixed-type list)', () async {
       Hive.init(hiveDir.path);
       final box = await Hive.openBox<dynamic>('recent_frequencies');

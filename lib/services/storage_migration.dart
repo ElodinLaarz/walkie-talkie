@@ -115,7 +115,14 @@ Future<void> _migrateRecents(Database db) async {
           .where((e) => e.isNotEmpty)
           .take(RecentFrequenciesStore.maxEntries)
           .toList();
-      var ts = DateTime.now().millisecondsSinceEpoch << 16;
+      // Reserve a small per-entry headroom on top of the epoch ms so each
+      // successive insert can get a strictly larger `recorded_at`. We only
+      // ever bump by 1 at most `maxEntries` (5) times, so `* 1000` is ample.
+      // `<< 16` (* 65536) was the old form, but `epochMs * 65536` (~1.1e17)
+      // exceeds the 53-bit JS safe-integer range, silently corrupting order
+      // on the Dart-web backend; `epochMs * 1000` (~1.7e15) stays under 2^53.
+      const tsHeadroom = 1000;
+      var ts = DateTime.now().millisecondsSinceEpoch * tsHeadroom;
       await db.transaction((txn) async {
         for (final freq in entries.reversed) {
           ts += 1;
