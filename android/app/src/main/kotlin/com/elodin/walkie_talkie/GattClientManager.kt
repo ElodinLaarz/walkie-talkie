@@ -43,6 +43,15 @@ class GattClientManager(
          */
         private val TRANSIENT_GATT_ERRORS = setOf(133, 147, 19)
 
+        /**
+         * Max entries held in [outboundWrites] at any one time. The control
+         * plane is low-rate (JoinRequest, Heartbeat, Leave) so 64 entries is
+         * well above any burst; the cap exists solely to bound memory on a
+         * wedged link. Mirrors the drop-oldest pattern in
+         * [L2capVoiceTransport.SEND_QUEUE_CAPACITY].
+         */
+        private const val OUTBOUND_QUEUE_CAPACITY = 64
+
         // Poll RSSI at 5 s so the cache is fresh when SignalReport fires at 10 s.
         private const val RSSI_POLL_MS = 5_000L
     }
@@ -551,7 +560,9 @@ class GattClientManager(
      * Write bytes to the REQUEST characteristic.
      *
      * Used by guests to send JoinRequest, MediaCommand, Leave, etc. to the host.
-     * Returns true if the write was queued, false otherwise.
+     * The queue is capped at [OUTBOUND_QUEUE_CAPACITY]; when full the oldest entry
+     * is dropped (drop-oldest) to make room for the new write. Always returns true
+     * since the write is always accepted (a drop is an internal flow-control detail).
      */
     fun writeRequest(bytes: ByteArray): Boolean {
         // Enqueue on the main thread and let [pumpOutboundWrites] drive the
@@ -563,6 +574,10 @@ class GattClientManager(
         // and then drains them in order, one outstanding write at a time, so
         // none are dropped and the host always receives the JoinRequest.
         mainHandler.post {
+            if (outboundWrites.size >= OUTBOUND_QUEUE_CAPACITY) {
+                outboundWrites.removeFirst()
+                Log.w(TAG, "outboundWrites full — dropped oldest write (cap=$OUTBOUND_QUEUE_CAPACITY)")
+            }
             outboundWrites.add(bytes)
             pumpOutboundWrites()
         }
