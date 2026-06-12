@@ -758,6 +758,36 @@ void main() {
       expect(() => FrequencyMessage.decode(floatJitter), throwsFormatException);
     });
 
+    test('LinkQuality rejects non-finite lossPct / underrunsPerSec', () {
+      // `NaN`/`Infinity` aren't valid JSON literals, so they can't ride a wire
+      // string — but a native-telemetry map handed straight to `fromJson` can
+      // carry a non-finite double. NaN is a `num`, so it slips past the type
+      // guard, and every range comparison against it is false — without an
+      // explicit finite check it would poison the host voice-debug dashboard.
+      Map<String, dynamic> base() => {
+        'kind': 'link_quality',
+        'peerId': 'p',
+        'seq': 1,
+        'atMs': 0,
+        'v': 1,
+        'lossPct': 1.0,
+        'jitterMs': 40,
+        'underrunsPerSec': 0.1,
+      };
+      for (final bad in [double.nan, double.infinity, double.negativeInfinity]) {
+        expect(
+          () => FrequencyMessage.fromJson(base()..['lossPct'] = bad),
+          throwsFormatException,
+          reason: 'lossPct=$bad must be rejected',
+        );
+        expect(
+          () => FrequencyMessage.fromJson(base()..['underrunsPerSec'] = bad),
+          throwsFormatException,
+          reason: 'underrunsPerSec=$bad must be rejected',
+        );
+      }
+    });
+
     test('BitrateHint round-trips with target + bps', () {
       const msg = BitrateHint(
         peerId: 'p-host',

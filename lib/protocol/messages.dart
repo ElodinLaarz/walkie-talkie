@@ -227,8 +227,13 @@ List<T> _parseObjectList<T>(
 /// wording the numeric decoders share. Used for the int [trackIdx] /
 /// [positionMs] in [MediaState] and [MediaCommand] and for the int [jitterMs]
 /// / double [underrunsPerSec] in [LinkQuality] — hence [num], not [int].
+///
+/// Also rejects a non-finite [value] (`NaN`, `±Infinity`). NaN is a `num` that
+/// slips past type guards and makes every range comparison false, so without an
+/// explicit `isFinite` check a NaN `underrunsPerSec` would bypass the bounds.
+/// (An `int` field is always finite, so the check is a no-op for those.)
 void _requireNonNeg(num value, String field) {
-  if (value < 0) {
+  if (!value.isFinite || value < 0) {
     throw FormatException('$field out of range: $value');
   }
 }
@@ -752,7 +757,11 @@ final class LinkQuality extends FrequencyMessage {
     }
     final lossPct = lossPctRaw.toDouble();
     final underruns = underrunsRaw.toDouble();
-    if (lossPct < 0 || lossPct > 100) {
+    // `NaN` is a `num`, so it slips past the `is! num` guard above. Every
+    // range comparison against NaN is false (`NaN < 0`, `NaN > 100` both
+    // false), so without an explicit finite check a NaN — or ±Infinity —
+    // would bypass the bounds and poison the host's voice-debug dashboard.
+    if (!lossPct.isFinite || lossPct < 0 || lossPct > 100) {
       throw FormatException('lossPct out of range: $lossPct');
     }
     _requireNonNeg(jitterMsRaw, 'jitterMs');
