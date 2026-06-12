@@ -95,8 +95,9 @@ public:
     // Decimate `numIn` samples from `in48` (48 kHz, int16 PCM) into `out16`
     // (codec rate, int16 PCM). Returns number of output samples written.
     //
-    // The output count is `(numIn + carry) / kResampleRatio` where `carry` is
-    // the leftover phase from the previous call. For a steady
+    // Output count is approximately `numIn / kResampleRatio`; the exact value
+    // is `floor((numIn + phase_) / kResampleRatio)` where `phase_` is the
+    // running phase counter at entry (carries across calls). For a steady
     // 960-sample-per-callback feed at the 2:1 ratio this is exactly 480.
     int process(const int16_t* in48, int numIn, int16_t* out16) {
         int outCount = 0;
