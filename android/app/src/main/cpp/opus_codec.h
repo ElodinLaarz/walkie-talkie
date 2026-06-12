@@ -20,8 +20,9 @@
 // telemetry — a future PR will wire the LinkQuality control message to this
 // path. Bitrates outside the kBitrateLow .. kBitrateHigh range are clamped.
 //
-// **FEC.** Inband FEC (LBRR) is enabled at construction. setExpectedLossPct
-// tells Opus how aggressively to allocate bandwidth to the side-channel; pair
+// **FEC.** Inband FEC (LBRR) is enabled at construction. The mixer tick
+// updates setExpectedLossPct once per second from the per-peer jitter-buffer
+// loss rate so Opus allocates the right amount of bandwidth to LBRR; pair
 // with the decoder's decodeFec() entry point to actually use it.
 //
 // **PLC.** decodeMissing() generates one frame of packet-loss concealment
@@ -50,8 +51,8 @@ public:
     // channel entirely. Idempotent.
     void setExpectedLossPct(int pct);
 
-    // Toggle inband FEC. Called from the constructor with `true`; exposed
-    // so a future low-bandwidth mode can disable it explicitly.
+    // Toggle inband FEC. Enabled at construction; exposed so a low-bandwidth
+    // mode can disable it explicitly.
     void setInbandFec(bool enabled);
 
     static constexpr int getFrameSize() {

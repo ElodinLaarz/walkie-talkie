@@ -160,6 +160,11 @@ private:
         // jitter buffer). On the next accepted frame we resync the playhead so
         // the shed gap isn't miscounted as a hole-at-head loss.
         bool sheddingStale{false};
+        // State for the periodic setExpectedLossPct updates. Touched only on
+        // the mixer thread (always inside stateLock).
+        uint64_t lossPctPrevLost{0};
+        uint64_t lossPctPrevRecv{0};
+        int lossPctTickCounter{0};
     };
 
     void mixerTickLoop();

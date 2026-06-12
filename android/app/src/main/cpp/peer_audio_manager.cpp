@@ -377,6 +377,8 @@ void PeerAudioManager::mixerTickLoop() {
     LOGI("Mixer tick loop started");
 
     constexpr int kFrameSize = audio_config::kCodecFrameSize;
+    // Update the per-peer FEC loss hint once per second (50 frames at 20 ms each).
+    constexpr int kLossPctUpdateInterval = 50;
 
     // Decode-call sizing note: the trailing size arg means two different
     // things, which is why the normal path passes kCodecMaxFrameSize (5760)
@@ -636,11 +638,30 @@ void PeerAudioManager::mixerTickLoop() {
                 std::fill(mixedBuffer.begin(), mixedBuffer.end(), 0);
             }
 
-            // Encoder ctl (`setBitrate`) and encode() race on the OpusEncoder
-            // handle; the per-peer mutex serializes them.
+            // Encoder ctl (`setBitrate`, `setExpectedLossPct`) and encode() race
+            // on the OpusEncoder handle; the per-peer mutex serializes them.
             int encodedSize;
             {
                 std::lock_guard<std::mutex> stateLock(state->mutex);
+
+                // Once per second, derive the windowed packet-loss rate from the
+                // jitter-buffer lifetime counters and update the FEC hint so Opus
+                // allocates the right LBRR bandwidth for the current link quality.
+                if (++state->lossPctTickCounter >= kLossPctUpdateInterval) {
+                    state->lossPctTickCounter = 0;
+                    uint64_t curLost = state->jitterBuffer->lostFrameCount();
+                    uint64_t curRecv = state->recvCount;
+                    uint64_t deltaLost = curLost - state->lossPctPrevLost;
+                    uint64_t deltaRecv = curRecv - state->lossPctPrevRecv;
+                    state->lossPctPrevLost = curLost;
+                    state->lossPctPrevRecv = curRecv;
+                    uint64_t total = deltaLost + deltaRecv;
+                    if (total > 0) {
+                        int pct = static_cast<int>(deltaLost * 100 / total);
+                        state->encoder->setExpectedLossPct(pct);
+                    }
+                }
+
                 encodedSize = state->encoder->encode(
                     mixedBuffer.data(), kFrameSize, opusBuffer.data(),
                     static_cast<int>(opusBuffer.size()));

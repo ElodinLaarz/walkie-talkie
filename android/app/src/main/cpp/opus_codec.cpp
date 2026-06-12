@@ -43,7 +43,7 @@ OpusEncoder::OpusEncoder() : encoder_(nullptr) {
     // contention, and unrecovered drops are the main source of the "scratchy"
     // artifact. Seed the loss estimate at a non-zero baseline so the encoder
     // actually produces the LBRR side-channel from the first frame;
-    // setExpectedLossPct() refines it later from link telemetry.
+    // the mixer tick updates setExpectedLossPct() every second from live loss.
     APPLY_ENC_CTL(OPUS_SET_INBAND_FEC(1));
     APPLY_ENC_CTL(OPUS_SET_PACKET_LOSS_PERC(20));
 
