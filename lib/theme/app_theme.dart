@@ -117,7 +117,7 @@ class AppTheme {
   static TextTheme _textTheme(Color ink) {
     return TextTheme(
       displayLarge: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w600,
         fontSize: 28,
         letterSpacing: -0.56,
@@ -125,7 +125,7 @@ class AppTheme {
         color: ink,
       ),
       displayMedium: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w600,
         fontSize: 26,
         letterSpacing: -0.52,
@@ -133,46 +133,46 @@ class AppTheme {
         color: ink,
       ),
       headlineMedium: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w600,
         fontSize: 22,
         letterSpacing: -0.44,
         color: ink,
       ),
       titleLarge: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: -0.16,
         color: ink,
       ),
       titleMedium: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w600,
         fontSize: 14,
         color: ink,
       ),
       bodyLarge: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w500,
         fontSize: 15,
         color: ink,
       ),
       bodyMedium: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w400,
         fontSize: 14,
         height: 1.5,
         color: ink,
       ),
       bodySmall: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w400,
         fontSize: 12,
         color: ink,
       ),
       labelSmall: TextStyle(
-        fontFamily: 'Inter',
+        fontFamily: kSansFont,
         fontWeight: FontWeight.w500,
         fontSize: 11,
         letterSpacing: 0.88,
@@ -200,6 +200,10 @@ class FrequencyTheme extends ThemeExtension<FrequencyTheme> {
     return t < 0.5 ? this : other;
   }
 }
+
+/// Sans-serif family for all body/display text in the Frequency theme.
+/// Centralised so the family name lives in one place (mirrors [kMonoStyle]).
+const String kSansFont = 'Inter';
 
 /// Mono text style (JetBrains Mono fallback to monospace).
 const TextStyle kMonoStyle = TextStyle(
