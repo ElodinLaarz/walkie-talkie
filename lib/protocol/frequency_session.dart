@@ -61,12 +61,13 @@ class FrequencySession {
   /// or 0 if `uuid` is too short or the tail is not hex. Hyphens are ignored.
   ///
   /// The cosmetic getters ([mhzDisplay], [sessionCode]) must never throw on a
-  /// wire-derived `sessionUuid` — `HostTransfer` decodes it with a bare
-  /// `reqString` (no hex validation), so a peer can hand off a syntactically
-  /// valid but non-hex string like `"zzzz"`. Throwing here would escape the
-  /// protocol's 'drop the message, keep the link up' contract deep inside a UI
-  /// getter. A 0 fallback mirrors the defensive low-12 decode in
-  /// `discovery.dart` (`_deriveMhz` returns `'88.0'` on a short advert).
+  /// wire-derived `sessionUuid`. `HostTransfer._fromJson` now validates
+  /// `sessionUuid` via `isCanonicalUuid` before construction, so a non-hex
+  /// payload is rejected at the wire boundary and never reaches here. The 0
+  /// fallback is belt-and-suspenders for in-process construction paths (e.g.
+  /// unit tests or future code) that bypass the wire decoder. It mirrors the
+  /// defensive low-12 decode in `discovery.dart` (`_deriveMhz` returns
+  /// `'88.0'` on a short advert).
   static int _hexTail(String uuid, int nibbles) {
     final hex = uuid.replaceAll('-', '');
     if (hex.length < nibbles) return 0;
