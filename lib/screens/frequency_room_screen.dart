@@ -489,6 +489,13 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
     }
   }
 
+  /// Placeholder track length when the wire carries no real duration:
+  /// `max(60s, 2 × positionSec)` so the slider has room without claiming
+  /// a precise length we don't have. Shared by both no-metadata paths in
+  /// [_buildPlaceholderLib].
+  static int _placeholderDurationSec(int positionSec) =>
+      positionSec * 2 < 60 ? 60 : positionSec * 2;
+
   /// Build a placeholder [MediaSourceLib] sized to cover [trackIdx]
   /// (i.e. with `trackIdx + 1` `Track 1 … Track N` entries) for the
   /// given [source].
@@ -525,7 +532,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       // progress slider and timer (Copilot review on PR #380).
       final durationSec = meta.durationMs > 0
           ? (meta.durationMs / 1000).ceil().clamp(1, 86400)
-          : (positionSec * 2 < 60 ? 60 : positionSec * 2);
+          : _placeholderDurationSec(positionSec);
       return MediaSourceLib(
         name: displayName,
         kind: emptyMediaLib.kind,
@@ -549,7 +556,7 @@ class _FrequencyRoomScreenState extends State<FrequencyRoomScreen> {
       );
     }
 
-    final placeholderDurationSec = positionSec * 2 < 60 ? 60 : positionSec * 2;
+    final placeholderDurationSec = _placeholderDurationSec(positionSec);
     return MediaSourceLib(
       name: displayName,
       kind: emptyMediaLib.kind,
