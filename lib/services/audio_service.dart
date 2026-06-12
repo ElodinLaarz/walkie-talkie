@@ -627,11 +627,11 @@ class AudioService {
         currentDepthFrames: values[3]!,
         currentBitrateBps: values[4]!,
         lostFrameCount: values[5]!,
-        currentLagMs: values[6]!,
+        currentLagMs: values[6]!.toUnsigned(32),
         staleDropCount: values[7]!,
-        recvCount: values[8]!,
-        lastSeq: values[9]!,
-        ringUnderReadCount: values[10]!,
+        recvCount: values[8]!.toUnsigned(32),
+        lastSeq: values[9]!.toUnsigned(32),
+        ringUnderReadCount: values[10]!.toUnsigned(32),
       );
     } catch (e) {
       if (kDebugMode) {

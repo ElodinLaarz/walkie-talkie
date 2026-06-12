@@ -928,6 +928,23 @@ void main() {
         expect(snap.ringUnderReadCount, 99);
       });
 
+      test('getLinkTelemetry masks high-uint32 fields to positive values', () async {
+        // Native static_cast<jint>(uint32_t) makes values in [2^31, 2^32) negative.
+        // Verify toUnsigned(32) restores them to the correct positive value.
+        const int negLastSeq = -1; // 0xFFFFFFFF as jint
+        const int negLagMs = -2147483648; // 0x80000000 as jint
+        const int negRecvCount = -100;
+        const int negRingUnder = -42;
+        handler = (_) async =>
+            [10, 5, 8, 4, 16000, 3, negLagMs, 7, negRecvCount, negLastSeq, negRingUnder];
+        final snap = await audioService.getLinkTelemetry('AA:BB');
+        expect(snap, isNotNull);
+        expect(snap!.lastSeq, 0xFFFFFFFF);
+        expect(snap.currentLagMs, 0x80000000);
+        expect(snap.recvCount, 0xFFFFFF9C); // (-100).toUnsigned(32)
+        expect(snap.ringUnderReadCount, 0xFFFFFFD6); // (-42).toUnsigned(32)
+      });
+
       test('getLinkTelemetry returns null on wrong shape (length)', () async {
         handler = (_) async => [1, 2, 3]; // not 11 elements
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
