@@ -134,5 +134,26 @@ void main() {
         throwsFormatException,
       );
     });
+
+    // Issue #202: peerId is an identity string nested inside every roster and
+    // re-serialized into every RosterUpdate / envelope, and lands in
+    // long-lived map keys. An oversized value is rejected at decode, mirroring
+    // the displayName/btDevice caps.
+    test('over-long peerId throws FormatException', () {
+      final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+      expect(
+        () => ProtocolPeer.fromJson({'peerId': big, 'displayName': 'A'}),
+        throwsFormatException,
+      );
+    });
+
+    test('peerId exactly at kMaxPeerIdLen is accepted', () {
+      final atCap = 'a' * ProtocolPeer.kMaxPeerIdLen;
+      final restored = ProtocolPeer.fromJson({
+        'peerId': atCap,
+        'displayName': 'A',
+      });
+      expect(restored.peerId.length, ProtocolPeer.kMaxPeerIdLen);
+    });
   });
 }

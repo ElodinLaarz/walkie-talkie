@@ -197,6 +197,79 @@ void main() {
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
+    test('decode rejects an over-long envelope peerId as FormatException', () {
+      // peerId lands in long-lived map keys (SequenceFilter watermarks,
+      // BitrateAdapter state, roster maps) and re-serializes into every
+      // envelope; an oversized identity string is rejected at decode
+      // (issue #202).
+      final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+      final wire =
+          '{"kind":"ping","peerId":"$big","seq":1,"atMs":0,"v":1}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode accepts an envelope peerId exactly at kMaxPeerIdLen', () {
+      final atCap = 'a' * ProtocolPeer.kMaxPeerIdLen;
+      final wire =
+          '{"kind":"ping","peerId":"$atCap","seq":1,"atMs":0,"v":1}';
+      final msg = FrequencyMessage.decode(wire);
+      expect(msg.peerId.length, ProtocolPeer.kMaxPeerIdLen);
+    });
+
+    test('decode rejects an over-long RemovePeer target as FormatException', () {
+      final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+      final wire =
+          '{"kind":"remove_peer","peerId":"h","seq":1,"atMs":0,"v":1,"target":"$big"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects an over-long hostPeerId as FormatException', () {
+      final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+      final wire =
+          '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,"hostPeerId":"$big","roster":[]}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects an over-long recipientPeerId as FormatException', () {
+      final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+      final wire =
+          '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,"hostPeerId":"h","roster":[],"recipientPeerId":"$big"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test(
+      'decode rejects an over-long BitrateHint target as FormatException',
+      () {
+        final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+        final wire =
+            '{"kind":"bitrate_hint","peerId":"h","seq":1,"atMs":0,"v":1,"target":"$big","bps":32000}';
+        expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+      },
+    );
+
+    test(
+      'decode rejects an over-long HostTransfer newHostPeerId as FormatException',
+      () {
+        final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+        final wire =
+            '{"kind":"host_transfer","peerId":"h","seq":1,"atMs":0,"v":1,'
+            '"newHostPeerId":"$big",'
+            '"sessionUuid":"00000000-0000-4000-8000-000000000000"}';
+        expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+      },
+    );
+
+    test(
+      'decode rejects an over-long SignalReport neighbor peerId as FormatException',
+      () {
+        final big = 'a' * (ProtocolPeer.kMaxPeerIdLen + 1);
+        final wire =
+            '{"kind":"signal_report","peerId":"h","seq":1,"atMs":0,"v":1,'
+            '"neighbors":[{"peerId":"$big","rssi":-50}]}';
+        expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+      },
+    );
+
     test('decode rejects mistyped roster-element fields as FormatException', () {
       // peerId mistyped inside a roster entry — the TypeError would previously
       // bubble out of ProtocolPeer.fromJson, past _parseRoster, past decode.

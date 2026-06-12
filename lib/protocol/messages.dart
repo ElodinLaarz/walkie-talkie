@@ -258,7 +258,7 @@ final class JoinRequest extends FrequencyMessage {
   };
 
   factory JoinRequest._fromJson(Map<String, dynamic> j) => JoinRequest(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     displayName: reqBoundedString(
@@ -334,16 +334,24 @@ final class JoinAccepted extends FrequencyMessage {
       throw const FormatException('`mediaState` must be a JSON object');
     }
     return JoinAccepted(
-      peerId: reqString(j, 'peerId'),
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
-      hostPeerId: reqString(j, 'hostPeerId'),
+      hostPeerId: reqBoundedString(
+        j,
+        'hostPeerId',
+        maxLen: ProtocolPeer.kMaxPeerIdLen,
+      ),
       roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
       mediaState: rawMediaState == null
           ? null
           : MediaState.fromJson(Map<String, dynamic>.from(rawMediaState)),
       voicePsm: voicePsm,
-      recipientPeerId: optString(j, 'recipientPeerId'),
+      recipientPeerId: optBoundedString(
+        j,
+        'recipientPeerId',
+        maxLen: ProtocolPeer.kMaxPeerIdLen,
+      ),
     );
   }
 }
@@ -365,7 +373,7 @@ final class JoinDenied extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'reason': reason.wire};
 
   factory JoinDenied._fromJson(Map<String, dynamic> j) => JoinDenied(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     reason: JoinDenyReasonWire.fromWire(reqString(j, 'reason')),
@@ -382,7 +390,7 @@ final class Leave extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Leave._fromJson(Map<String, dynamic> j) => Leave(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
   );
@@ -405,10 +413,10 @@ final class RemovePeer extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'target': target};
 
   factory RemovePeer._fromJson(Map<String, dynamic> j) => RemovePeer(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
-    target: reqString(j, 'target'),
+    target: reqBoundedString(j, 'target', maxLen: ProtocolPeer.kMaxPeerIdLen),
   );
 }
 
@@ -432,7 +440,7 @@ final class RosterUpdate extends FrequencyMessage {
   };
 
   factory RosterUpdate._fromJson(Map<String, dynamic> j) => RosterUpdate(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     roster: _parseObjectList(j['roster'], 'roster', ProtocolPeer.fromJson),
@@ -458,7 +466,7 @@ final class TalkingState extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'talking': talking};
 
   factory TalkingState._fromJson(Map<String, dynamic> j) => TalkingState(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     talking: reqBool(j, 'talking'),
@@ -482,7 +490,7 @@ final class MuteState extends FrequencyMessage {
   Map<String, dynamic> toJson() => {..._envelope(), 'muted': muted};
 
   factory MuteState._fromJson(Map<String, dynamic> j) => MuteState(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     muted: reqBool(j, 'muted'),
@@ -539,7 +547,7 @@ final class MediaCommand extends FrequencyMessage {
     if (trackIdx != null) _requireNonNeg(trackIdx, 'trackIdx');
     if (positionMs != null) _requireNonNeg(positionMs, 'positionMs');
     return MediaCommand(
-      peerId: reqString(j, 'peerId'),
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
       op: op,
@@ -575,7 +583,10 @@ class NeighborSignal {
     if (rssi < kMinRssiDbm || rssi > kMaxRssiDbm) {
       throw FormatException('rssi out of range: $rssi');
     }
-    return NeighborSignal(peerId: reqString(j, 'peerId'), rssi: rssi);
+    return NeighborSignal(
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
+      rssi: rssi,
+    );
   }
 
   @override
@@ -613,7 +624,7 @@ final class SignalReport extends FrequencyMessage {
   };
 
   factory SignalReport._fromJson(Map<String, dynamic> j) => SignalReport(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
     neighbors: _parseObjectList(
@@ -639,7 +650,7 @@ final class Heartbeat extends FrequencyMessage {
   Map<String, dynamic> toJson() => _envelope();
 
   factory Heartbeat._fromJson(Map<String, dynamic> j) => Heartbeat(
-    peerId: reqString(j, 'peerId'),
+    peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
   );
@@ -736,7 +747,7 @@ final class LinkQuality extends FrequencyMessage {
       throw FormatException('underrunsPerSec out of range: $underruns');
     }
     return LinkQuality(
-      peerId: reqString(j, 'peerId'),
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
       lossPct: lossPct,
@@ -798,10 +809,10 @@ final class BitrateHint extends FrequencyMessage {
       throw FormatException('bps out of range: $bps');
     }
     return BitrateHint(
-      peerId: reqString(j, 'peerId'),
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
-      target: reqString(j, 'target'),
+      target: reqBoundedString(j, 'target', maxLen: ProtocolPeer.kMaxPeerIdLen),
       bps: bps,
     );
   }
@@ -845,10 +856,14 @@ final class HostTransfer extends FrequencyMessage {
       throw FormatException('`sessionUuid` is not a canonical UUID: $uuid');
     }
     return HostTransfer(
-      peerId: reqString(j, 'peerId'),
+      peerId: reqBoundedString(j, 'peerId', maxLen: ProtocolPeer.kMaxPeerIdLen),
       seq: reqSeq(j, 'seq'),
       atMs: reqAtMs(j, 'atMs'),
-      newHostPeerId: reqString(j, 'newHostPeerId'),
+      newHostPeerId: reqBoundedString(
+        j,
+        'newHostPeerId',
+        maxLen: ProtocolPeer.kMaxPeerIdLen,
+      ),
       sessionUuid: uuid,
     );
   }

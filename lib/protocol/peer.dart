@@ -16,6 +16,18 @@ class ProtocolPeer {
   /// that path — the per-string analogue of the `source` length cap.
   static const int kMaxDisplayNameLen = 256;
 
+  /// Upper bound on every wire `peerId` and routing-identity string
+  /// (`target`, `hostPeerId`, `newHostPeerId`, `recipientPeerId`). Peer-ids
+  /// are minted as canonical UUID v4 strings (36 chars — see
+  /// [generateUuidV4] / `IdentityStore`); 64 leaves generous headroom while
+  /// still rejecting a hostile peer that ships a multi-KB identity string.
+  /// Such a string would otherwise land in long-lived map keys
+  /// ([SequenceFilter] watermarks, `BitrateAdapter` state, roster maps) and
+  /// UI state, and get re-serialized verbatim into every outgoing
+  /// `RosterUpdate`/envelope — the identity-string analogue of the
+  /// [kMaxDisplayNameLen] cap on the free-form strings.
+  static const int kMaxPeerIdLen = 64;
+
   final String peerId;
   final String displayName;
   final String? btDevice;
@@ -44,7 +56,7 @@ class ProtocolPeer {
   /// `TypeError` here would escape the control-plane receiver's
   /// `FormatException`-only catch and crash it on one malformed roster entry.
   factory ProtocolPeer.fromJson(Map<String, dynamic> json) => ProtocolPeer(
-    peerId: reqString(json, 'peerId'),
+    peerId: reqBoundedString(json, 'peerId', maxLen: kMaxPeerIdLen),
     displayName: reqBoundedString(json, 'displayName', maxLen: kMaxDisplayNameLen),
     btDevice: optBoundedString(json, 'btDevice', maxLen: kMaxDisplayNameLen),
     muted: optBool(json, 'muted', orElse: false),
