@@ -45,8 +45,9 @@ void AudioMixer::updateDeviceAudio(int deviceId, const int16_t* audioData, int n
         // Lock-free write to ring buffer
         size_t written = device->ringBuffer.write(audioData, static_cast<size_t>(numFrames));
         if (written < static_cast<size_t>(numFrames)) {
-            // Buffer full or near-full (normal during startup or if mixer tick is slow)
-            // Don't log on every occurrence to avoid spam
+            // Buffer full or near-full (normal during startup or if mixer tick is slow).
+            // Don't log on every occurrence to avoid spam; count for telemetry instead.
+            device->ringOverwriteCount.fetch_add(1, std::memory_order_relaxed);
         }
     }
 }
@@ -113,8 +114,8 @@ void AudioMixer::onVoiceFrame(int deviceId, uint32_t seq, const int16_t* pcm, in
     size_t written = device->ringBuffer.write(pcm, static_cast<size_t>(numFrames));
     if (written < static_cast<size_t>(numFrames)) {
         // Buffer full or near-full (normal during startup or if mixer tick is slow).
-        // Mirrors the same don't-spam-the-log policy as updateDeviceAudio above —
-        // the seq is still accepted for tracking; only the trailing PCM is dropped.
+        // The seq is still accepted for tracking; only the trailing PCM is dropped.
+        device->ringOverwriteCount.fetch_add(1, std::memory_order_relaxed);
     }
     device->lastSeq = seq;
     device->hasSeenSeq = true;
@@ -243,6 +244,18 @@ uint64_t AudioMixer::getRingUnderReadCount(int deviceId) {
         }
     }
     return device ? device->ringUnderReadCount.load(std::memory_order_relaxed) : 0;
+}
+
+uint64_t AudioMixer::getRingOverwriteCount(int deviceId) {
+    std::shared_ptr<DeviceAudioBuffer> device;
+    {
+        std::lock_guard<std::mutex> lock(deviceRegistryMutex);
+        auto it = devices.find(deviceId);
+        if (it != devices.end()) {
+            device = it->second;
+        }
+    }
+    return device ? device->ringOverwriteCount.load(std::memory_order_relaxed) : 0;
 }
 
 // Global mixer instance. See header comment for why this is a shared_ptr

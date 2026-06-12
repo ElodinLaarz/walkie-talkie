@@ -893,9 +893,9 @@ void main() {
 
       test('getLinkTelemetry returns parsed snapshot', () async {
         // Layout: [underrun, late, target, current, bitrate, lost, lagMs,
-        // staleDrops, recv, lastSeq, ringUnderReadCount].
+        // staleDrops, recv, lastSeq, ringUnderReadCount, ringOverwriteCount].
         handler = (_) async =>
-            [10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242, 99];
+            [10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242, 99, 13];
         final snap = await audioService.getLinkTelemetry('AA:BB');
         expect(snap, isNotNull);
         expect(snap!.underrunCount, 10);
@@ -909,6 +909,7 @@ void main() {
         expect(snap.recvCount, 2500);
         expect(snap.lastSeq, 4242);
         expect(snap.ringUnderReadCount, 99);
+        expect(snap.ringOverwriteCount, 13);
       });
 
       test('getLinkTelemetry parses an Int32List payload', () async {
@@ -916,7 +917,7 @@ void main() {
         // plain List — the parser is written to accept either. Guard that
         // platform-typed-list path explicitly.
         handler = (_) async =>
-            Int32List.fromList([10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242, 99]);
+            Int32List.fromList([10, 5, 8, 4, 16000, 3, 120, 7, 2500, 4242, 99, 13]);
         final snap = await audioService.getLinkTelemetry('AA:BB');
         expect(snap, isNotNull);
         expect(snap!.underrunCount, 10);
@@ -936,7 +937,7 @@ void main() {
         const int negRecvCount = -100;
         const int negRingUnder = -42;
         handler = (_) async =>
-            [10, 5, 8, 4, 16000, 3, negLagMs, 7, negRecvCount, negLastSeq, negRingUnder];
+            [10, 5, 8, 4, 16000, 3, negLagMs, 7, negRecvCount, negLastSeq, negRingUnder, 0];
         final snap = await audioService.getLinkTelemetry('AA:BB');
         expect(snap, isNotNull);
         expect(snap!.lastSeq, 0xFFFFFFFF);
@@ -946,12 +947,12 @@ void main() {
       });
 
       test('getLinkTelemetry returns null on wrong shape (length)', () async {
-        handler = (_) async => [1, 2, 3]; // not 11 elements
+        handler = (_) async => [1, 2, 3]; // not 12 elements
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });
 
       test('getLinkTelemetry returns null on wrong type element', () async {
-        // 11 elements so the length check passes and the element-type check
+        // 12 elements so the length check passes and the element-type check
         // is what rejects it.
         handler = (_) async => [
           1,
@@ -964,7 +965,8 @@ void main() {
           8,
           9,
           4242,
-          '99',
+          99,
+          '13',
         ]; // last is string
         expect(await audioService.getLinkTelemetry('AA:BB'), isNull);
       });

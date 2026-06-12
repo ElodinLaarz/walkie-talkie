@@ -65,6 +65,9 @@ public:
         // samples than requested (producer slower than consumer). Rising value
         // means the peer's network path is starving the playout ring.
         uint32_t ringUnderReadCount{0};
+        // Lifetime count of partial ring writes (producer faster than consumer)
+        // across both the onVoiceFrame and updateDeviceAudio paths.
+        uint32_t ringOverwriteCount{0};
         bool valid{false};
     };
 

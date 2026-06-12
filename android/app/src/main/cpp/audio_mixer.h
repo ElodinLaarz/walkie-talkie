@@ -33,6 +33,10 @@ struct DeviceAudioBuffer {
     // requested (producer slower than the playout consumer). Atomic so it can
     // be read from the telemetry path without holding any lock.
     std::atomic<uint64_t> ringUnderReadCount{0};
+    // Incremented each time a ring write is partial (producer faster than the
+    // playout consumer). Covers both the onVoiceFrame and updateDeviceAudio
+    // paths. Atomic so the telemetry path can read it lock-free.
+    std::atomic<uint64_t> ringOverwriteCount{0};
 };
 
 class AudioMixer {
@@ -110,6 +114,9 @@ public:
 
     // Return lifetime ring-under-read count for a device, or 0 if unknown.
     uint64_t getRingUnderReadCount(int deviceId);
+
+    // Return lifetime ring-overwrite count for a device, or 0 if unknown.
+    uint64_t getRingOverwriteCount(int deviceId);
 };
 
 // The mixer singleton is a `shared_ptr` (not a raw pointer) so the audio

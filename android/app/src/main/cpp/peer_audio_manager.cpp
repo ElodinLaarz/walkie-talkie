@@ -334,6 +334,9 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
         uint64_t raw = mixer->getRingUnderReadCount(state->deviceId);
         t.ringUnderReadCount = static_cast<uint32_t>(
             std::min<uint64_t>(raw, UINT32_MAX));
+        uint64_t rawOw = mixer->getRingOverwriteCount(state->deviceId);
+        t.ringOverwriteCount = static_cast<uint32_t>(
+            std::min<uint64_t>(rawOw, UINT32_MAX));
     }
     t.valid = true;
     return t;
@@ -998,11 +1001,12 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeSetPeerBitrate(
     return applied;
 }
 
-// Returns an 11-element int array with telemetry, or null if peer not found.
+// Returns a 12-element int array with telemetry, or null if peer not found.
 // Layout: [underrunCount, lateFrameCount, jitterTargetDepth,
 //          jitterCurrentDepth, currentBitrate, lostFrameCount, currentLagMs,
-//          staleDropCount, recvCount, lastSeq, ringUnderReadCount].
-// New fields are appended so the existing index layout (0..9) is undisturbed.
+//          staleDropCount, recvCount, lastSeq, ringUnderReadCount,
+//          ringOverwriteCount].
+// New fields are appended so the existing index layout (0..10) is undisturbed.
 // Kotlin unpacks this into a data class — keeping the marshaling cheap
 // (no JNI object allocations) is the point.
 JNIEXPORT jintArray JNICALL
@@ -1020,7 +1024,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
     // Single source of truth for the marshaled field count; kept in lockstep
     // with `LinkTelemetrySnapshot.fieldCount` on the Dart side. New fields are
     // appended so the existing index layout is undisturbed.
-    static constexpr jint kTelemetryFieldCount = 11;
+    static constexpr jint kTelemetryFieldCount = 12;
 
     jintArray arr = env->NewIntArray(kTelemetryFieldCount);
     if (!arr) return nullptr;
@@ -1036,6 +1040,7 @@ Java_com_elodin_walkie_1talkie_PeerAudioManager_nativeGetTelemetry(
         static_cast<jint>(t.recvCount),
         static_cast<jint>(t.lastSeq),
         static_cast<jint>(t.ringUnderReadCount),
+        static_cast<jint>(t.ringOverwriteCount),
     };
     static_assert(sizeof(values) / sizeof(values[0]) == kTelemetryFieldCount,
                   "telemetry values[] must hold exactly kTelemetryFieldCount entries");

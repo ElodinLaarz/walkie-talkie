@@ -12,7 +12,7 @@ class LinkTelemetrySnapshot {
   /// IntArray, kept in lockstep with the `kTelemetryFieldCount` constant in
   /// `android/app/src/main/cpp/peer_audio_manager.cpp`. New fields are
   /// appended, so this is the single number both sides bump together.
-  static const int fieldCount = 11;
+  static const int fieldCount = 12;
 
   /// Lifetime mixer-tick underruns for this peer's stream.
   final int underrunCount;
@@ -61,6 +61,11 @@ class LinkTelemetrySnapshot {
   /// is starving the playout ring (producer slower than consumer).
   final int ringUnderReadCount;
 
+  /// Lifetime count of partial ring writes (ring full at write time) across
+  /// both the onVoiceFrame and updateDeviceAudio producer paths. A rising
+  /// value means the playout consumer is falling behind the producer.
+  final int ringOverwriteCount;
+
   const LinkTelemetrySnapshot({
     required this.underrunCount,
     required this.lateFrameCount,
@@ -73,6 +78,7 @@ class LinkTelemetrySnapshot {
     required this.recvCount,
     required this.lastSeq,
     this.ringUnderReadCount = 0,
+    this.ringOverwriteCount = 0,
   });
 
   @override
@@ -89,7 +95,8 @@ class LinkTelemetrySnapshot {
           staleDropCount == other.staleDropCount &&
           recvCount == other.recvCount &&
           lastSeq == other.lastSeq &&
-          ringUnderReadCount == other.ringUnderReadCount;
+          ringUnderReadCount == other.ringUnderReadCount &&
+          ringOverwriteCount == other.ringOverwriteCount;
 
   @override
   int get hashCode => Object.hash(
@@ -104,6 +111,7 @@ class LinkTelemetrySnapshot {
     recvCount,
     lastSeq,
     ringUnderReadCount,
+    ringOverwriteCount,
   );
 }
 
@@ -613,11 +621,11 @@ class AudioService {
       if (raw is! List || raw.length != LinkTelemetrySnapshot.fieldCount) {
         return null;
       }
-      // Native returns an 11-element int array: [underruns, late, target,
+      // Native returns a 12-element int array: [underruns, late, target,
       // current, bitrate, lost, lagMs, staleDrops, recv, lastSeq,
-      // ringUnderReadCount]. New fields are appended so the historical 0-9
-      // layout is undisturbed. Element-wise check guards against a truncated
-      // or padded response from a stale platform handler.
+      // ringUnderReadCount, ringOverwriteCount]. New fields are appended so
+      // the historical 0-10 layout is undisturbed. Element-wise check guards
+      // against a truncated or padded response from a stale platform handler.
       final values = raw.map((e) => e is int ? e : null).toList();
       if (values.any((v) => v == null)) return null;
       return LinkTelemetrySnapshot(
@@ -632,6 +640,7 @@ class AudioService {
         recvCount: values[8]!.toUnsigned(32),
         lastSeq: values[9]!.toUnsigned(32),
         ringUnderReadCount: values[10]!.toUnsigned(32),
+        ringOverwriteCount: values[11]!.toUnsigned(32),
       );
     } catch (e) {
       if (kDebugMode) {

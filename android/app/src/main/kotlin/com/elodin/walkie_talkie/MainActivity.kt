@@ -553,6 +553,7 @@ class MainActivity : FlutterActivity() {
                                 t.recvCount,
                                 t.lastSeq,
                                 t.ringUnderReadCount,
+                                t.ringOverwriteCount,
                             ))
                         }
                     }
