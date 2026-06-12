@@ -144,6 +144,13 @@ class BitrateAdapter {
   /// Seed the per-peer level (e.g. from the native telemetry's
   /// `currentBitrateBps` on first contact). Resets pending dwell. No-op
   /// if a state already exists — the adapter's history wins.
+  ///
+  /// **Ordering requirement.** Call [seed] *before* the first [feed] for a
+  /// peer so the initial level is authoritative. If a [LinkQuality] sample
+  /// can race ahead of the seed (e.g. fast-link telemetry arrives before the
+  /// JoinAccepted path calls [seed]), pass the known level via [feed]'s
+  /// `seedLevel` parameter instead — it is applied only when no state exists
+  /// yet, so it is safe to supply even when [seed] arrives first.
   void seed(String peerId, BitrateLevel level) {
     _state.putIfAbsent(peerId, () => _PeerAdapterState(level: level));
   }
@@ -158,14 +165,28 @@ class BitrateAdapter {
   /// uses this clock, not `sample.atMs`, so a guest with a skewed or
   /// hostile clock can't manipulate the 4 s / 30 s thresholds.
   ///
+  /// [seedLevel] is the level to use when auto-creating state for an
+  /// unseen peer. It is applied only when no state exists yet (same
+  /// semantics as [seed] — the adapter's history always wins). When
+  /// omitted, auto-creation falls back to [BitrateLevel.mid], which
+  /// matches the native encoder's boot default. Pass a level inferred
+  /// from native telemetry's `currentBitrateBps` (via
+  /// [BitrateLevel.nearest]) when the caller knows the encoder started
+  /// at a non-mid level and a [LinkQuality] sample may arrive before
+  /// [seed] is called.
+  ///
   /// Returns the new [BitrateLevel] when this sample triggered a step,
   /// `null` otherwise. The caller should treat null as "leave the
   /// encoder where it is" — a no-op on the wire.
-  BitrateLevel? feed(LinkQuality sample, {required int nowMs}) {
+  BitrateLevel? feed(
+    LinkQuality sample, {
+    required int nowMs,
+    BitrateLevel? seedLevel,
+  }) {
     final peerId = sample.peerId;
     final state = _state.putIfAbsent(
       peerId,
-      () => _PeerAdapterState(level: BitrateLevel.mid),
+      () => _PeerAdapterState(level: seedLevel ?? BitrateLevel.mid),
     );
 
     final wantsDownLow = sample.lossPct > dropToLowLossPct;

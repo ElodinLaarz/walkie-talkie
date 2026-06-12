@@ -330,6 +330,105 @@ void main() {
     );
   });
 
+  group('BitrateAdapter feed-before-seed race (issue #193)', () {
+    test(
+      'feed without seedLevel auto-seeds at mid (default boot level)',
+      () {
+        // When no seedLevel is provided and no prior seed() call exists,
+        // feed() creates state at mid — correct for the common case where the
+        // native encoder boots at kDefaultBitrate (32 kbps / mid).
+        final a = BitrateAdapter();
+        a.feed(_lq(peerId: 'g1', atMs: 0, lossPct: 0.0), nowMs: 0);
+        expect(a.levelFor('g1'), BitrateLevel.mid);
+      },
+    );
+
+    test(
+      'feed with seedLevel: high creates state at high, not mid',
+      () {
+        // When the caller knows the encoder started at high (e.g. the
+        // native audio manager persisted a prior-session level), passing
+        // seedLevel avoids pinning the adapter at mid on fast links.
+        final a = BitrateAdapter();
+        a.feed(
+          _lq(peerId: 'g1', atMs: 0, lossPct: 0.0),
+          nowMs: 0,
+          seedLevel: BitrateLevel.high,
+        );
+        expect(a.levelFor('g1'), BitrateLevel.high);
+      },
+    );
+
+    test(
+      'feed with seedLevel: low creates state at low',
+      () {
+        final a = BitrateAdapter();
+        a.feed(
+          _lq(peerId: 'g1', atMs: 0, lossPct: 0.0),
+          nowMs: 0,
+          seedLevel: BitrateLevel.low,
+        );
+        expect(a.levelFor('g1'), BitrateLevel.low);
+      },
+    );
+
+    test(
+      'seed() after feed() is a no-op — first-feed state wins',
+      () {
+        // The adapter's history always wins. Once feed() created state
+        // (even via auto-seed), a later seed() call is ignored.
+        final a = BitrateAdapter();
+        a.feed(
+          _lq(peerId: 'g1', atMs: 0, lossPct: 0.0),
+          nowMs: 0,
+          seedLevel: BitrateLevel.high,
+        );
+        a.seed('g1', BitrateLevel.low); // too late — state already exists
+        expect(a.levelFor('g1'), BitrateLevel.high);
+      },
+    );
+
+    test(
+      'seed() before feed() wins over seedLevel in feed()',
+      () {
+        // If seed() arrives first (the happy path), its level is authoritative.
+        // The seedLevel in feed() is ignored because state already exists.
+        final a = BitrateAdapter();
+        a.seed('g1', BitrateLevel.low);
+        a.feed(
+          _lq(peerId: 'g1', atMs: 0, lossPct: 0.0),
+          nowMs: 0,
+          seedLevel: BitrateLevel.high, // ignored — seed() already ran
+        );
+        expect(a.levelFor('g1'), BitrateLevel.low);
+      },
+    );
+
+    test(
+      'seedLevel does not affect subsequent feeds (state machine runs normally)',
+      () {
+        // After the initial state is seeded via seedLevel, the adapter
+        // behaves identically to a manually seeded adapter — dwell,
+        // downsteps, and upsteps all work the same way.
+        final a = BitrateAdapter();
+        // Peer starts at high via seedLevel.
+        a.feed(
+          _lq(peerId: 'g1', atMs: 0, lossPct: 25.0),
+          nowMs: 0,
+          seedLevel: BitrateLevel.high,
+        );
+        expect(a.levelFor('g1'), BitrateLevel.high);
+        // >12 % sustained for 4 s should step down to low from high.
+        final out = a.feed(
+          _lq(peerId: 'g1', atMs: 4000, lossPct: 25.0),
+          nowMs: 4000,
+        );
+        expect(out, BitrateLevel.low);
+        expect(a.levelFor('g1'), BitrateLevel.low);
+      },
+    );
+  });
+
   group('BitrateAdapter per-peer isolation', () {
     test('two peers with independent state machines', () {
       final a = BitrateAdapter();
