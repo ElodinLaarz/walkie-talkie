@@ -305,18 +305,26 @@ PeerAudioManager::LinkTelemetry PeerAudioManager::getTelemetry(
     // JitterBuffer counters are non-atomic; lock to read them coherently.
     {
         std::lock_guard<std::mutex> stateLock(state->mutex);
-        t.underrunCount =
-            static_cast<uint32_t>(state->jitterBuffer->underrunCount());
-        t.lateFrameCount =
-            static_cast<uint32_t>(state->jitterBuffer->lateFrameCount());
-        t.lostFrameCount =
-            static_cast<uint32_t>(state->jitterBuffer->lostFrameCount());
+        // The jitter-buffer counters are cumulative size_t accessors (64-bit on
+        // the target ABI). Clamp to UINT32_MAX before narrowing into the
+        // uint32_t telemetry fields so a long-lived session can't silently wrap
+        // a counter — mirroring the ringUnderReadCount clamp below.
+        t.underrunCount = static_cast<uint32_t>(
+            std::min<uint64_t>(state->jitterBuffer->underrunCount(), UINT32_MAX));
+        t.lateFrameCount = static_cast<uint32_t>(
+            std::min<uint64_t>(state->jitterBuffer->lateFrameCount(), UINT32_MAX));
+        t.lostFrameCount = static_cast<uint32_t>(
+            std::min<uint64_t>(state->jitterBuffer->lostFrameCount(), UINT32_MAX));
+        // Depths are bounded by the jitter buffer's small capacity; no clamp.
         t.jitterTargetDepth =
             static_cast<uint32_t>(state->jitterBuffer->targetDepth());
         t.jitterCurrentDepth =
             static_cast<uint32_t>(state->jitterBuffer->currentDepth());
-        t.currentLagMs =
-            static_cast<uint32_t>(std::max<int64_t>(0, state->lastLagMs));
+        // lastLagMs is int64_t: clamp both ends ([0, UINT32_MAX]) before
+        // narrowing. The bare std::max-only form lower-bounded but let a
+        // lag > UINT32_MAX wrap, unlike its ringUnderReadCount sibling.
+        t.currentLagMs = static_cast<uint32_t>(
+            std::clamp<int64_t>(state->lastLagMs, 0, UINT32_MAX));
         t.staleDropCount = state->staleDropCount;
         t.recvCount = state->recvCount;
         t.lastSeq = state->lastAcceptedSeq;
