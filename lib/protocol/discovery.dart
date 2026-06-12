@@ -73,7 +73,6 @@ class DiscoveredSession {
     final role = data[1];
     if (role != 0x01) return null; // v1 only defines a host role; future roles
     // will get their own value.
-    const isHost = true;
 
     final sessionUuidLow8 = hexEncode(data.sublist(2, 10));
 
@@ -81,7 +80,7 @@ class DiscoveredSession {
 
     return DiscoveredSession(
       protocolVersion: version,
-      isHost: isHost,
+      isHost: true, // role == 0x01 verified above.
       sessionUuidLow8: sessionUuidLow8,
       flags: flags,
       hostName: hostName,
