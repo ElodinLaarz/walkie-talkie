@@ -9,6 +9,13 @@ const Object _noChange = Object();
 /// Distinct from the UI's `Person` (in `lib/data/frequency_models.dart`),
 /// which carries presentation-only fields like `hue` and short `initials`.
 class ProtocolPeer {
+  /// Upper bound on the free-form `displayName`/`btDevice` wire strings. They
+  /// arrive nested inside a `roster` (N peers), are stored in UI state, and
+  /// re-serialized verbatim into every outgoing `RosterUpdate`, so bounding
+  /// their length stops a hostile peer pushing arbitrarily large strings into
+  /// that path — the per-string analogue of the `source` length cap.
+  static const int kMaxDisplayNameLen = 256;
+
   final String peerId;
   final String displayName;
   final String? btDevice;
@@ -38,8 +45,8 @@ class ProtocolPeer {
   /// `FormatException`-only catch and crash it on one malformed roster entry.
   factory ProtocolPeer.fromJson(Map<String, dynamic> json) => ProtocolPeer(
     peerId: reqString(json, 'peerId'),
-    displayName: reqString(json, 'displayName'),
-    btDevice: optString(json, 'btDevice'),
+    displayName: reqBoundedString(json, 'displayName', maxLen: kMaxDisplayNameLen),
+    btDevice: optBoundedString(json, 'btDevice', maxLen: kMaxDisplayNameLen),
     muted: optBool(json, 'muted', orElse: false),
     talking: optBool(json, 'talking', orElse: false),
   );

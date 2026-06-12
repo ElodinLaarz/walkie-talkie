@@ -62,6 +62,38 @@ void main() {
     });
   });
 
+  // ── optBoundedString ─────────────────────────────────────────────────────
+
+  group('optBoundedString', () {
+    test('returns null when the key is absent', () {
+      expect(optBoundedString({}, 'k', maxLen: 8), isNull);
+    });
+
+    test('returns null when the value is null', () {
+      expect(optBoundedString({'k': null}, 'k', maxLen: 8), isNull);
+    });
+
+    test('returns the value at or under the cap', () {
+      expect(optBoundedString({'k': 'hi'}, 'k', maxLen: 8), 'hi');
+      final s = 'a' * 8;
+      expect(optBoundedString({'k': s}, 'k', maxLen: 8), s);
+    });
+
+    test('throws when the value exceeds the cap', () {
+      expect(
+        () => optBoundedString({'k': 'a' * 9}, 'k', maxLen: 8),
+        throwsFormatException,
+      );
+    });
+
+    test('throws on mistyped (non-string) value', () {
+      expect(
+        () => optBoundedString({'k': 1}, 'k', maxLen: 8),
+        throwsFormatException,
+      );
+    });
+  });
+
   // ── reqInt ────────────────────────────────────────────────────────────────
 
   group('reqInt', () {

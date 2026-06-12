@@ -117,6 +117,25 @@ String? optString(Map<String, dynamic> j, String key) {
   return raw;
 }
 
+/// Optional String field bounded to [maxLen] characters (inclusive).
+///
+/// Like [optString], but also rejects an over-long value as a
+/// [FormatException] — the optional analogue of [reqBoundedString], for
+/// free-form wire strings that are absent-or-bounded.
+String? optBoundedString(
+  Map<String, dynamic> j,
+  String key, {
+  required int maxLen,
+}) {
+  final raw = optString(j, key);
+  if (raw != null && raw.length > maxLen) {
+    throw FormatException(
+      '`$key` exceeds max length $maxLen, got ${raw.length}',
+    );
+  }
+  return raw;
+}
+
 /// Optional bool field: [orElse] when absent, but [FormatException] when
 /// present and mistyped (rather than the `TypeError` of `j[key] as bool?`).
 bool optBool(Map<String, dynamic> j, String key, {required bool orElse}) {

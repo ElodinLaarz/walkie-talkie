@@ -261,8 +261,16 @@ final class JoinRequest extends FrequencyMessage {
     peerId: reqString(j, 'peerId'),
     seq: reqSeq(j, 'seq'),
     atMs: reqAtMs(j, 'atMs'),
-    displayName: reqString(j, 'displayName'),
-    btDevice: optString(j, 'btDevice'),
+    displayName: reqBoundedString(
+      j,
+      'displayName',
+      maxLen: ProtocolPeer.kMaxDisplayNameLen,
+    ),
+    btDevice: optBoundedString(
+      j,
+      'btDevice',
+      maxLen: ProtocolPeer.kMaxDisplayNameLen,
+    ),
   );
 }
 

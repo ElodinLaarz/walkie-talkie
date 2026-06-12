@@ -174,6 +174,23 @@ void main() {
       expect(() => FrequencyMessage.decode(wire), throwsFormatException);
     });
 
+    test('decode rejects an over-long displayName as FormatException', () {
+      // Free-form human string with a natural upper bound; an oversized value
+      // would otherwise land in UI state and re-serialize into every
+      // RosterUpdate (issue #190).
+      final big = 'a' * (ProtocolPeer.kMaxDisplayNameLen + 1);
+      final wire =
+          '{"kind":"join_request","peerId":"p","seq":1,"atMs":0,"v":1,"displayName":"$big"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
+    test('decode rejects an over-long btDevice as FormatException', () {
+      final big = 'b' * (ProtocolPeer.kMaxDisplayNameLen + 1);
+      final wire =
+          '{"kind":"join_request","peerId":"p","seq":1,"atMs":0,"v":1,"displayName":"X","btDevice":"$big"}';
+      expect(() => FrequencyMessage.decode(wire), throwsFormatException);
+    });
+
     test('decode rejects non-string recipientPeerId as FormatException', () {
       final wire =
           '{"kind":"join_accepted","peerId":"h","seq":1,"atMs":0,"v":1,"hostPeerId":"h","roster":[],"recipientPeerId":42}';
@@ -701,6 +718,33 @@ void main() {
       expect(round.muted, isFalse);
       expect(round.talking, isFalse);
       expect(round.btDevice, isNull);
+    });
+
+    test('rejects an over-long displayName/btDevice as FormatException', () {
+      final big = 'a' * (ProtocolPeer.kMaxDisplayNameLen + 1);
+      expect(
+        () => ProtocolPeer.fromJson({'peerId': 'p', 'displayName': big}),
+        throwsFormatException,
+      );
+      expect(
+        () => ProtocolPeer.fromJson({
+          'peerId': 'p',
+          'displayName': 'Maya',
+          'btDevice': big,
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts displayName/btDevice exactly at the length cap', () {
+      final atCap = 'a' * ProtocolPeer.kMaxDisplayNameLen;
+      final peer = ProtocolPeer.fromJson({
+        'peerId': 'p',
+        'displayName': atCap,
+        'btDevice': atCap,
+      });
+      expect(peer.displayName.length, ProtocolPeer.kMaxDisplayNameLen);
+      expect(peer.btDevice?.length, ProtocolPeer.kMaxDisplayNameLen);
     });
 
     test('hashCode + toString cover terminal members', () {
