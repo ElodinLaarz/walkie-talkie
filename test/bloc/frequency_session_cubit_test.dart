@@ -9,6 +9,7 @@ import 'package:walkie_talkie/protocol/framing.dart';
 import 'package:walkie_talkie/protocol/messages.dart';
 import 'package:walkie_talkie/protocol/peer.dart';
 import 'package:walkie_talkie/services/audio_service.dart';
+import 'package:walkie_talkie/services/bitrate_adapter.dart';
 import 'package:walkie_talkie/services/ble_control_transport.dart';
 import 'package:walkie_talkie/services/heartbeat_scheduler.dart';
 import 'package:walkie_talkie/services/identity_store.dart';
@@ -268,6 +269,7 @@ FrequencySessionCubit _makeCubit({
   BleControlTransport? transport,
   SignalReporter? signalReporter,
   WeakSignalDetector? weakSignalDetector,
+  BitrateAdapter? bitrateAdapter,
   String Function()? mintSessionUuid,
   Duration joinAcceptedTimeout =
       FrequencySessionCubit.defaultJoinAcceptedTimeout,
@@ -282,6 +284,7 @@ FrequencySessionCubit _makeCubit({
   transport: transport,
   signalReporter: signalReporter,
   weakSignalDetector: weakSignalDetector,
+  bitrateAdapter: bitrateAdapter,
   mintSessionUuid: mintSessionUuid ?? (() => _testHostSessionUuid),
   joinAcceptedTimeout: joinAcceptedTimeout,
 );
@@ -3662,6 +3665,66 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(audio.unregistered, ['AA:BB']);
+
+      await cubit.close();
+      await t.inbox.close();
+      t.transport.dispose();
+    });
+
+    test('host: heartbeat-timeout drop clears bitrate adapter state (issue #225)',
+        () async {
+      final t = makeTestTransport();
+      final adapter = BitrateAdapter();
+      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+      final scheduler = HeartbeatScheduler(
+        pingInterval: const Duration(hours: 1),
+        missThreshold: const Duration(seconds: 15),
+        clock: () => fakeNow,
+      );
+      final cubit = _makeCubit(
+        heartbeats: scheduler,
+        transport: t.transport,
+        bitrateAdapter: adapter,
+      );
+      await cubit.bootstrap();
+      cubit.emit(const SessionDiscovery(myName: 'Devon'));
+      await cubit.joinRoom(freq: '104.3', isHost: true);
+      cubit.applyJoinAccepted(
+        JoinAccepted(
+          peerId: 'p-host',
+          seq: 1,
+          atMs: 0,
+          hostPeerId: 'p-host',
+          roster: const [
+            ProtocolPeer(peerId: 'p-host', displayName: 'Devon'),
+            ProtocolPeer(peerId: 'p-guest', displayName: 'Guest'),
+          ],
+        ),
+      );
+
+      // Seed p-guest at a downgraded level so there is state to clear.
+      adapter.seed('p-guest', BitrateLevel.low);
+      expect(adapter.levelFor('p-guest'), BitrateLevel.low);
+
+      // Deliver one heartbeat from p-guest so the heartbeat plane records
+      // it as last-seen at t=0.
+      final pingJson = const Heartbeat(
+        peerId: 'p-guest',
+        seq: 1,
+        atMs: 0,
+      ).encode();
+      for (final frag in encodeFragments(pingJson)) {
+        t.inbox.add((endpointId: 'AA:BB', bytes: frag));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Advance past silence threshold → p-guest declared lost.
+      fakeNow = fakeNow.add(const Duration(seconds: 20));
+      scheduler.debugTick();
+      await Future<void>.delayed(Duration.zero);
+
+      // Bitrate adapter state must be cleared.
+      expect(adapter.levelFor('p-guest'), isNull);
 
       await cubit.close();
       await t.inbox.close();

@@ -1111,6 +1111,7 @@ class FrequencySessionCubit extends Cubit<FrequencySessionState> {
       _unregisterVoicePeer(peerId);
       _transport?.forgetPeer(peerId);
       _weakSignalDetector.forgetPeer(peerId);
+      _bitrateAdapter.forgetPeer(peerId);
       final t = _transport;
       if (t == null) return;
       // Best-effort RosterUpdate to remaining guests. We need a peerId
