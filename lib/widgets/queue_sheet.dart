@@ -60,7 +60,7 @@ class QueueSheet extends StatelessWidget {
                         Text(
                           'Shared queue',
                           style: TextStyle(
-                            fontFamily: 'Inter',
+                            fontFamily: kSansFont,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: c.ink,
@@ -69,7 +69,7 @@ class QueueSheet extends StatelessWidget {
                         Text(
                           'From ${lib.name} · everyone can reorder',
                           style: TextStyle(
-                            fontFamily: 'Inter',
+                            fontFamily: kSansFont,
                             fontSize: 12,
                             color: c.ink3,
                           ),
@@ -149,7 +149,7 @@ class QueueSheet extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        fontFamily: 'Inter',
+                                        fontFamily: kSansFont,
                                         fontSize: 14,
                                         fontWeight: current
                                             ? FontWeight.w600
@@ -162,7 +162,7 @@ class QueueSheet extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        fontFamily: 'Inter',
+                                        fontFamily: kSansFont,
                                         fontSize: 12,
                                         color: c.ink3,
                                       ),

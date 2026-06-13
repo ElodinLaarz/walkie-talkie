@@ -70,7 +70,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                     Text(
                       widget.person.name,
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: c.ink,
@@ -86,7 +86,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontFamily: 'Inter',
+                              fontFamily: kSansFont,
                               fontSize: 12,
                               color: c.ink3,
                             ),
@@ -122,7 +122,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                       Text(
                         'Mute from your side',
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: c.ink,
@@ -131,7 +131,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                       Text(
                         'Only you stop hearing them',
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 12,
                           color: c.ink3,
                         ),
@@ -167,7 +167,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                       child: Text(
                         'Their voice volume',
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: c.ink,
@@ -219,7 +219,7 @@ class _PeerDrawerState extends State<PeerDrawer> {
                   Text(
                     'As host, only you can remove people.',
                     style: TextStyle(
-                      fontFamily: 'Inter',
+                      fontFamily: kSansFont,
                       fontSize: 11,
                       color: c.ink3,
                     ),

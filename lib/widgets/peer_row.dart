@@ -65,7 +65,7 @@ class PeerRow extends StatelessWidget {
                       Text(
                         person.name,
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: c.ink,
@@ -80,7 +80,7 @@ class PeerRow extends StatelessWidget {
                               person.btDevice,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontFamily: 'Inter',
+                                fontFamily: kSansFont,
                                 fontSize: 12,
                                 color: c.ink3,
                               ),
@@ -100,7 +100,7 @@ class PeerRow extends StatelessWidget {
                       Text(
                         'talking',
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 11,
                           color: c.accent,
                         ),
@@ -111,7 +111,7 @@ class PeerRow extends StatelessWidget {
                   Text(
                     'muted',
                     style: TextStyle(
-                      fontFamily: 'Inter',
+                      fontFamily: kSansFont,
                       fontSize: 11,
                       color: c.ink3,
                     ),

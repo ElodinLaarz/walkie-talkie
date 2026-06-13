@@ -63,7 +63,7 @@ class OutputSheet extends StatelessWidget {
                     Text(
                       'Play sound on',
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: c.ink,
@@ -72,7 +72,7 @@ class OutputSheet extends StatelessWidget {
                     Text(
                       'Where voice and media come out',
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 12,
                         color: c.ink3,
                       ),
@@ -110,7 +110,7 @@ class OutputSheet extends StatelessWidget {
             child: Text(
               "Pair new headphones in your phone's Bluetooth settings.",
               style: TextStyle(
-                fontFamily: 'Inter',
+                fontFamily: kSansFont,
                 fontSize: 11,
                 color: c.ink3,
               ),
@@ -185,7 +185,7 @@ class _OutputRow extends StatelessWidget {
                         Text(
                           output.label,
                           style: TextStyle(
-                            fontFamily: 'Inter',
+                            fontFamily: kSansFont,
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: c.ink,
@@ -194,7 +194,7 @@ class _OutputRow extends StatelessWidget {
                         Text(
                           output.subFor(btName),
                           style: TextStyle(
-                            fontFamily: 'Inter',
+                            fontFamily: kSansFont,
                             fontSize: 12,
                             color: c.ink3,
                           ),

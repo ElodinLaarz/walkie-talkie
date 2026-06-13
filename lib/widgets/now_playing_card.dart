@@ -81,7 +81,7 @@ class NowPlayingCard extends StatelessWidget {
                     : Text(
                         'LISTENING TOGETHER · ${_sourceLabel(source).toUpperCase()}',
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 1.0,
@@ -97,7 +97,7 @@ class NowPlayingCard extends StatelessWidget {
                   Text(
                     liveActive ? 'Live' : 'Paused',
                     style: TextStyle(
-                      fontFamily: 'Inter',
+                      fontFamily: kSansFont,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 1.0,
@@ -120,7 +120,7 @@ class NowPlayingCard extends StatelessWidget {
                     Text(
                       track.tag,
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 11,
                         color: c.ink3,
                       ),
@@ -131,7 +131,7 @@ class NowPlayingCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         letterSpacing: -0.16,
@@ -143,7 +143,7 @@ class NowPlayingCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 13,
                         color: c.ink2,
                       ),
@@ -222,7 +222,7 @@ class NowPlayingCard extends StatelessWidget {
                   child: RichText(
                     text: TextSpan(
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 11,
                         color: c.ink3,
                       ),
@@ -242,7 +242,7 @@ class NowPlayingCard extends StatelessWidget {
                 Text(
                   lastActionWhen,
                   style: TextStyle(
-                    fontFamily: 'Inter',
+                    fontFamily: kSansFont,
                     fontSize: 11,
                     color: c.ink3,
                   ),
@@ -304,7 +304,7 @@ class _SourceChip extends StatelessWidget {
                     Text(
                       label.toUpperCase(),
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
                         letterSpacing: 1.0,

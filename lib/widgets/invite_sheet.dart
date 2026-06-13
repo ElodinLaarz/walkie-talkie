@@ -47,7 +47,7 @@ class _InviteSheetState extends State<InviteSheet> {
           Text(
             'INVITE NEARBY',
             style: TextStyle(
-              fontFamily: 'Inter',
+              fontFamily: kSansFont,
               fontSize: 11,
               fontWeight: FontWeight.w500,
               letterSpacing: 1.1,
@@ -68,7 +68,7 @@ class _InviteSheetState extends State<InviteSheet> {
           const SizedBox(height: 4),
           Text(
             'MHz · your Frequency',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: c.ink3),
+            style: TextStyle(fontFamily: kSansFont, fontSize: 12, color: c.ink3),
           ),
           const SizedBox(height: 20),
           Container(
@@ -137,7 +137,7 @@ class _InviteSheetState extends State<InviteSheet> {
           const SizedBox(height: 12),
           Text(
             'Anyone within ~30 metres (100 feet) can tune in.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: c.ink3),
+            style: TextStyle(fontFamily: kSansFont, fontSize: 11, color: c.ink3),
           ),
         ],
       ),

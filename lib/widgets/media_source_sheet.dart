@@ -123,7 +123,7 @@ class MediaSourceSheet extends StatelessWidget {
                     Text(
                       'Choose source',
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: c.ink,
@@ -132,7 +132,7 @@ class MediaSourceSheet extends StatelessWidget {
                     Text(
                       'Change the shared media source for this room',
                       style: TextStyle(
-                        fontFamily: 'Inter',
+                        fontFamily: kSansFont,
                         fontSize: 12,
                         color: c.ink3,
                       ),
@@ -226,7 +226,7 @@ class _SourceRow extends StatelessWidget {
                       Text(
                         source.label,
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: c.ink,
@@ -235,7 +235,7 @@ class _SourceRow extends StatelessWidget {
                       Text(
                         source.subtitle,
                         style: TextStyle(
-                          fontFamily: 'Inter',
+                          fontFamily: kSansFont,
                           fontSize: 12,
                           color: c.ink3,
                         ),

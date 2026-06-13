@@ -53,7 +53,7 @@ class PushToTalkButton extends StatelessWidget {
               Text(
                 holding ? 'On air' : 'Hold to talk',
                 style: TextStyle(
-                  fontFamily: 'Inter',
+                  fontFamily: kSansFont,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: holding ? c.accentInk : c.ink,
