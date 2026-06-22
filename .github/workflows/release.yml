@@ -320,7 +320,7 @@ jobs:
         # asset. fail_on_unmatched_files guards against a silent upload no-op if
         # the artifact path ever drifts. On a tag push the action infers the
         # release tag from github.ref and is idempotent across re-runs.
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: apk/walkie-talkie-*.apk
           fail_on_unmatched_files: true
