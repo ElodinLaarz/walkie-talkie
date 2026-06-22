@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # opus is a git submodule at android/app/src/main/cpp/opus (see
           # .gitmodules). Without this the Gradle CMake step in
