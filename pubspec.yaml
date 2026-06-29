@@ -60,7 +60,7 @@ dependencies:
   flutter_blue_plus: ^2.3.7
   
   # UI/UX
-  package_info_plus: ^10.1.0
+  package_info_plus: ^10.2.0
   url_launcher: ^6.3.1
 
   # Crash Reporting (opt-in, privacy-first)
