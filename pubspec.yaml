@@ -70,7 +70,7 @@ dependencies:
   # :app:compileDebugKotlin — so we pinned to 9.19.x (see #441). Fixed
   # upstream as of 9.21.0 (verified :app:compileDebugKotlin builds clean),
   # so the pin is lifted and we now track ^9.21.x.
-  sentry_flutter: ^9.21.0
+  sentry_flutter: ^9.28.0
 
 dev_dependencies:
   flutter_test:
