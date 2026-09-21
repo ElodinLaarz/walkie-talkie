@@ -40,7 +40,7 @@ dependencies:
   
   # State Management
   flutter_bloc: ^9.1.1
-  equatable: ^2.0.8
+  equatable: ^3.0.0
   
   # Local Storage (sqflite for identity + recents; sqflite is Flutter-team
   # adjacent and right-sized for our small key-value scope. Hive v2 is
