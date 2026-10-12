@@ -61,7 +61,7 @@ dependencies:
   
   # UI/UX
   package_info_plus: ^10.1.0
-  url_launcher: ^6.3.1
+  url_launcher: ^6.3.3
 
   # Crash Reporting (opt-in, privacy-first)
   # History: 9.20.0 added Android SessionReplay code paths that referenced
