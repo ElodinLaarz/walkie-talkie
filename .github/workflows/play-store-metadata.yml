@@ -24,7 +24,7 @@ jobs:
       - name: Validate metadata character limits
         run: bash scripts/validate_store_metadata.sh
 
-      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.306.0
+      - uses: ruby/setup-ruby@26e5b7d197ebf60545ee9667bcbace0be11ccaec # v1.306.0
         with:
           ruby-version: '3.3'
           bundler-cache: true
