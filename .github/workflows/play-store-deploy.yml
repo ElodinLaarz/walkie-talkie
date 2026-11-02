@@ -82,7 +82,7 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.head_sha }}
 
-      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.306.0
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.306.0
         with:
           ruby-version: '3.3'
           bundler-cache: true
